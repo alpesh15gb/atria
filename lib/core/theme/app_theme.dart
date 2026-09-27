@@ -120,14 +120,13 @@ class AppTheme {
                 statusBarColor: Colors.transparent,
               ),
       ),
-      // Cards
+      // Cards — 2026: no hairline borders, elevation does the separation.
       cardTheme: CardThemeData(
         elevation: 0,
         color: scheme.surface,
         surfaceTintColor: Colors.transparent,
         shape: const RoundedRectangleBorder(
           borderRadius: AppRadius.lgAll,
-          side: BorderSide(color: AppColors.outline, width: 0.8),
         ),
         margin: EdgeInsets.zero,
       ),
@@ -287,10 +286,14 @@ class AppTheme {
         elevation: 0,
       ),
       floatingActionButtonTheme: FloatingActionButtonThemeData(
-        elevation: 2,
-        highlightElevation: 4,
+        // Gradient handled per-instance via AtriaGradientFab; this keeps the
+        // default shape and elevation consistent.
+        elevation: 4,
+        highlightElevation: 6,
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
         shape: const RoundedRectangleBorder(
-          borderRadius: AppRadius.lgAll,
+          borderRadius: AppRadius.mdAll,
         ),
       ),
       progressIndicatorTheme: ProgressIndicatorThemeData(
@@ -352,21 +355,22 @@ class AppTheme {
   static InputDecorationTheme _inputDecoration(
       ColorScheme scheme, bool isLight) {
     final fill = isLight
-        ? const Color(0xFFFAF9F6)
+        ? AppColors.surfaceVariant
         : AppColors.darkSurfaceVariant;
     return InputDecorationTheme(
       filled: true,
       fillColor: fill,
       hintStyle: AppTypography.textTheme.bodyMedium
           ?.copyWith(color: scheme.onSurfaceVariant),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      // 2026: borderless filled fields — the surface tint is the field.
       enabledBorder: OutlineInputBorder(
         borderRadius: AppRadius.mdAll,
-        borderSide: BorderSide(color: scheme.outline, width: 1.2),
+        borderSide: BorderSide.none,
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: AppRadius.mdAll,
-        borderSide: BorderSide(color: scheme.primary, width: 1.8),
+        borderSide: BorderSide(color: scheme.primary, width: 1.6),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: AppRadius.mdAll,
@@ -374,11 +378,11 @@ class AppTheme {
       ),
       focusedErrorBorder: OutlineInputBorder(
         borderRadius: AppRadius.mdAll,
-        borderSide: BorderSide(color: scheme.error, width: 1.8),
+        borderSide: BorderSide(color: scheme.error, width: 1.6),
       ),
       disabledBorder: OutlineInputBorder(
         borderRadius: AppRadius.mdAll,
-        borderSide: BorderSide(color: scheme.outline, width: 1),
+        borderSide: BorderSide.none,
       ),
       floatingLabelStyle: AppTypography.textTheme.bodyMedium?.copyWith(
         color: scheme.onSurfaceVariant,
@@ -405,8 +409,8 @@ class AppTheme {
     onWarningSurface: Color(0xFF78350F),
     positive: AppColors.success,
     negative: AppColors.error,
-    brandGradientStart: AppColors.primary,
-    brandGradientEnd: AppColors.primaryDeep,
+    brandGradientStart: Color(0xFF7C3AED),
+    brandGradientEnd: Color(0xFF4C1D95),
     saffronGradientStart: Color(0xFFFB923C),
     saffronGradientEnd: AppColors.saffron,
   );
@@ -426,8 +430,8 @@ class AppTheme {
     onWarningSurface: Color(0xFFFDE68A),
     positive: Color(0xFF34D399),
     negative: Color(0xFFF87171),
-    brandGradientStart: Color(0xFF60A5FA),
-    brandGradientEnd: Color(0xFF1E3A8A),
+    brandGradientStart: Color(0xFFA78BFA),
+    brandGradientEnd: Color(0xFF5B21B6),
     saffronGradientStart: Color(0xFFFB923C),
     saffronGradientEnd: Color(0xFFEA580C),
   );

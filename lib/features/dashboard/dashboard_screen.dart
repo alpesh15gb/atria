@@ -6,14 +6,13 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../core/database/app_database.dart';
 import '../../core/database/repositories/report_repository.dart';
-import '../../core/engine/document_numbering.dart';
 import '../../core/responsive/breakpoints.dart';
 import '../../core/state/providers.dart';
+import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
-import '../../shared/widgets/atria_logo.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/money_text.dart';
 import '../../shared/widgets/status_chip.dart';
@@ -68,6 +67,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
 
     final now = DateTime.now();
     final from = DateTime(now.year, now.month, 1);
+    final hour = now.hour;
+    final greeting = hour < 12
+        ? 'Good Morning'
+        : hour < 17
+            ? 'Good Afternoon'
+            : 'Good Evening';
 
     return Scaffold(
       body: RefreshIndicator(
@@ -84,30 +89,30 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
           SliverAppBar(
             pinned: true,
             stretch: true,
-            toolbarHeight: 64,
+            toolbarHeight: 72,
             titleSpacing: 0,
-            leading: Padding(
-              padding: const EdgeInsets.only(left: 16),
-              child: AtriaLogo(size: 36),
-            ),
+            // 2026 greeting header: "Good Morning, <Business>" like the
+            // reference home, with the FY as the quiet second line.
             title: Padding(
-              padding: const EdgeInsets.only(left: 10),
+              padding: const EdgeInsets.only(left: 4),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    firm?.name ?? 'Atria',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          height: 1.1,
+                    greeting,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color:
+                              Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
                         ),
                   ),
                   Text(
-                    'FY ${FinancialYear.forDate(now).shortLabel}',
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
+                    firm?.name ?? 'Atria',
+                    style: Theme.of(context).textTheme.headlineMedium
+                        ?.copyWith(fontWeight: FontWeight.w800),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
@@ -117,18 +122,26 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                 onPressed: () => _showFirmSwitcher(context),
                 icon: const Icon(Icons.business_center_outlined, size: 20),
                 tooltip: 'Switch business',
+                style: IconButton.styleFrom(
+                  backgroundColor:
+                      Theme.of(context).colorScheme.surfaceContainerHighest,
+                ),
               ),
-              const SizedBox(width: 12),
-              IconButton.outlined(
+              const SizedBox(width: 10),
+              IconButton.filledTonal(
                 onPressed: () => context.push('/settings'),
                 icon: const Icon(PhosphorIconsRegular.gear, size: 20),
                 tooltip: 'Settings',
+                style: IconButton.styleFrom(
+                  backgroundColor:
+                      Theme.of(context).colorScheme.surfaceContainerHighest,
+                ),
               ),
               const SizedBox(width: 16),
             ],
           ),
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
                 if (reports == null)
@@ -280,7 +293,6 @@ class _HeroCard extends ConsumerWidget {
         ),
       ),
       data: (summary) {
-        final colors = atriaColors(context);
         final isDark = Theme.of(context).brightness == Brightness.dark;
 
         return Container(
@@ -290,17 +302,17 @@ class _HeroCard extends ConsumerWidget {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
+              stops: const [0, 0.55, 1],
               colors: isDark
                   ? [
-                      colors.brandGradientStart.withValues(alpha: 0.9),
-                      colors.brandGradientEnd,
+                      const Color(0xFF7C3AED),
+                      const Color(0xFF5B21B6),
+                      const Color(0xFF2E1065),
                     ]
-                  : [
-                      colors.brandGradientStart,
-                      colors.brandGradientEnd,
-                    ],
+                  : AppColors.heroGradient,
             ),
-            boxShadow: isDark ? null : AppShadows.cardHigh,
+            boxShadow:
+                isDark ? null : AppShadows.cardHigh,
           ),
           padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
           child: Column(
@@ -308,34 +320,49 @@ class _HeroCard extends ConsumerWidget {
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Total Sales • ${Formatters.monthYear(DateTime.now())}',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.85),
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.2,
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.16),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      '${summary.invoiceCount} invoices',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Total Sales',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.75),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.3,
+                        ),
                       ),
+                      const SizedBox(height: 2),
+                      Text(
+                        Formatters.monthYear(DateTime.now()),
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.92),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  // The reference card's signature tile: a soft white chip
+                  // with the brand mark, top-right.
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                    ),
+                    child: const Icon(
+                      PhosphorIconsFill.stack,
+                      color: Colors.white,
+                      size: 20,
                     ),
                   ),
                 ],
               ),
+              const SizedBox(height: 6),
               const SizedBox(height: 8),
               Text(
                 Formatters.money(summary.totalSales),
@@ -343,11 +370,20 @@ class _HeroCard extends ConsumerWidget {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: 34,
+                  fontSize: 38,
                   fontWeight: FontWeight.w800,
                   height: 1.05,
-                  letterSpacing: -0.8,
+                  letterSpacing: -1,
                   fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '${summary.invoiceCount} invoice${summary.invoiceCount == 1 ? '' : 's'} this month',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.72),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 18),
@@ -455,30 +491,30 @@ class _QuickActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final colors = atriaColors(context);
     final actions = <_QuickAction>[
       _QuickAction(
         label: 'New Invoice',
         icon: PhosphorIconsRegular.receipt,
-        color: scheme.primary,
+        color: colors.brandGradientStart,
         onTap: () => context.push('/sales/new?type=invoice'),
       ),
       _QuickAction(
         label: 'Add Item',
         icon: PhosphorIconsRegular.cube,
-        color: scheme.tertiary,
+        color: colors.warning,
         onTap: () => context.push('/items/new'),
       ),
       _QuickAction(
         label: 'Add Party',
         icon: PhosphorIconsRegular.userPlus,
-        color: scheme.secondary,
+        color: colors.positive,
         onTap: () => context.push('/parties/new'),
       ),
       _QuickAction(
         label: 'Reports',
         icon: PhosphorIconsRegular.chartBar,
-        // scheme.error read as a destructive action (red tile).
-        color: scheme.primaryContainer,
+        color: scheme.secondary,
         onTap: () => context.push('/reports'),
       ),
     ];
@@ -486,7 +522,7 @@ class _QuickActions extends StatelessWidget {
       children: [
         for (final a in actions) ...[
           Expanded(child: _QuickActionButton(action: a)),
-          if (a != actions.last) const SizedBox(width: 10),
+          if (a != actions.last) const SizedBox(width: 12),
         ],
       ],
     );
@@ -515,6 +551,7 @@ class _QuickActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // Reference-style quick actions: borderless card, soft tinted icon tile.
     return Material(
       color: scheme.surface,
       borderRadius: BorderRadius.circular(AppRadius.lg),
@@ -525,20 +562,20 @@ class _QuickActionButton extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppRadius.lg),
-            border: Border.all(color: scheme.outline, width: 0.9),
+            boxShadow: AppShadows.card,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 36,
-                height: 36,
+                width: 42,
+                height: 42,
                 decoration: BoxDecoration(
-                  color: action.color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(12),
+                  color: action.color.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
                 ),
                 alignment: Alignment.center,
-                child: Icon(action.icon, size: 19, color: action.color),
+                child: Icon(action.icon, size: 21, color: action.color),
               ),
               const SizedBox(height: 8),
               Text(
@@ -653,21 +690,20 @@ class _KpiCard extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppRadius.lg),
-            border: Border.all(
-                color: Theme.of(context).colorScheme.outline, width: 0.9),
+            boxShadow: AppShadows.card,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 32,
-                height: 32,
+                width: 34,
+                height: 34,
                 decoration: BoxDecoration(
-                  color: tint.withValues(alpha: 0.13),
-                  borderRadius: BorderRadius.circular(10),
+                  color: tint.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(AppRadius.xs),
                 ),
                 alignment: Alignment.center,
-                child: Icon(icon, size: 17, color: tint),
+                child: Icon(icon, size: 18, color: tint),
               ),
               const Spacer(),
               Text(
@@ -979,8 +1015,7 @@ class _InvoiceTile extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(AppRadius.lg),
-              border: Border.all(
-                  color: Theme.of(context).colorScheme.outline, width: 0.9),
+              boxShadow: AppShadows.card,
             ),
             child: Row(
               children: [
@@ -1159,7 +1194,7 @@ class _AlertCard extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppRadius.lg),
-            border: Border.all(color: tint.withValues(alpha: 0.28), width: 0.9),
+            boxShadow: AppShadows.card,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

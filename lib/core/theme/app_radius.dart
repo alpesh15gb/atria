@@ -1,15 +1,15 @@
 import 'package:flutter/widgets.dart';
 
-/// Corner radius tokens. Generous, consistent rounding is the single
-/// biggest contributor to a "designed" feel.
+/// Corner radius tokens — 2026 refresh pushes rounding further (soft,
+/// friendly, reference-grade cards).
 class AppRadius {
   AppRadius._();
 
-  static const double xs = 8;
-  static const double sm = 12;
-  static const double md = 16;
-  static const double lg = 20;
-  static const double xl = 28;
+  static const double xs = 10;
+  static const double sm = 14;
+  static const double md = 18;
+  static const double lg = 24;
+  static const double xl = 32;
   static const double pill = 999;
 
   static const BorderRadius xsAll = BorderRadius.all(Radius.circular(xs));

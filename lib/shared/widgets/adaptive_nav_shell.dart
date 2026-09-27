@@ -84,6 +84,8 @@ class _BottomShell extends StatelessWidget {
       // everything pushed on top of them.
       body: navigationShell,
       bottomNavigationBar: NavigationBar(
+        backgroundColor: scheme.surface,
+        surfaceTintColor: Colors.transparent,
         selectedIndex: bottomBarIndex,
         onDestinationSelected: (value) {
           if (value == NavDestinations.primary.length) {
@@ -202,11 +204,9 @@ class _RailShell extends StatelessWidget {
             _ExtendedRail(navigationShell: navigationShell)
           else
             _CompactRail(navigationShell: navigationShell),
-          VerticalDivider(
-            width: 1,
-            thickness: 1,
-            color: scheme.outline,
-          ),
+          // 2026: the rail is a floating surface — rounded right edge, no
+          // hard divider line.
+          Container(width: 1, color: scheme.outline.withValues(alpha: 0.4)),
           Expanded(child: navigationShell),
         ],
       ),

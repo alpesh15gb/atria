@@ -50,9 +50,9 @@ class _FallbackTile extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            Color(0xFF60A5FA),
-            Color(0xFF1D4ED8),
-            Color(0xFF1E3A8A),
+            Color(0xFFA78BFA),
+            Color(0xFF7C3AED),
+            Color(0xFF4C1D95),
           ],
         ),
       ),

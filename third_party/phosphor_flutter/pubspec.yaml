@@ -1,0 +1,46 @@
+name: phosphor_flutter
+description: "Vendored copy of phosphor_flutter 2.1.0, patched for Flutter 3.47+ (IconData is final)."
+publish_to: 'none'
+version: 2.1.1
+maintainer: Rurick Maqueo Poisot @rurickdev
+homepage: https://phosphoricons.com/
+repository: https://github.com/phosphor-icons/phosphor-flutter
+
+environment:
+  sdk: ">=2.12.0 <4.0.0"
+  flutter: ">=1.17.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  fonts:
+    - family: PhosphorBold
+      fonts:
+        - asset: lib/fonts/Phosphor-Bold.ttf
+          weight: 400
+    - family: PhosphorDuotone
+      fonts:
+        - asset: lib/fonts/Phosphor-Duotone.ttf
+          weight: 400
+    - family: PhosphorFill
+      fonts:
+        - asset: lib/fonts/Phosphor-Fill.ttf
+          weight: 400
+    - family: PhosphorLight
+      fonts:
+        - asset: lib/fonts/Phosphor-Light.ttf
+          weight: 400
+    - family: PhosphorThin
+      fonts:
+        - asset: lib/fonts/Phosphor-Thin.ttf
+          weight: 400
+    - family: PhosphorRegular
+      fonts:
+        - asset: lib/fonts/Phosphor.ttf
+          weight: 400

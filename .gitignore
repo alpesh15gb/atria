@@ -1,0 +1,70 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# VS Code
+.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+/build/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio build/test outputs and IDE files
+android/app/.cxx/
+android/app/build/
+android/build/
+android/.gradle/
+local.properties
+key.properties
+**/*.keystore
+**/*.jks
+
+# Windows build outputs
+windows/flutter/ephemeral/
+windows/build/
+
+# NOTE: drift-generated *.g.dart files are deliberately COMMITTED — the CI
+# workflow regenerates them and fails if they were stale when pushed.
+*.freezed.dart
+
+# Session scratch / tool output files
+*_out*.txt
+analyze*.txt
+test_*.txt
+build_out*.txt
+status.md
+HANDOFF.MD
+LEFTOFF.MD
+PRE_COMPACT*.md
+FRESH_SESSION_RECOVERY.md
+SAFE_SHELL_GUIDE.md
+SETUP_PROMPT.md

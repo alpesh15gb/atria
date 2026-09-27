@@ -1,0 +1,91 @@
+name: atria
+description: "Atria - Offline-first Indian accounting & GST billing"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # State management & DI
+  flutter_riverpod: ^2.6.1
+
+  # Routing
+  go_router: ^14.6.2
+
+  # Offline-first database (local source of truth)
+  drift: ^2.21.0
+  sqlite3: ^2.4.0
+  sqlite3_flutter_libs: ^0.5.27
+  path_provider: ^2.1.5
+  path: ^1.9.0
+  shared_preferences: ^2.3.3
+
+  # Exact money math for accounting
+  decimal: ^3.0.2
+  rational: ^2.2.3
+
+  # India locale, currency, dates
+  intl: ^0.20.1
+
+  # Charts
+  fl_chart: ^0.69.2
+
+  # PDF invoices
+  pdf: ^3.11.2
+
+  # UPI QR codes on invoice PDFs (pure Dart, no native deps)
+  qr: ^3.0.2
+  printing: ^5.13.4
+
+  # Utilities
+  uuid: ^4.5.1
+  collection: ^1.18.0
+  package_info_plus: ^8.1.2
+  url_launcher: ^6.3.1
+  share_plus: ^10.1.3
+  file_picker: ^8.1.6
+  open_filex: ^4.5.0
+  phosphor_flutter: ^2.1.0
+  flutter_svg: ^2.0.16
+
+  # Optional cloud sync (inert until configured in Settings)
+  supabase_flutter: ^2.8.0
+  crypto: ^3.0.7
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+  # Codegen for Drift. These must be real dev dependencies — listing them
+  # only under dependency_overrides left the build plan with zero builders
+  # and "wrote 0 outputs".
+  build_runner: ^2.4.14
+  drift_dev: ^2.21.0
+
+# phosphor_flutter 2.1.0 subclasses IconData, which became a final class in
+# Flutter 3.47 — a hard compile error on every target. Upstream never patched
+# it, so we vendor a patched copy that constructs plain IconData instead.
+dependency_overrides:
+  phosphor_flutter:
+    path: third_party/phosphor_flutter
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/logo/
+
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter[opsz,wght].ttf
+        - asset: assets/fonts/Inter-Italic[opsz,wght].ttf
+          style: italic

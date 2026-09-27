@@ -1,0 +1,7 @@
+# The light-mode goldens are capture-only: each one opens drift streams whose
+# teardown takes minutes, and their value is the PNG a human eyeballs, not a
+# pass/fail in CI. Exclude them from the default `flutter test` run; regenerate
+# on demand with:
+#
+#   flutter test --tags golden --update-goldens test/golden_light_mode_test.dart
+exclude_tags: golden

@@ -8,12 +8,28 @@ class NavDestination {
   final IconData selectedIcon;
   final String routePath;
 
+  /// Sub-entries shown in the rail's expandable dropdown, e.g. the document
+  /// types under Sales. Each is a deep link (`/sales?type=quotation`) — the
+  /// tabs moved off the screens themselves so list area isn't wasted.
+  final List<NavChild> children;
+
   const NavDestination({
     required this.label,
     required this.icon,
     required this.selectedIcon,
     required this.routePath,
+    this.children = const [],
   });
+
+  bool get hasChildren => children.isNotEmpty;
+}
+
+/// One entry in a destination's expandable dropdown.
+class NavChild {
+  final String label;
+  final String route;
+
+  const NavChild({required this.label, required this.route});
 }
 
 /// The primary destinations. The same list drives the mobile bottom bar and
@@ -33,6 +49,13 @@ class NavDestinations {
       icon: PhosphorIconsRegular.receipt,
       selectedIcon: PhosphorIconsFill.receipt,
       routePath: '/sales',
+      children: [
+        NavChild(label: 'Invoices', route: '/sales?type=invoice'),
+        NavChild(label: 'Quotations', route: '/sales?type=quotation'),
+        NavChild(label: 'Sales Orders', route: '/sales?type=sales_order'),
+        NavChild(label: 'Delivery Notes', route: '/sales?type=delivery_note'),
+        NavChild(label: 'Credit Notes', route: '/sales?type=credit_note'),
+      ],
     ),
     NavDestination(
       label: 'Items',
@@ -61,6 +84,10 @@ class NavDestinations {
       icon: PhosphorIconsRegular.shoppingCart,
       selectedIcon: PhosphorIconsFill.shoppingCart,
       routePath: '/purchase',
+      children: [
+        NavChild(label: 'Bills', route: '/purchase?type=bill'),
+        NavChild(label: 'Debit Notes', route: '/purchase?type=debit_note'),
+      ],
     ),
     NavDestination(
       label: 'Statements',

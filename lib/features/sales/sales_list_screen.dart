@@ -19,28 +19,29 @@ import '../../shared/widgets/status_chip.dart';
 import '../../shared/widgets/transaction_list.dart';
 
 class SalesListScreen extends ConsumerStatefulWidget {
-  const SalesListScreen({super.key});
+  const SalesListScreen({super.key, this.initialType});
+
+  /// `?type=` from the rail's Sales dropdown (quotation, sales_order,
+  /// delivery_note, credit_note). Null/unknown = invoices.
+  final String? initialType;
 
   @override
   ConsumerState<SalesListScreen> createState() => _SalesListScreenState();
 }
 
-class _SalesListScreenState extends ConsumerState<SalesListScreen>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabController;
+class _SalesListScreenState extends ConsumerState<SalesListScreen> {
   final _searchController = TextEditingController();
   String _search = '';
   Period _period = Period.thisMonth;
   Timer? _searchDebounce;
 
-  // The FAB reads this instead of _tabController.index: after swiping tabs
-  // the FAB only rebuilds when something calls setState, so it kept the old
-  // doc type's label and created the wrong document on tap.
-  int _activeTabIndex = 0;
+  /// The document type this list shows — one screen per type now that the
+  /// five tabs moved into the left rail's Sales dropdown.
+  late String _docType = _supported.contains(widget.initialType)
+      ? widget.initialType!
+      : 'invoice';
 
-  String get _activeDocType => _docTypes[_activeTabIndex];
-
-  static const _docTypes = [
+  static const _supported = [
     'invoice',
     'quotation',
     'sales_order',
@@ -48,25 +49,16 @@ class _SalesListScreenState extends ConsumerState<SalesListScreen>
     'credit_note',
   ];
 
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: _docTypes.length, vsync: this);
-    _tabController.addListener(_onTabChanged);
-  }
-
-  void _onTabChanged() {
-    if (_tabController.index == _activeTabIndex &&
-        !_tabController.indexIsChanging) {
-      return;
-    }
-    setState(() => _activeTabIndex = _tabController.index);
-  }
+  String get _typeLabel => switch (_docType) {
+        'quotation' => 'Quotations',
+        'sales_order' => 'Sales Orders',
+        'delivery_note' => 'Delivery Notes',
+        'credit_note' => 'Credit Notes',
+        _ => 'Invoices',
+      };
 
   @override
   void dispose() {
-    _tabController.removeListener(_onTabChanged);
-    _tabController.dispose();
     _searchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
@@ -78,26 +70,39 @@ class _SalesListScreenState extends ConsumerState<SalesListScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Sales'),
-        bottom: TabBar(
-          controller: _tabController,
-          isScrollable: true,
-          tabAlignment: TabAlignment.start,
-          tabs: const [
-            Tab(text: 'Invoices'),
-            Tab(text: 'Quotations'),
-            Tab(text: 'Sales Orders'),
-            Tab(text: 'Delivery Notes'),
-            Tab(text: 'Credit Notes'),
-          ],
-        ),
+        title: Text('Sales · $_typeLabel'),
+        actions: [
+          // The type switcher lives here now — swappable without touching
+          // the rail, so mobile keeps one-tap access too.
+          PopupMenuButton<String>(
+            tooltip: 'Switch document type',
+            onSelected: (value) => setState(() => _docType = value),
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'invoice', child: Text('Invoices')),
+              PopupMenuItem(value: 'quotation', child: Text('Quotations')),
+              PopupMenuItem(value: 'sales_order', child: Text('Sales Orders')),
+              PopupMenuItem(
+                  value: 'delivery_note', child: Text('Delivery Notes')),
+              PopupMenuItem(value: 'credit_note', child: Text('Credit Notes')),
+            ],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_typeLabel,
+                      style: Theme.of(context).textTheme.bodyMedium),
+                  const Icon(Icons.arrow_drop_down_rounded),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push('/sales/new?type=$_activeDocType'),
+        onPressed: () => context.push('/sales/new?type=$_docType'),
         icon: const Icon(Icons.add_rounded),
-        // Label follows the active tab — on Quotations the button used to
-        // still read "New Invoice", which read as a bug.
-        label: Text(switch (_activeDocType) {
+        label: Text(switch (_docType) {
           'quotation' => 'New Quotation',
           'sales_order' => 'New Order',
           'delivery_note' => 'New Delivery Note',
@@ -139,16 +144,11 @@ class _SalesListScreenState extends ConsumerState<SalesListScreen>
                 ),
                 const SizedBox(height: 4),
                 Expanded(
-                  child: TabBarView(
-                    controller: _tabController,
-                    children: [
-                      for (var i = 0; i < _docTypes.length; i++)
-                        _SaleList(
-                          docType: _docTypes[i],
-                          search: _search,
-                          from: periodStart(_period),
-                        ),
-                    ],
+                  child: _SaleList(
+                    key: ValueKey('$_docType|${_period.name}'),
+                    docType: _docType,
+                    search: _search,
+                    from: periodStart(_period),
                   ),
                 ),
               ],
@@ -159,6 +159,7 @@ class _SalesListScreenState extends ConsumerState<SalesListScreen>
 
 class _SaleList extends ConsumerStatefulWidget {
   const _SaleList({
+    super.key,
     required this.docType,
     required this.search,
     this.from,

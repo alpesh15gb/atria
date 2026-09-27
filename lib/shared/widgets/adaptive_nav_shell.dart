@@ -331,16 +331,44 @@ class _CompactRail extends StatelessWidget {
   }
 }
 
-class _ExtendedRail extends StatelessWidget {
+class _ExtendedRail extends StatefulWidget {
   const _ExtendedRail({required this.navigationShell});
 
   final StatefulNavigationShell navigationShell;
 
   @override
+  State<_ExtendedRail> createState() => _ExtendedRailState();
+}
+
+class _ExtendedRailState extends State<_ExtendedRail> {
+  // Destinations with children expand/collapse. The group auto-expands when
+  // the shell navigates into it.
+  final Set<int> _expanded = {};
+
+  @override
+  void didUpdateWidget(covariant _ExtendedRail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final index = widget.navigationShell.currentIndex;
+    if (index >= 0 &&
+        index < NavDestinations.all.length &&
+        NavDestinations.all[index].hasChildren) {
+      _expanded.add(index);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    final currentIndex = navigationShell.currentIndex;
+    final currentIndex = widget.navigationShell.currentIndex;
+
+    // Expand the group that owns the current branch before first paint.
+    final current = currentIndex;
+    if (current >= 0 &&
+        current < NavDestinations.all.length &&
+        NavDestinations.all[current].hasChildren) {
+      _expanded.add(current);
+    }
 
     return _RailColumn(
       width: 232,
@@ -363,11 +391,29 @@ class _ExtendedRail extends StatelessWidget {
           _RailButton(
             destination: NavDestinations.all[i],
             selected: i == currentIndex,
-            onTap: () => navigationShell.goBranch(
-              i,
-              initialLocation: i == currentIndex,
-            ),
+            expanded: NavDestinations.all[i].hasChildren
+                ? _expanded.contains(i)
+                : null,
+            onTap: () {
+              final dest = NavDestinations.all[i];
+              if (dest.hasChildren) {
+                setState(() {
+                  if (!_expanded.add(i)) _expanded.remove(i);
+                });
+              }
+              widget.navigationShell.goBranch(
+                i,
+                initialLocation: i == current,
+              );
+            },
           ),
+          if (_expanded.contains(i) && NavDestinations.all[i].hasChildren)
+            for (final child in NavDestinations.all[i].children)
+              _RailChildButton(
+                label: child.label,
+                route: child.route,
+                onTap: () => context.push(child.route),
+              ),
         ],
       ],
     );
@@ -379,11 +425,15 @@ class _RailButton extends StatelessWidget {
     required this.destination,
     required this.selected,
     required this.onTap,
+    this.expanded,
   });
 
   final NavDestination destination;
   final bool selected;
   final VoidCallback onTap;
+
+  /// Null = no children (no chevron); true/false = expand/collapse state.
+  final bool? expanded;
 
   @override
   Widget build(BuildContext context) {
@@ -418,6 +468,90 @@ class _RailButton extends StatelessWidget {
                           selected ? FontWeight.w700 : FontWeight.w500,
                       color:
                           selected ? scheme.primary : scheme.onSurface,
+                    ),
+                  ),
+                ),
+                if (expanded != null)
+                  AnimatedRotation(
+                    turns: expanded! ? 0.25 : 0,
+                    duration: const Duration(milliseconds: 160),
+                    child: Icon(
+                      Icons.keyboard_arrow_right_rounded,
+                      size: 18,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Indented sub-entry inside an expandable group (Quotations, Debit Notes…).
+class _RailChildButton extends StatelessWidget {
+  const _RailChildButton({
+    required this.label,
+    required this.route,
+    required this.onTap,
+  });
+
+  final String label;
+  final String route;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    // Highlight when the current location matches this child's deep link
+    // (e.g. /sales?type=quotation) — the branch index alone can't tell.
+    final location = GoRouterState.of(context).uri.toString();
+    final path = route.split('?').first;
+    bool active;
+    if (!location.startsWith(path)) {
+      active = false;
+    } else if (route.contains('?')) {
+      final parts = route.split('?')[1].split('=');
+      active = parts.length == 2 &&
+          GoRouterState.of(context).uri.queryParameters[parts[0]] == parts[1];
+    } else {
+      active = location == path;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 26, right: 12, bottom: 1),
+      child: Material(
+        color: active ? scheme.secondaryContainer : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            child: Row(
+              children: [
+                Container(
+                  width: 5,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: active
+                        ? scheme.primary
+                        : scheme.onSurfaceVariant.withValues(alpha: 0.5),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight:
+                          active ? FontWeight.w700 : FontWeight.w500,
+                      color: active ? scheme.primary : scheme.onSurface,
                     ),
                   ),
                 ),

@@ -144,7 +144,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           StatefulShellBranch(routes: [
             GoRoute(
               path: '/sales',
-              builder: (context, state) => const SalesListScreen(),
+              builder: (context, state) => SalesListScreen(
+                // ?type= lands directly on a document type — the left rail's
+                // Sales dropdown deep-links here.
+                initialType: state.uri.queryParameters['type'],
+              ),
               routes: [
                 GoRoute(
                   path: 'new',
@@ -232,7 +236,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           StatefulShellBranch(routes: [
             GoRoute(
               path: '/purchase',
-              builder: (context, state) => const PurchaseListScreen(),
+              builder: (context, state) => PurchaseListScreen(
+                initialType: state.uri.queryParameters['type'],
+              ),
               routes: [
                 GoRoute(
                   path: 'new',

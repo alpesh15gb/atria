@@ -17,15 +17,18 @@ import '../../shared/widgets/status_chip.dart';
 import '../../shared/widgets/transaction_list.dart';
 
 class PurchaseListScreen extends ConsumerStatefulWidget {
-  const PurchaseListScreen({super.key});
+  const PurchaseListScreen({super.key, this.initialType});
+
+  /// `?type=` from the rail's Purchase dropdown ('debit_note').
+  /// Null/anything else = bills.
+  final String? initialType;
 
   @override
   ConsumerState<PurchaseListScreen> createState() =>
       _PurchaseListScreenState();
 }
 
-class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen>
-    with SingleTickerProviderStateMixin {
+class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
 
@@ -33,31 +36,24 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen>
   String _search = '';
   Timer? _debounce;
 
-  static const _docTypes = ['bill', 'debit_note'];
-
-  late final TabController _tabController =
-      TabController(length: _docTypes.length, vsync: this);
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController.addListener(() {
-      // The stream is cached per docType; re-key it when the tab changes.
-      if (!_tabController.indexIsChanging) setState(() {});
-    });
-  }
+  /// The document type this list shows — the two tabs moved into the left
+  /// rail's Purchase dropdown.
+  late String _docType = widget.initialType == 'debit_note'
+      ? 'debit_note'
+      : 'bill';
 
   @override
   void dispose() {
     _debounce?.cancel();
     _searchController.dispose();
     _searchFocus.dispose();
-    _tabController.dispose();
     super.dispose();
   }
 
-  String get _activeDocType => _docTypes[_tabController.index];
-  bool get _isDebitTab => _activeDocType == 'debit_note';
+  String get _activeDocType => _docType;
+  bool get _isDebitTab => _docType == 'debit_note';
+
+  String get _typeLabel => _isDebitTab ? 'Debit Notes' : 'Bills';
 
   void _onSearchChanged(String value) {
     _debounce?.cancel();
@@ -72,16 +68,28 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen>
     final repo = ref.watch(purchaseRepositoryProvider);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Purchase'),
-        bottom: TabBar(
-          controller: _tabController,
-          isScrollable: true,
-          tabAlignment: TabAlignment.start,
-          tabs: const [
-            Tab(text: 'Bills'),
-            Tab(text: 'Debit Notes'),
-          ],
-        ),
+        title: Text('Purchase · $_typeLabel'),
+        actions: [
+          PopupMenuButton<String>(
+            tooltip: 'Switch document type',
+            onSelected: (value) => setState(() => _docType = value),
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'bill', child: Text('Bills')),
+              PopupMenuItem(value: 'debit_note', child: Text('Debit Notes')),
+            ],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_typeLabel,
+                      style: Theme.of(context).textTheme.bodyMedium),
+                  const Icon(Icons.arrow_drop_down_rounded),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
       floatingActionButton: repo == null
           ? null
@@ -128,12 +136,7 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen>
                               message: 'Set up a firm in Settings to start '
                                   'recording purchase bills.',
                             )
-                          : TabBarView(
-                              controller: _tabController,
-                              children: [
-                                for (final _ in _docTypes) _area(repo),
-                              ],
-                            ),
+                          : _area(repo),
                     ),
                   ],
                 ),

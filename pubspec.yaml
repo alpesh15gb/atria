@@ -41,6 +41,9 @@ dependencies:
 
   # UPI QR codes on invoice PDFs (pure Dart, no native deps)
   qr: ^3.0.2
+
+  # Real .xlsx exports (statement of account etc.)
+  excel: ^4.0.6
   printing: ^5.13.4
 
   # Utilities

@@ -295,6 +295,12 @@ class _PartyStatementScreenState extends ConsumerState<PartyStatementScreen> {
                   ),
                   icon: const Icon(Icons.share_rounded),
                 ),
+                IconButton(
+                  tooltip: 'Open Statement of Account (PDF / Excel downloads)',
+                  onPressed: () => context
+                      .push('/statements?party=${widget.partyId}'),
+                  icon: const Icon(Icons.picture_as_pdf_outlined),
+                ),
               ],
             ),
             const SizedBox(height: 16),

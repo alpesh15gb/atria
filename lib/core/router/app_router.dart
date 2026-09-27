@@ -14,6 +14,7 @@ import '../../features/onboarding/onboarding_screen.dart';
 import '../../features/payments/payments_screen.dart';
 import '../../features/parties/party_editor_screen.dart';
 import '../../features/parties/party_statement_screen.dart';
+import '../../features/parties/statement_of_account_screen.dart';
 import '../../features/parties/parties_screen.dart';
 import '../../features/purchase/purchase_editor_screen.dart';
 import '../../features/purchase/purchase_list_screen.dart';
@@ -248,6 +249,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                   ),
                 ),
               ],
+            ),
+          ]),
+          StatefulShellBranch(routes: [
+            GoRoute(
+              path: '/statements',
+              builder: (context, state) => StatementOfAccountScreen(
+                // ?party=<id> preselects the party (deep link from Parties).
+                partyId: state.uri.queryParameters['party'],
+              ),
             ),
           ]),
           StatefulShellBranch(routes: [

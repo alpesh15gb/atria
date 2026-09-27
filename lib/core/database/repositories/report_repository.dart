@@ -171,6 +171,24 @@ class PartyStatement {
     required this.closing,
     required this.lines,
   });
+
+  /// Period totals for the statement exports (opening row excluded — it is
+  /// a carry-forward, not activity).
+  Decimal get totalDebit {
+    var total = Decimal.zero;
+    for (final line in lines) {
+      if (line.particulars != 'Opening Balance') total += line.debit;
+    }
+    return total;
+  }
+
+  Decimal get totalCredit {
+    var total = Decimal.zero;
+    for (final line in lines) {
+      if (line.particulars != 'Opening Balance') total += line.credit;
+    }
+    return total;
+  }
 }
 
 /// One row of the day book.

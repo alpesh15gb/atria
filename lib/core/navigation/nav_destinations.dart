@@ -63,6 +63,12 @@ class NavDestinations {
       routePath: '/purchase',
     ),
     NavDestination(
+      label: 'Statements',
+      icon: PhosphorIconsRegular.bookOpen,
+      selectedIcon: PhosphorIconsFill.bookOpen,
+      routePath: '/statements',
+    ),
+    NavDestination(
       label: 'Payments',
       icon: PhosphorIconsRegular.arrowsLeftRight,
       selectedIcon: PhosphorIconsFill.arrowsLeftRight,

@@ -416,3 +416,31 @@ Before any `flutter test`, stop lingering processes or `sqlite3.dll` locks the b
 ## Working tree
 
 Not a git repository (`git status` fails). No version control is tracking these changes.
+
+---
+
+# AUDIT PASS COMPLETE — 2026-09-27
+
+All three audits (`audit/01-core-logic-audit.md`, `02-ui-ux-audit.md`, `03-gap-analysis.md`) are CLOSED with resolution notes appended at the end of each file.
+
+## Final state
+- Tests: **94/94** (`flutter test --exclude-tags golden --concurrency=1`, EXIT=0; 87 baseline + 7 new regression tests).
+- Analyzer: `dart analyze lib test` → No issues found.
+- Builds: `build\windows\x64\runner\Release\atria.exe` rebuilt successfully after all fixes.
+- Git: **initialized** (first commit `c7b4305`), `.gitignore` + `.github/workflows/ci.yml` added; root litter deleted.
+- Pubspec: `qr: ^3.0.2` added (UPI QR).
+
+## Key fixes by area
+- Core (01): backup/rewrite, P&L, credit-note stock, payment recompute, schema v4 (sequenceFy + unique doc indexes), GSTR-1/3B, guarded nextNumber.
+- **Deadlock fix:** nextNumber's optimistic guard compared post-reset values → infinite loop on every fresh firm (this was the "tests time out" mystery). Guard now uses stored values; regression test with 10s timeout in vyapar_features_test.dart.
+- UI (02): swipe-delete onDismissed, purchase ?type=, save guards everywhere, dashboard error+retry, tab listener + debounced cached streams, GST dropdown in sale editor, qty validator, UnsavedGuard/SaveShortcut on expense+firm settings, period-lock try/catch+confirm, supabase obscure+autosave, stock adjust error text, M/L cluster all done.
+- Gaps (03): UPI QR on invoice PDF, logo picker + PDF logo, credit-limit advisory banner, DN→invoice, interest text neutralized, /more documented, git+CI.
+
+## Deferred (recorded in 03 resolution notes)
+Release signing, e-invoice/e-way, cloud backup, i18n, app lock, recurring invoices, TDS/TCS, POS, godowns/batch, launcher-icon branding (needs flutter_launcher_icons run), dark goldens, integration tests, sync drain.
+
+## Gotchas learned
+- Background long commands: git-bash `&` still blocks; use PowerShell `Start-Process ... -RedirectStandardOutput` (returns immediately, file grows).
+- Money.parse throws FormatException — always tryParse first in UI paths.
+- drift watch `.first` inside widget-test fake-async hangs (assert via getById instead).
+- Negative stock is allowed by design; do not add throws.

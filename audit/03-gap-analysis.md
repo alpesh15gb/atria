@@ -160,3 +160,34 @@ Covered: gst_engine, document_numbering, validators, formatters/money/number_wor
 ## Related audit files
 - `audit/01-core-logic-audit.md` — data-layer & business-logic bugs (backup data loss, P&L double-count, stock/payment integrity, GSTR computation).
 - `audit/02-ui-ux-audit.md` — screen/widget-level UI and interaction bugs.
+
+---
+
+## RESOLUTION NOTES — 2026-09-27
+
+**Done this pass** (94/94 tests, analyzer clean, committed to git):
+
+| Gap | Status |
+|---|---|
+| A1 UPI QR inert | **Fixed** — `qr` package added; `lib/core/services/upi_qr.dart` builds `upi://pay` intents and paints the module matrix into the PDF; invoice PDFs show a scannable "Scan to pay via any UPI app" QR when `showQrOnInvoice` is on and UPI id is set (invoices only, not quotes). |
+| A2 logo upload | **Fixed** — Firm Profile has a logo picker (file_picker, ≤2 MB, copied into `<docs>/logos/`, preview + remove); PDF header renders it (missing/corrupt file degrades gracefully). |
+| A4 credit limit write-only | **Fixed** — sale editor loads party outstanding + credit limit and shows an advisory "Credit limit exceeded … You can still save." banner in the totals panel (Vyapar-style warn-don't-block). Credit *days* enforcement (due-date warning) still open. |
+| A9 DN→invoice | **Fixed** — delivery notes now offer "Convert to invoice" in sale detail (convert pipeline was already generic). |
+| A12 dead `/more` | **Resolved** — documented as sheet-only; More sheet highlights the active destination. |
+| Hardcoded "Interest @18% p.a." | **Removed** — neutral fallback terms; real interest computation remains a feature request (3b). |
+| Git + CI + litter | **Done** — `git init`, root litter deleted (12 files), full `.gitignore` (drift `.g.dart` files deliberately committed so CI can fail on stale generation), `.github/workflows/ci.yml` (pub get → build_runner staleness gate → analyze → tests), initial commit `c7b4305`. |
+| Tests on money paths | **Partial** — new `test/audit_fixes_test.dart` covers UPI URI + WhatsApp link building; numbering deadlock regression test added. `invoice_pdf`/`report_repository` widget/DB tests still open. |
+| Performance (gap 15) | **Partial** — `ItemRepository.watchAll` now capped (limit 1000). Sync-queue drain and isolate-based report aggregation still open. |
+
+**Explicitly deferred** (large features / release engineering, each needs its own pass):
+1. Release signing + versioning channel (gap 1 remainder — debug keystore TODO in `build.gradle.kts:36-39`).
+2. E-invoice/IRN + e-way bill (2) — requires NIC/IRP integration.
+3. Cloud/Drive backup + auto-backup (4) — depends on sync scaffolding decision.
+4. E-mail/SMS delivery (5), Tally/Vyapar/Excel import (6) — format + UX design needed.
+5. Hindi/regional i18n (8) — `.arb` + `l10n.yaml` scaffolding.
+6. App lock/biometric (9) — `local_auth` integration.
+7. Recurring invoices + scheduled reminders (10), TDS/TCS computation (11), POS/thermal (12).
+8. Multi-godown / batch-expiry / unit conversion (13) — schema work.
+9. Branded launcher icons — assets exist (`assets/logo/atria_logo.svg`) but rasterizing SVG → mipmaps needs a tool run (`flutter_launcher_icons`); current icons are stock.
+10. Dark-mode goldens, 360dp/1600px goldens, integration_test/, accessibility Semantics/Tooltip sweep (audit L-series partial: tooltips added where touched).
+11. Remaining watchAll limits (parties), sync_queue payload + drain (A7/A8).

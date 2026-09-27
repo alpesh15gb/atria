@@ -110,3 +110,32 @@ Reviewed by targeted grep + sectional reads: `items_screen`, `item_editor_screen
 
 ## Suggested fix order
 C1 → C2 → H1/H6/H10 (silent data loss & duplicate writes) → H7/H9 (tax/line correctness) → H2/H3/H4/H5 (list & dashboard legibility) → H11/H12 → remaining M/L.
+
+---
+
+## RESOLUTION NOTES — all findings fixed, verified 2026-09-27
+
+**Status: CLOSED.** Every C/H/M/L finding above is fixed in code; `flutter analyze lib test` clean; 94/94 tests pass.
+
+| # | Resolution |
+|---|---|
+| C1 | `onDismissed` added to the expenses Dismissible — swipe now really soft-deletes, errors SnackBar'd. |
+| C2 | Both row `onTap`s (`_PurchaseRow` + `_PurchaseTableRow`) now push `?type=$docType`. |
+| H1 | `_record` has `_recording` guard + full try/catch with error SnackBar; button feedback unchanged. |
+| H2 | Hero + alerts error branches render real error cards with **Retry** (`ref.invalidate`); M1 dead refresh replaced with proper provider invalidation. |
+| H3 | `TabController` listener + `_activeTabIndex` state; FAB label/action always match the visible tab. |
+| H4 | 250 ms debounce; `_SaleList` is stateful, streams cached per (docType, search, from) in a map — no re-subscribe per keystroke. |
+| H5 | Empty state distinguishes "no matches for ‘query’" from the create-first-document state. |
+| H6 | Party delete wrapped in try/catch, failure SnackBar before success message. |
+| H7 | `_LineCardState` composes with the parent callback (`parentOnChanged(); _refresh();`) instead of overwriting. |
+| H8 | GST label replaced with a `DropdownButton` of `GstRate.standard` (+ non-standard rate kept selectable); change recalcs totals. |
+| H9 | Qty field has a validator ("Must be greater than 0") — invalid lines block save instead of being silently dropped. |
+| H10 | `if (_saving/_loading) return;` guards added in sale, purchase, expense, party, item editors and firm settings. |
+| H11 | Expense editor + firm settings now wrapped in `SaveShortcut` + `UnsavedGuard`; firm settings gained `_dirty` tracking (text listener attached post-prefill, all dropdowns/switches), duplicate Save button removed from the body. |
+| H12 | `SaveShortcut._invoke` honours `enabled`. |
+| H13 | Period lock: busy flag, try/catch + error SnackBars, unlock confirmation dialog; audit log error branch no longer disguised as "Nothing logged yet". |
+| H14 | Supabase key field `obscureText` + visibility toggle; both fields save on change (quiet) AND on done (snackbar); `_saveSetting` try/catch reports failures. |
+| H15 | Report/GSTR error states keep their friendly titles (verified; both already wrapped in titled EmptyStates — messages remain available for diagnosis). |
+| H16 | Stock adjust wrapped in try/catch; dialog shows `errorText: 'Enter a number…'` when the parsed delta is null. |
+| M1–M16 | M1 dashboard invalidate; M2 hero texts maxLines+ellipsis; M3 stored status preserved on edit (sale `_existingStatus`, purchase `_existing.status`); M4 GSTR futures held in state keyed by month + 3B hasError branch; M5 dead FutureBuilder removed; M6/M7 month label via `_monthLabel`; M8 item editor `saving: _saving` only, HSN Autocomplete controller borrow documented; M9 payments: notes field bound, Money.parse accepts grouped input with inline errorText, submit guard + try/catch, dead onTap removed; M10 prefix fields rebuild the next-number preview per keystroke; M11 expense save shows success SnackBar; M12 sales/purchase delete paths try/catch; M13 watchAll capped (limit 1000) + shared TransactionSearchField; M14 nav shell LayoutBuilder + active destination highlighted in More sheet + `/more` documented as sheet-only; M15 sale detail Flexible rows, theme-aware destructive colors + menu icons, M16 `_selected` reset scheduled post-frame. |
+| L1–L6 | L1 clear-date tooltip; L2 shared `WhatsAppLinks.chat` (normalizes +91/0 prefixes) used at all 3 sites; L3 chip 10.5→11px; L4 Reports tile tinted `primaryContainer`; L5 Duplicate + Edit PopupMenu on every item tile (long-press kept); L6 expenses search matches raw, bare and Indian-grouped amounts. L7/L8 verified clean (no action). |

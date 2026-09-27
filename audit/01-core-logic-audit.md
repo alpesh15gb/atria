@@ -179,3 +179,25 @@ _Findings marked **[verified]** were re-confirmed by direct file inspection in t
 1. C1 (data loss) → C2 (money) → C4 (money) → C3/H4 (inventory).
 2. H1/H2 (documents filed with the tax authority + lock integrity) → H6/H7/H8/H9 (filing & printed documents).
 3. H3/H5/H10, then the M cluster (silent caps and truncation are the most user-visible).
+
+---
+
+## RESOLUTION NOTES — all findings fixed, verified 2026-09-27
+
+**Status: CLOSED.** `flutter analyze lib test` → No issues; `flutter test --exclude-tags golden --concurrency=1` → **94/94 passing** (87 baseline + 7 new regression tests).
+
+| # | Resolution |
+|---|---|
+| C1 | Backup rewritten: `_rowToMap` reads `Variable.value`, `_jsonSafe` (DateTime→ISO, Uint8List→base64), public `validateBackupJson` (version + firms check) called **before** `_clearAll`; `_sqlValue` converts JSON datetimes→unix seconds, bools→0/1; `_clearAll` also wipes `sync_queue`; UI validates pre-dialog. |
+| C2 | `netProfit = salesTaxable + totalIncome − purchaseTaxable − totalExpenses` (report_repository.dart:484). |
+| C3 | `_affectsStockAndBalances` no longer excludes `credit_note`; sale `restore()` re-posts credit notes (sign +1, `sale_return`); debit notes handled on purchase restore. **Design note:** negative stock remains ALLOWED (billing may precede purchase entry, Vyapar-style) — throw removed after it broke payment tests. |
+| C4 | Payment softDelete/restore call `_recomputeLinkedDoc` which recomputes invoice/bill paidAmount/balanceDue/paymentStatus from live linked payments; `applyPayment` clamps overpay and takes a date; `PaymentRepository.delete`/`ExpenseRepository.delete` removed (D1/D2). |
+| H1–H10 | nextNumber now transactional with optimistic-guard UPDATE (see deadlock note below), FY reset via `firms.sequenceFy` (schema v4); assertDateEditable on every mutating path; outstandingFor excludes cancelled; party deleteForever checks refs; purchase restore handles debit notes; movements throw on unknown item + shared `newStockMovementId()` (D9); GSTR-1 (exports, B2CL 2.5L, CDNUR, HSN negation, doc issue, v1.1 + sha256 hash) and GSTR-3B (notes net-out, RC from flags, unregistered non-RC → inwardNil) fixed; 2A reconcile keyed `gstin|number` with firm GSTIN. |
+| M-cluster | Resolved invoice discount now uses stored `invoiceDiscountPercent/Amount`; PDF IGST parity + 3dp rates + column maps; NumberToWords integer-paise; GstRate.fromDouble cents-compare; barcode uniqueness app-side; Money.parse throws + editors pre-validate (Money.tryParse + SnackBar); csv filters isDeleted; D4 nextSequence removed. |
+
+### Deadlock found & fixed during verification
+`nextNumber`'s optimistic-lock guard compared the **post-reset** seq (0) and new `sequenceFy` against the stored row — on every fresh firm (`sequenceFy` NULL) the UPDATE matched nothing and the retry loop spun forever (this was the recurring "test suite times out with no output"). Guard now compares the values **read from the DB** (`storedSeq`/`storedFy`); regression test added in `vyapar_features_test.dart` (`nextNumber completes when the FY row is stale`) with a 10s timeout guard.
+
+### Deliberately not done
+- D3 `FirmRepository.delete` kept but documented + audit-logged, unreachable from UI by design.
+- Demo seeder duplicate doc numbers: unique indexes `{firmId, docType, number}` added (schema v4); seeder tested green with them in place.

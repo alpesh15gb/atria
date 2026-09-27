@@ -235,6 +235,34 @@ void main() {
       final inv1 = await firmRepo.nextNumber(firm, DocSequence.invoice);
       expect(inv1, 'INV/$fy/001');
     });
+
+    test('nextNumber completes when the FY row is stale (regression: deadlock)',
+        () async {
+      // A fresh firm has sequenceFy NULL while the numbering format embeds
+      // the current FY. The guarded UPDATE used to compare against the
+      // RESET (post-FY-change) values instead of the stored ones, matched
+      // nothing and spun forever — every first nextNumber call hung.
+      final firmRepo = db.firmRepository;
+      final firm = (await firmRepo.all()).single;
+      expect(firm.sequenceFy, isNull);
+
+      // Must complete (test timeout would fail it) and reset to the new FY.
+      final inv1 = await firmRepo
+          .nextNumber(firm, DocSequence.invoice)
+          .timeout(const Duration(seconds: 10));
+      final fy = FinancialYear.forDate(DateTime.now()).shortLabel;
+      expect(inv1, 'INV/$fy/001');
+
+      final updated = (await firmRepo.all()).single;
+      expect(updated.sequenceFy, isNotNull);
+      expect(updated.invoiceSequence, 1);
+
+      // And the second mint continues the series through the same path.
+      final inv2 = await firmRepo
+          .nextNumber(updated, DocSequence.invoice)
+          .timeout(const Duration(seconds: 10));
+      expect(inv2, 'INV/$fy/002');
+    });
   });
 
   group('CSV export', () {

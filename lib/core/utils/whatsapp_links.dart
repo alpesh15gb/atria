@@ -5,9 +5,21 @@
 class WhatsAppLinks {
   WhatsAppLinks._();
 
-  /// chat.whatsapp.com style link for [tenDigitPhone] (digits only, no +91).
-  static Uri chat(String tenDigitPhone, {String? message}) {
-    final digits = tenDigitPhone.replaceAll(RegExp(r'\D'), '');
+  /// Normalizes any entered form (10 digits, +91-prefixed, 0-prefixed
+  /// landline style) to the bare 10-digit domestic number.
+  static String normalize(String input) {
+    var digits = input.replaceAll(RegExp(r'\D'), '');
+    if (digits.length == 12 && digits.startsWith('91')) {
+      digits = digits.substring(2);
+    } else if (digits.length == 11 && digits.startsWith('0')) {
+      digits = digits.substring(1);
+    }
+    return digits;
+  }
+
+  /// chat.whatsapp.com style link for [phone] in any common Indian format.
+  static Uri chat(String phone, {String? message}) {
+    final digits = normalize(phone);
     final text = (message == null || message.isEmpty)
         ? ''
         : '?text=${Uri.encodeComponent(message)}';

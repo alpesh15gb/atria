@@ -377,6 +377,14 @@ class PullApplier {
   }
 
   Variable<Object> _variableFor(Object? value) {
+    // A null must bind as SQL NULL. This once fell through to
+    // Variable<String>('null'), which SQLite accepted silently and stored as
+    // the four characters "null" in every nullable column of every pulled
+    // row - harmless in a text column, and a crash at typed-read time in an
+    // int column (drift parses it with int.parse). The round-trip test
+    // exists because hand-built payloads that simply omit nullable columns
+    // never catch this class of bug.
+    if (value == null) return Variable<Object>(null);
     if (value is bool) return Variable<bool>(value);
     if (value is int) return Variable<int>(value);
     if (value is double) return Variable<double>(value);

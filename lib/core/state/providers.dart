@@ -3,11 +3,19 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../api/api_config.dart';
+import '../api/auth_client.dart';
+import '../api/server_client.dart';
+import '../api/server_session.dart';
+import '../api/sync_client.dart';
+import '../sync/sync_engine.dart';
+import 'auth_controller.dart';
 import '../database/app_database.dart';
 import '../database/repositories/audit_repository.dart';
 import '../database/repositories/firm_repository.dart';
 import '../database/repositories/repository_extensions.dart';
 import '../database/repositories/settings_repository.dart';
+import '../printer/printer_service.dart';
 
 // ---- Core singletons ----
 
@@ -19,6 +27,88 @@ final Provider<AppDatabase> appDatabaseProvider = Provider((ref) {
 
 final Provider<SettingsRepository> settingsRepositoryProvider =
     Provider((ref) => SettingsRepository(ref.read(appDatabaseProvider)));
+
+/// Where the app talks to the Atria server, and this install's identity.
+final Provider<ApiConfig> apiConfigProvider =
+    Provider((ref) => ApiConfig(ref.read(settingsRepositoryProvider)));
+
+/// This install's Atria session. Not signed in is the normal state today —
+/// sign-in is not built yet — so callers must handle a null [SignedIn] rather
+/// than assume one. See [ServerSession].
+final Provider<ServerSession> serverSessionProvider =
+    Provider((ref) => ServerSession(ref.read(settingsRepositoryProvider)));
+
+/// The API client for everything that is not sign-in.
+final Provider<ServerClient> serverClientProvider =
+    Provider((ref) => ServerClient(ref.read(apiConfigProvider)));
+
+/// Sign-up, sign-in, refresh and sign-out.
+final Provider<AuthClient> authClientProvider =
+    Provider((ref) => AuthClient(ref.read(apiConfigProvider)));
+
+/// This device's session, kept alive across launches. Everything that needs a
+/// token reads it through this rather than through the settings rows, so token
+/// renewal happens in one place instead of at every call site.
+final authControllerProvider =
+    StateNotifierProvider<AuthController, AuthState>((ref) {
+  return AuthController(
+    ref.read(serverSessionProvider),
+    ref.read(authClientProvider),
+  );
+});
+
+/// The change-journal endpoint (sync push).
+final Provider<SyncClient> syncClientProvider =
+    Provider((ref) => SyncClient(ref.read(apiConfigProvider)));
+
+/// Drains the outbox. Holds no state of its own — a run is a call, and what it
+/// did is reported back to whoever asked.
+final Provider<SyncEngine> syncEngineProvider = Provider((ref) {
+  return SyncEngine(
+    ref.read(appDatabaseProvider),
+    ref.read(settingsRepositoryProvider),
+    ref.read(authControllerProvider.notifier),
+    ref.read(syncClientProvider),
+  );
+});
+
+/// How many changes are waiting, and when the outbox last drained.
+///
+/// A FutureProvider rather than a stream. The outbox is written on every save,
+/// so a `watch()` here would rebuild the settings screen on every document a
+/// shop creates, for a number that only changes what the screen says after a
+/// sync — which invalidates this provider deliberately instead.
+final syncStatusProvider = FutureProvider<SyncStatus>((ref) async {
+  final engine = ref.read(syncEngineProvider);
+  final settings = ref.read(settingsRepositoryProvider);
+  // Both stamps are kept: a push can succeed while the pull failed (the
+  // directions are independent), and "last synced" should only claim a full
+  // round trip when both directions completed.
+  final rawPushed = await settings.get(SettingsRepository.kSyncLastPushedAt);
+  final rawSynced = await settings.get(SettingsRepository.kSyncLastSyncedAt);
+  return SyncStatus(
+    pending: await engine.pendingCount(),
+    lastPushedAt:
+        rawPushed == null ? null : DateTime.tryParse(rawPushed)?.toLocal(),
+    lastSyncedAt:
+        rawSynced == null ? null : DateTime.tryParse(rawSynced)?.toLocal(),
+  );
+});
+
+/// What the settings screen shows about sync.
+class SyncStatus {
+  const SyncStatus({required this.pending, this.lastPushedAt, this.lastSyncedAt});
+
+  /// Changes waiting to be sent.
+  final int pending;
+
+  /// When the outbox last drained fully, or null if there has never been one.
+  final DateTime? lastPushedAt;
+
+  /// When the last full sync (push + pull) finished, or null if there has
+  /// never been one. Shown in preference to [lastPushedAt].
+  final DateTime? lastSyncedAt;
+}
 
 final backupRepositoryProvider = Provider(
     (ref) => BackupRepository(ref.read(appDatabaseProvider)));
@@ -88,6 +178,17 @@ class ActiveFirmController extends StateNotifier<String?> {
     if (firmId != null) {
       await _settings.set(SettingsRepository.kActiveFirmId, firmId);
     }
+  }
+
+  /// Drops the active firm outright, including the stored one.
+  ///
+  /// Needed for the case [select] deliberately cannot express: the business
+  /// that was open has just been deleted. `select(null)` only clears the
+  /// in-memory state, so the deleted firm's id would survive in settings and
+  /// the next launch would come up pointing at books that no longer exist.
+  Future<void> clear() async {
+    state = null;
+    await _settings.remove(SettingsRepository.kActiveFirmId);
   }
 }
 
@@ -165,6 +266,39 @@ final reportRepositoryProvider = Provider((ref) {
   return db.reportRepositoryFor(firmId);
 });
 
+/// Chart of accounts, journal vouchers and the ledger reports.
+final ledgerRepositoryProvider = Provider((ref) {
+  final firmId = ref.watch(activeFirmIdProvider);
+  final db = ref.read(appDatabaseProvider);
+  if (firmId == null) return null;
+  return db.ledgerRepositoryFor(firmId);
+});
+
+/// Seeds the firm's standard chart of accounts, once.
+///
+/// A provider rather than work the migration does, because a firm created
+/// *after* the upgrade needs a chart too. Idempotent, so watching it from a
+/// screen costs nothing after the first time.
+final ensureChartProvider = FutureProvider<int>((ref) async {
+  final repo = ref.watch(ledgerRepositoryProvider);
+  if (repo == null) return 0;
+  return repo.ensureChart();
+});
+
+/// The whole chart, archived accounts included — the screen decides which to
+/// show, so filtering happens in the UI without a second query.
+final chartOfAccountsProvider = StreamProvider<List<AccountEntity>>((ref) {
+  final repo = ref.watch(ledgerRepositoryProvider);
+  if (repo == null) return const Stream.empty();
+  return repo.watchAccounts(includeInactive: true);
+});
+
+final journalsProvider = StreamProvider<List<JournalEntryEntity>>((ref) {
+  final repo = ref.watch(ledgerRepositoryProvider);
+  if (repo == null) return const Stream.empty();
+  return repo.watchJournals(includeDeleted: true);
+});
+
 // ---- Appearance ----
 
 class ThemeModeController extends StateNotifier<ThemeMode> {
@@ -234,7 +368,13 @@ class OnboardingController extends StateNotifier<bool> {
   Future<void> _init() async {
     try {
       initError = null;
-      state = await _settings.getBool(SettingsRepository.kOnboardingDone);
+      final persisted = await _settings.getBool(SettingsRepository.kOnboardingDone);
+      // A complete() that raced this load wins: it flips the flag for a user
+      // action that has already happened, while this load only reports what a
+      // previous run persisted. Letting the stale read overwrite the flip
+      // silently discarded the completion (and would bounce that user back to
+      // the welcome pages on the next redirect).
+      if (!_completed) state = persisted;
     } catch (error, stack) {
       initError = error;
       _ready.completeError(error, stack);
@@ -244,7 +384,10 @@ class OnboardingController extends StateNotifier<bool> {
     }
   }
 
+  bool _completed = false;
+
   Future<void> complete() async {
+    _completed = true;
     state = true;
     await _settings.setBool(SettingsRepository.kOnboardingDone, true);
   }
@@ -271,4 +414,21 @@ final seededDemoProvider = FutureProvider<bool>((ref) async {
   return ref
       .read(settingsRepositoryProvider)
       .getBool(SettingsRepository.kSeededDemo);
+});
+
+// ---- Label printers ----
+
+final printerRegistryProvider = Provider<PrinterRegistry>(
+    (ref) => PrinterRegistry(ref.read(appDatabaseProvider)));
+
+/// The configured printers. Invalidated after every change rather than mutated
+/// in place, so the list and the default can never disagree about what exists.
+final printersProvider = FutureProvider<List<PrinterProfile>>(
+    (ref) => ref.read(printerRegistryProvider).all());
+
+/// The printer the print buttons use. Watches [printersProvider] so removing
+/// the current default immediately promotes the replacement here too.
+final defaultPrinterProvider = FutureProvider<PrinterProfile?>((ref) async {
+  await ref.watch(printersProvider.future);
+  return ref.read(printerRegistryProvider).defaultPrinter();
 });

@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../app_database.dart';
+import '../../utils/file_names.dart';
 import 'sync_mixin.dart';
 
 /// Key/value settings store, firm-scoped where relevant.
@@ -66,6 +67,9 @@ class SettingsRepository with SyncQueueMixin {
   Future<void> setBool(String key, bool value, {String? firmId}) =>
       set(key, value ? 'true' : 'false', firmId: firmId);
 
+  Future<void> setInt(String key, int value, {String? firmId}) =>
+      set(key, '$value', firmId: firmId);
+
   Future<void> remove(String key, {String? firmId}) async {
     final query = db.delete(db.appSettings)
       ..where((t) =>
@@ -80,12 +84,53 @@ class SettingsRepository with SyncQueueMixin {
   static const String kOnboardingDone = 'onboarding_done';
   static const String kSeededDemo = 'seeded_demo';
   static const String kSyncEnabled = 'sync_enabled';
+  /// When the outbox last drained successfully, ISO-8601 UTC.
+  static const String kSyncLastPushedAt = 'sync_last_pushed_at';
+  /// When the last full sync (push + pull) completed, ISO-8601 UTC. Kept
+  /// apart from [kSyncLastPushedAt] because a pull can succeed after a push
+  /// that failed, and "last synced" should mean both directions.
+  static const String kSyncLastSyncedAt = 'sync_last_synced_at';
+  /// Per-firm pull cursors, `sync_cursor_<firmId>` -> highest applied seq.
+  /// Managed by SyncEngine; documented here so the key family stays findable.
+  /// Comma-separated ids of the firms this device has registered on the server.
+  ///
+  /// The journal's rows carry a foreign key to `firms`, so a push for a firm the
+  /// server has never heard of fails on a constraint the operator cannot act on.
+  /// Registering is one extra round trip per firm, once per install.
+  static const String kSyncRegisteredFirms = 'sync_registered_firms';
   static const String kSupabaseUrl = 'supabase_url';
   static const String kSupabaseAnonKey = 'supabase_anon_key';
+
+  // ---- Atria server (see core/api/api_config.dart) ----
+  /// Overrides the built-in production address. Global: the server a person
+  /// signs in to is not a per-firm choice.
+  static const String kApiBaseUrl = 'api_base_url';
+  /// Stable id for this install, minted once and never changed — refresh
+  /// tokens are bound to it.
+  static const String kDeviceId = 'device_id';
+  /// Human label shown in the device list, captured once.
+  static const String kDeviceName = 'device_name';
   static const String kLastBackupAt = 'last_backup_at';
   static const String kUserName = 'user_name';
+  /// The signed-in account's address. See [ServerSession].
   static const String kUserEmail = 'user_email';
   static const String kFirstRun = 'first_run';
+
+  // ---- Signed-in session (see core/api/server_session.dart) ----
+  ///
+  /// Written only by sign-in, read only by [ServerSession]. Nothing here is a
+  /// per-firm value: the account a device is signed in to is not a choice the
+  /// user makes per business.
+  ///
+  /// **These are stored in plaintext.** `app_settings` is an ordinary SQLite
+  /// table, so a stolen device or a copied database file yields a live session.
+  /// The fix is an OS-backed store (DPAPI on Windows, the Android Keystore),
+  /// which is a separate piece of work; keeping all four keys behind one class
+  /// is what makes it a change in one place rather than a hunt.
+  static const String kAccessToken = 'access_token';
+  static const String kRefreshToken = 'refresh_token';
+  /// ISO-8601 UTC instant, so an expired token is not mistaken for a session.
+  static const String kAccessTokenExpiresAt = 'access_token_expires_at';
 }
 
 /// Full-app JSON backup & restore (offline-first local export).
@@ -206,7 +251,8 @@ class BackupRepository {
     }
     final name = fileName ??
         'atria-backup-${DateTime.now().toIso8601String().split('T').first}';
-    final file = File(p.join(backupDir.path, '$name.json'));
+    final file = File(p.join(backupDir.path,
+        '${sanitizeFileName(name, fallback: 'atria-backup')}.json'));
     await file.writeAsString(jsonEncode(data), flush: true);
     return file.path;
   }

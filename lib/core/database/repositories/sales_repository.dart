@@ -106,6 +106,9 @@ class SalesDraft {
   final Decimal? invoiceDiscountPercent;
   final Decimal? invoiceDiscountAmount;
   final Decimal? shippingCharge;
+  /// TCS percentage, as entered on the invoice (or the firm's default rate).
+  /// Null/zero means no tax was collected at source.
+  final Decimal? tcsRate;
   final bool applyRoundOff;
   final String? notes;
   final String? terms;
@@ -142,6 +145,7 @@ class SalesDraft {
     this.invoiceDiscountPercent,
     this.invoiceDiscountAmount,
     this.shippingCharge,
+    this.tcsRate,
     this.applyRoundOff = true,
     this.notes,
     this.terms,
@@ -171,6 +175,7 @@ class SalesDraft {
     Decimal? invoiceDiscountPercent,
     Decimal? invoiceDiscountAmount,
     Decimal? shippingCharge,
+    Decimal? tcsRate,
     bool? applyRoundOff,
     String? notes,
     String? terms,
@@ -201,6 +206,7 @@ class SalesDraft {
       invoiceDiscountAmount:
           invoiceDiscountAmount ?? this.invoiceDiscountAmount,
       shippingCharge: shippingCharge ?? this.shippingCharge,
+      tcsRate: tcsRate ?? this.tcsRate,
       applyRoundOff: applyRoundOff ?? this.applyRoundOff,
       notes: notes ?? this.notes,
       terms: terms ?? this.terms,
@@ -231,7 +237,17 @@ class SalesRepository with SyncQueueMixin {
       invoiceDiscountAmount: draft.invoiceDiscountAmountValue,
       applyRoundOff: draft.applyRoundOff,
     );
-    final grandTotal = result.grandTotal + draft.shippingChargeValue;
+    // TCS rides on top of the tax invoice value and on the taxable value, not
+    // on the tax: see [GstEngine.settlementTax]. Shipping is a charge the buyer
+    // owes but is not consideration for the goods, so it is excluded from the
+    // TCS base the same way GST is.
+    final tcs = GstEngine.settlementTax(
+      taxableValue: result.taxableValue,
+      rate: draft.tcsRate,
+    );
+    final grandTotal = result.grandTotal +
+        draft.shippingChargeValue +
+        tcs;
     final now = DateTime.now();
 
     await db.transaction(() async {
@@ -303,6 +319,8 @@ class SalesRepository with SyncQueueMixin {
         sgst: Value(result.sgstTotal.toDouble()),
         igst: Value(result.igstTotal.toDouble()),
         cess: Value(result.cessTotal.toDouble()),
+        tcs: Value(tcs.toDouble()),
+        tcsRate: Value((draft.tcsRate ?? Money.zero).toDouble()),
         roundOff: Value(result.roundOff.toDouble()),
         grandTotal: Value(grandTotal.toDouble()),
         notes: Value(draft.notes),
@@ -324,9 +342,32 @@ class SalesRepository with SyncQueueMixin {
             .toCompanion(draft.id, i, result.lineFor(draft.lines[i].id)));
       }
 
-      if (affectStock &&
-          draft.docType != 'quotation' &&
-          draft.docType != 'delivery_note') {
+      // Journal the line rows themselves. The document's payload is what a
+      // pull restores first; without these a restored invoice would arrive
+      // with its totals but none of its lines, because lines are separate
+      // rows and the edit path re-inserts them with fresh ids.
+      for (final line in draft.lines) {
+        await enqueue(
+          firmId: firmId,
+          entity: 'sales_invoice_items',
+          entityId: line.id,
+          operation: 'insert',
+        );
+      }
+
+      // Orders and estimates never move stock: a sales order is a promise,
+      // not a delivery — the invoice raised against it does the stock and
+      // ledger work (a delivery note ships on paper the same way). Save and
+      // restore must agree on this set, or delete+restore drifts the
+      // ledger. The Vyapar importer relies on it too: it passes
+      // affectStock: false for orders/estimates, but this guard is what
+      // keeps a direct save from deducting.
+      const stocklessDocTypes = {
+        'quotation',
+        'sales_order',
+        'delivery_note',
+      };
+      if (affectStock && !stocklessDocTypes.contains(draft.docType)) {
         for (final line in draft.lines) {
           if (line.itemId == null || line.quantity == Money.zero) continue;
           final sign = draft.docType == 'credit_note' ? 1.0 : -1.0;
@@ -342,11 +383,6 @@ class SalesRepository with SyncQueueMixin {
           );
         }
       }
-
-      // Delivery notes move goods on paper only — the billing invoice that
-      // follows does the stock and ledger work. Guard explicitly so a
-      // delivery note saved with affectStock can never double-deduct.
-      // (Quotations were already excluded the same way.)
 
       await enqueue(
         firmId: firmId,
@@ -380,6 +416,38 @@ class SalesRepository with SyncQueueMixin {
       ..where((t) => t.invoiceId.equals(invoiceId) & t.isDeleted.equals(false))
       ..orderBy([(t) => OrderingTerm(expression: t.sortOrder)]);
     return query.get();
+  }
+
+  /// Every line of every invoice in [invoiceIds], grouped by invoice — one
+  /// query instead of one per document.
+  ///
+  /// Reports that need the lines of a whole month were calling [itemsFor]
+  /// inside a loop, which is an N+1 against a local database: fine on twenty
+  /// invoices, visibly slow on a thousand. Capped at 900 ids per statement
+  /// because SQLite's default parameter limit is 999 and a firm can have more
+  /// documents than that in a year.
+  Future<Map<String, List<SalesInvoiceItemEntity>>> itemsForMany(
+    List<String> invoiceIds,
+  ) async {
+    final grouped = <String, List<SalesInvoiceItemEntity>>{};
+    if (invoiceIds.isEmpty) return grouped;
+    const chunkSize = 900;
+    for (var i = 0; i < invoiceIds.length; i += chunkSize) {
+      final chunk = invoiceIds.sublist(
+        i,
+        i + chunkSize > invoiceIds.length ? invoiceIds.length : i + chunkSize,
+      );
+      final query = db.select(db.salesInvoiceItems)
+        ..where((t) => t.invoiceId.isIn(chunk) & t.isDeleted.equals(false))
+        ..orderBy([
+          (t) => OrderingTerm(expression: t.invoiceId),
+          (t) => OrderingTerm(expression: t.sortOrder),
+        ]);
+      for (final line in await query.get()) {
+        (grouped[line.invoiceId] ??= []).add(line);
+      }
+    }
+    return grouped;
   }
 
   /// Converts a stored document back into an editable draft.
@@ -621,10 +689,14 @@ class SalesRepository with SyncQueueMixin {
           updatedAt: Value(DateTime.now()),
         ),
       );
-      if (doc.status != 'cancelled') {
-        // Invoices deduct, credit notes add back — the same sign rule the
-        // save path uses, so delete+restore lands the stock exactly where
-        // it was instead of leaving an orphaned reversal.
+      // Stock only moves for documents that actually move goods (save
+      // excludes orders/estimates/notes the same way, so delete+restore
+      // lands net zero instead of adding stock a quotation never took). A
+      // cancelled invoice's movements were reversed by softDelete, so
+      // restoring one must not re-apply them either.
+      final movesStock =
+          doc.docType == 'invoice' || doc.docType == 'credit_note';
+      if (movesStock && doc.status != 'cancelled') {
         final sign = doc.docType == 'credit_note' ? 1.0 : -1.0;
         final kind = doc.docType == 'credit_note' ? 'sale_return' : 'sale';
         final items = await itemsFor(id);
@@ -818,8 +890,9 @@ extension StockMovementsInsert on AppDatabase {
     final newBalance = item.currentStock + quantity;
     await update(items).replace(
         item.copyWith(currentStock: newBalance, updatedAt: DateTime.now()));
+    final movementId = newStockMovementId();
     await into(stockMovements).insert(StockMovementsCompanion.insert(
-      id: newStockMovementId(),
+      id: movementId,
       firmId: firmId,
       itemId: itemId,
       kind: kind,
@@ -830,6 +903,16 @@ extension StockMovementsInsert on AppDatabase {
       sourceNumber: Value(sourceNumber),
       date: date,
     ));
+
+    // Movements are the stock ledger of record (current_stock is derived from
+    // them), so a restore has to carry them. Journaled here because this
+    // extension lives below the repositories that would otherwise enqueue it.
+    await _MovementOutbox(this).enqueue(
+      firmId: firmId,
+      entity: 'stock_movements',
+      entityId: movementId,
+      operation: 'insert',
+    );
   }
 
   /// Posts the equal-and-opposite of every movement [sourceId] recorded, so a
@@ -847,8 +930,9 @@ extension StockMovementsInsert on AppDatabase {
       final newBalance = item.currentStock - m.quantity;
       await update(items).replace(
           item.copyWith(currentStock: newBalance, updatedAt: DateTime.now()));
+      final reversalId = newStockMovementId();
       await into(stockMovements).insert(StockMovementsCompanion.insert(
-        id: newStockMovementId(),
+        id: reversalId,
         firmId: firmId,
         itemId: m.itemId,
         kind: m.kind,
@@ -863,6 +947,21 @@ extension StockMovementsInsert on AppDatabase {
         date: m.date,
         notes: const Value('reversal'),
       ));
+      await _MovementOutbox(this).enqueue(
+        firmId: firmId,
+        entity: 'stock_movements',
+        entityId: reversalId,
+        operation: 'insert',
+      );
     }
   }
+}
+
+/// Outbox access for [StockMovementsInsert], which is an extension on the
+/// database and has no repository of its own to inherit the sync mixin.
+class _MovementOutbox with SyncQueueMixin {
+  _MovementOutbox(this.db);
+
+  @override
+  final AppDatabase db;
 }

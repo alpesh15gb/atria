@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 
+import '../../utils/id_utils.dart';
 import '../app_database.dart';
 import 'stock_movement_ids.dart';
 import 'sync_mixin.dart';
@@ -220,10 +221,11 @@ class ItemRepository with SyncQueueMixin {
     // Negative stock is allowed at the ledger layer (see the matching note
     // in sales_repository): billing can precede the purchase entry.
     final newBalance = item.currentStock + input.quantity;
+    final movementId = newStockMovementId();
     await db.into(db.stockMovements).insert(StockMovementsCompanion.insert(
           // Monotonic counter: several lines of one invoice post in the same
           // microsecond, and the timestamp-only id collided on the PK.
-          id: newStockMovementId(),
+          id: movementId,
           firmId: firmId,
           itemId: input.itemId,
           kind: input.kind,
@@ -235,6 +237,13 @@ class ItemRepository with SyncQueueMixin {
           date: input.date,
           notes: Value(input.notes),
         ));
+    // Movements are the stock ledger of record; a restore must carry them.
+    await enqueue(
+      firmId: firmId,
+      entity: 'stock_movements',
+      entityId: movementId,
+      operation: 'insert',
+    );
     await db.update(db.items).replace(
           item.copyWith(currentStock: newBalance, updatedAt: DateTime.now()),
         );
@@ -307,13 +316,15 @@ class ItemRepository with SyncQueueMixin {
   // ---- Categories & units ----
 
   Future<CategoryEntity> createCategory(String name, {String kind = 'item'}) async {
-    final id = 'cat_${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}';
+    final id = 'cat_${IdUtils.newId()}';
     await db.into(db.categories).insert(CategoriesCompanion.insert(
           id: id,
           firmId: firmId,
           name: name,
           kind: Value(kind),
         ));
+    await enqueue(
+        firmId: firmId, entity: 'categories', entityId: id, operation: 'insert');
     return (db.select(db.categories)
           ..where((t) => t.id.equals(id)))
         .getSingle();
@@ -329,10 +340,12 @@ class ItemRepository with SyncQueueMixin {
   Future<void> deleteCategory(String id) async {
     await (db.delete(db.categories)
         ..where((t) => t.id.equals(id) & t.firmId.equals(firmId))).go();
+    await enqueue(
+        firmId: firmId, entity: 'categories', entityId: id, operation: 'delete');
   }
 
   Future<UnitEntity> createUnit(String name, String symbol) async {
-    final id = 'unt_${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}';
+    final id = 'unt_${IdUtils.newId()}';
     await db.into(db.units).insert(UnitsCompanion.insert(
           id: id,
           firmId: firmId,
@@ -340,6 +353,8 @@ class ItemRepository with SyncQueueMixin {
           symbol: symbol,
           isStandard: const Value(false),
         ));
+    await enqueue(
+        firmId: firmId, entity: 'units', entityId: id, operation: 'insert');
     return (db.select(db.units)
           ..where((t) => t.id.equals(id)))
         .getSingle();
@@ -352,8 +367,7 @@ class ItemRepository with SyncQueueMixin {
     return query.get();
   }
 
-  String _newId() =>
-      'itm_${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}_${DateTime.now().microsecond}';
+  String _newId() => 'itm_${IdUtils.newId()}';
 }
 
 class StockMovementInput {

@@ -100,6 +100,8 @@ class PurchaseDraft {
   final Decimal? invoiceDiscountAmount;
   final Decimal? shippingCharge;
   final Decimal? otherCharges;
+  /// TDS percentage deducted at source on this bill. Null/zero means none.
+  final Decimal? tdsRate;
 
   /// Resolved values. `Money.zero` isn't a compile-time constant, so the fields
   /// are nullable and default to zero here for readers that need a [Decimal].
@@ -135,6 +137,7 @@ class PurchaseDraft {
     this.invoiceDiscountAmount,
     this.shippingCharge,
     this.otherCharges,
+    this.tdsRate,
     this.applyRoundOff = true,
     this.notes,
     this.sequence = 0,
@@ -159,10 +162,18 @@ class PurchaseRepository with SyncQueueMixin {
       invoiceDiscountAmount: draft.invoiceDiscountAmountValue,
       applyRoundOff: draft.applyRoundOff,
     );
+    // TDS is deducted by the buyer from what the supplier is owed, on the
+    // taxable value rather than on the GST that also goes to the government:
+    // see [GstEngine.settlementTax].
+    final tds = GstEngine.settlementTax(
+      taxableValue: result.taxableValue,
+      rate: draft.tdsRate,
+    );
     final grandTotal =
         result.grandTotal +
             draft.shippingChargeValue +
-            draft.otherChargesValue;
+            draft.otherChargesValue -
+            tds;
     final now = DateTime.now();
 
     await db.transaction(() async {
@@ -227,6 +238,8 @@ class PurchaseRepository with SyncQueueMixin {
         sgst: Value(result.sgstTotal.toDouble()),
         igst: Value(result.igstTotal.toDouble()),
         cess: Value(result.cessTotal.toDouble()),
+        tds: Value(tds.toDouble()),
+        tdsRate: Value((draft.tdsRate ?? Money.zero).toDouble()),
         roundOff: Value(result.roundOff.toDouble()),
         grandTotal: Value(grandTotal.toDouble()),
         notes: Value(draft.notes),
@@ -245,6 +258,18 @@ class PurchaseRepository with SyncQueueMixin {
       for (var i = 0; i < draft.lines.length; i++) {
         await db.into(db.purchaseBillItems).insert(draft.lines[i]
             .toCompanion(draft.id, i, result.lineFor(draft.lines[i].id)));
+      }
+
+      // Journal the line rows themselves — see the twin comment in
+      // SalesRepository.save: without these a restored bill has totals but
+      // no lines.
+      for (final line in draft.lines) {
+        await enqueue(
+          firmId: firmId,
+          entity: 'purchase_bill_items',
+          entityId: line.id,
+          operation: 'insert',
+        );
       }
 
       if (affectStock && draft.docType != 'purchase_order') {
@@ -393,6 +418,33 @@ class PurchaseRepository with SyncQueueMixin {
         firmId: firmId,
         entityId: id,
         summary: 'Permanently deleted ${bill.docType} ${bill.number}',
+      );
+    });
+  }
+
+  /// Flags a purchase order as converted (after its bill was saved), so the
+  /// list can badge it and the convert action cannot run twice. Mirrors
+  /// SalesRepository.markConverted.
+  Future<void> markConverted(String id, {String? actor}) async {
+    await db.transaction(() async {
+      final bill = await getById(id);
+      if (bill == null) return;
+      await db.assertDateEditable(firmId, bill.billDate);
+      await db.update(db.purchaseBills)
+          .replace(bill.copyWith(status: 'converted', updatedAt: DateTime.now()));
+      await enqueue(
+        firmId: firmId,
+        entity: 'purchase_bills',
+        entityId: id,
+        operation: 'update',
+      );
+      await db.auditRepository.log(
+        action: 'update',
+        entity: 'purchase_bills',
+        firmId: firmId,
+        actor: actor,
+        entityId: id,
+        summary: 'Converted ${bill.docType} ${bill.number} to bill',
       );
     });
   }

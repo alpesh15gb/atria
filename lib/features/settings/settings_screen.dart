@@ -1060,6 +1060,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                     ),
                     _syncWorkerRow(),
+                    const SizedBox(height: 8),
+                    _repairRow(),
                     const SizedBox(height: 12),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1178,6 +1180,123 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       padding: const EdgeInsets.only(top: 6),
       child: body,
     );
+  }
+
+  /// The journal-repair action: re-send this firm's whole books from this
+  /// device, for the day the server's journal turns out to be missing rows
+  /// (documents whose line items never reached it, say) and other devices
+  /// restore half-finished books.
+  ///
+  /// Deliberately a confirm-first action: it re-reads every row the firm has
+  /// and queues it all for sending, which is the right medicine only when the
+  /// journal is known to be hollow. The server-side merge rules (parents
+  /// last-write-wins, children insert-if-absent) make re-sending harmless to
+  /// newer edits elsewhere, so the danger is not corruption — it is pointless
+  /// churn and a puzzled operator if the button is clicked casually.
+  Widget _repairRow() {
+    final scheme = Theme.of(context).colorScheme;
+    final account = ref.watch(authControllerProvider);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        PhosphorIcon(
+          PhosphorIconsRegular.arrowsClockwise,
+          size: 16,
+          color: scheme.onSurfaceVariant,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Something missing on another device? Re-send this firm\'s '
+                'entire books from here, so every device receives the '
+                'complete data.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      height: 1.5,
+                    ),
+              ),
+              const SizedBox(height: 4),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  onPressed: _syncEnabled && account.signedIn
+                      ? _rejournalEverything
+                      : null,
+                  child: const Text('Re-send all books'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _rejournalEverything() async {
+    final firmId = ref.read(activeFirmIdProvider);
+    if (firmId == null) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Re-send all books?'),
+        content: const Text(
+          'Every product, party and document of this firm will be queued and '
+          'sent to the server again. Other devices receive anything they are '
+          'missing; nothing is deleted or changed here.\n\n'
+          'Run this from the device that holds the complete books (usually '
+          'the one the firm was created on).',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Re-send all'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (!mounted) return;
+    setState(() => _syncing = true);
+    try {
+      final enqueued =
+          await ref.read(syncEngineProvider).rejournalEverything(firmId: firmId);
+      if (!mounted) return;
+      ref.invalidate(syncStatusProvider);
+      if (enqueued == 0) {
+        messenger?.showSnackBar(const SnackBar(
+          content: Text('Nothing to re-send — the queue already covers '
+              'every row.'),
+        ));
+        return;
+      }
+      // Push immediately rather than waiting for the timer: the operator
+      // asked for a repair now, and watching the pending count drain is the
+      // answer.
+      final report = await ref.read(syncEngineProvider).push();
+      if (!mounted) return;
+      ref.invalidate(syncStatusProvider);
+      messenger?.showSnackBar(SnackBar(
+        content: Text(report.ok
+            ? 'Queued $enqueued change(s); sent ${report.pushed}'
+                '${report.pending > 0 ? ', ${report.pending} still going' : ''}.'
+            : 'Queued $enqueued change(s), but sending stopped: '
+                '${report.error ?? 'unknown error'}'),
+      ));
+    } on Object catch (error) {
+      messenger?.showSnackBar(
+        SnackBar(content: Text('Could not re-send: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _syncing = false);
+    }
   }
 
   /// Runs a full sync by hand: push the outbox, then pull the journal.

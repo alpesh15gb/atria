@@ -117,6 +117,118 @@ class SyncEngine {
   /// that either times out or hits the body limit.
   static const int batchSize = 200;
 
+  /// The order the firm's tables are journalled in: every parent before the
+  /// children that reference it. The pull replays changes in this order and
+  /// skips a child whose parent has not applied yet — permanently, because
+  /// the cursor advances regardless — so drain order is a correctness rule,
+  /// not a nicety.
+  static const List<String> journalOrder = [
+    'firms',
+    'categories',
+    'units',
+    'parties',
+    'items',
+    'sales_invoices',
+    'sales_invoice_items',
+    'purchase_bills',
+    'purchase_bill_items',
+    'payments',
+    'expenses',
+    'accounts',
+    'journal_entries',
+    'journal_lines',
+    'stock_movements',
+  ];
+
+  /// Re-enqueues every live row of [firmId] into the outbox, so the next push
+  /// re-journals the whole firm and every other device re-pulls the complete
+  /// books.
+  ///
+  /// The recovery tool for a journal that is missing rows. The case that
+  /// earned it: books born under a build that only journalled document
+  /// parents — the server's journal then held invoices with their totals but
+  /// not their lines, and every restore rebuilt that half-state on every
+  /// device. The origin device still holds the complete data, so replaying
+  /// its rows into the journal heals all of them at once.
+  ///
+  /// Row shapes make this safe to run against any journal state: parents are
+  /// applied last-write-wins on `updated_at`, children insert-if-absent —
+  /// so re-delivering rows a device already has changes nothing, and a row
+  /// another device edited more recently is not clobbered.
+  ///
+  /// Rows are enqueued in [journalOrder] (parents before children), each with
+  /// a deterministic id, so running this twice cannot double-send: the second
+  /// run's inserts simply collide with the first's and are ignored.
+  ///
+  /// Returns how many outbox rows were newly enqueued.
+  Future<int> rejournalEverything({required String firmId}) async {
+    var enqueued = 0;
+    for (final entity in journalOrder) {
+      final table = _tableNamed(entity);
+      if (table == null) continue;
+
+      // Only rows that belong to the firm and are live. Soft-deleted rows are
+      // skipped deliberately: their deletion already travelled as a payload
+      // with is_deleted set, and re-sending them would resurrect nothing but
+      // doubt. The child tables have no firm_id of their own — they are
+      // reached through the parent row they hang from.
+      final hasDeleted = table.columnsByName.containsKey('is_deleted');
+      final hasFirm = table.columnsByName.containsKey('firm_id');
+      final String sql;
+      if (entity == 'firms') {
+        sql = 'SELECT id FROM ${table.actualTableName} WHERE id = ?';
+      } else if (hasFirm) {
+        sql = 'SELECT id FROM ${table.actualTableName} WHERE firm_id = ?'
+            '${hasDeleted ? ' AND is_deleted = 0' : ''}';
+      } else {
+        switch (entity) {
+          case 'sales_invoice_items':
+            sql = 'SELECT c.id FROM sales_invoice_items c '
+                'JOIN sales_invoices p ON p.id = c.invoice_id '
+                'WHERE p.firm_id = ? AND p.is_deleted = 0'
+                '${hasDeleted ? ' AND c.is_deleted = 0' : ''}';
+          case 'purchase_bill_items':
+            sql = 'SELECT c.id FROM purchase_bill_items c '
+                'JOIN purchase_bills p ON p.id = c.bill_id '
+                'WHERE p.firm_id = ? AND p.is_deleted = 0'
+                '${hasDeleted ? ' AND c.is_deleted = 0' : ''}';
+          case 'journal_lines':
+            sql = 'SELECT c.id FROM journal_lines c '
+                'JOIN journal_entries p ON p.id = c.entry_id '
+                'WHERE p.firm_id = ?';
+          default:
+            continue;
+        }
+      }
+
+      final ids = await _db
+          .customSelect(sql, variables: [Variable.withString(firmId)])
+          .get();
+      for (final row in ids) {
+        final entityId = row.data['id'] as String;
+        final queueId = 'rejournal_${entity}_$entityId';
+        // Deterministic id, so a second run of the repair cannot double-send:
+        // anything already queued (from the first run, or a still-pending
+        // ordinary change for the same row) is left as it is.
+        final already = await (_db.select(_db.syncQueue)
+              ..where((t) => t.id.equals(queueId)))
+            .getSingleOrNull();
+        if (already != null) continue;
+        await _db.into(_db.syncQueue).insert(
+              SyncQueueCompanion.insert(
+                id: queueId,
+                firmId: Value(firmId),
+                entity: entity,
+                entityId: entityId,
+                operation: 'insert',
+              ),
+            );
+        enqueued++;
+      }
+    }
+    return enqueued;
+  }
+
   /// How long a *sent* outbox row is kept before being pruned.
   ///
   /// Not deleted immediately: the queue is the only record on the device of
@@ -476,14 +588,38 @@ class SyncEngine {
   /// The next batch, oldest first — with one firm's rows first, so a device with
   /// two businesses does not alternate between them on every loop.
   Future<List<SyncQueueEntity>> _nextBatch() async {
-    final query = _db.select(_db.syncQueue)
-      ..where((t) => t.syncedAt.isNull())
-      ..orderBy([
-        (t) => OrderingTerm.asc(t.createdAt),
-        (t) => OrderingTerm.asc(t.id),
-      ])
-      ..limit(batchSize);
-    return query.get();
+    // Children must never lead a batch, and the tiebreak inside one second of
+    // created_at used to be the row id — an alphabetical sort that puts
+    // `sales_invoice_items_…` BEFORE `sales_invoices_…` (the names diverge at
+    // the underscore). A batch ordered that way delivers a child first, the
+    // server journals it first, and every pull skips it as an FK orphan for
+    // ever. So the entity's position in [journalOrder] sorts before time.
+    final caseWhen = [
+      for (var i = 0; i < journalOrder.length; i++)
+        "WHEN '${journalOrder[i]}' THEN $i",
+    ].join(' ');
+    // The entity names interpolated here are this class's own compile-time
+    // constants, never user input — the same trust PullApplier places in its
+    // table allowlist.
+    final idRows = await _db
+        .customSelect(
+          'SELECT id FROM sync_queue WHERE synced_at IS NULL '
+          'ORDER BY CASE entity $caseWhen '
+          'ELSE ${journalOrder.length} END ASC, created_at ASC, id ASC '
+          'LIMIT $batchSize',
+          readsFrom: {_db.syncQueue},
+        )
+        .get();
+    if (idRows.isEmpty) return const [];
+    final ids = idRows.map((row) => row.data['id'] as String).toList();
+    final rows = await (_db.select(_db.syncQueue)
+          ..where((t) => t.id.isIn(ids)))
+        .get();
+    final byId = {for (final row in rows) row.id: row};
+    return [
+      for (final id in ids)
+        if (byId[id] != null) byId[id]!,
+    ];
   }
 
   /// Registers the firm on the server the first time it is pushed.

@@ -5,25 +5,29 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/constants/gst.dart';
-import '../../core/constants/units.dart';
+import '../../core/constants/indian_states.dart';
 import '../../core/database/app_database.dart';
 import '../../core/database/repositories/firm_repository.dart';
 import '../../core/database/repositories/purchase_repository.dart';
 import '../../core/engine/gst_engine.dart';
-import '../../core/responsive/breakpoints.dart';
+import '../../core/sync/scan_seed.dart';
 import '../../core/state/providers.dart';
 import '../../core/theme/app_radius.dart';
-import '../../core/theme/app_theme.dart';
+import '../../core/theme/app_sizes.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/id_utils.dart';
 import '../../core/utils/money.dart';
 import '../../core/utils/validators.dart';
+import '../../shared/widgets/atria_field_icon.dart';
+import '../../shared/widgets/atria_form_section.dart';
+import '../../shared/widgets/atria_grid_cell.dart';
+import '../../shared/widgets/atria_line_grid.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/editor_shell.dart';
 import '../../shared/widgets/editor_totals.dart';
-import '../../shared/widgets/save_shortcut.dart';
 import '../../shared/widgets/item_type_ahead.dart';
+import '../../shared/widgets/money_text.dart';
+import '../../shared/widgets/save_shortcut.dart';
 import '../../shared/widgets/tax_mode_toggle.dart';
 import '../../shared/widgets/unsaved_guard.dart';
 
@@ -34,13 +38,32 @@ const String _kAddNewSupplier = '__add_new_supplier__';
 /// Creates or edits a purchase bill. Pass [editId] to edit; leave it null to
 /// create.
 class PurchaseEditorScreen extends ConsumerStatefulWidget {
-  const PurchaseEditorScreen({super.key, this.editId, this.docType = 'bill'});
+  const PurchaseEditorScreen({
+    super.key,
+    this.editId,
+    this.docType = 'bill',
+    this.convertFromId,
+    this.scanSeed,
+  });
 
   final String? editId;
 
-  /// 'bill' or 'debit_note' (purchase return). A debit note still restores
-  /// stock — you received the goods back — but does not add to payables.
+  /// 'bill', 'purchase_order', or 'debit_note' (purchase return). A debit
+  /// note still restores stock — you received the goods back — but does not
+  /// add to payables.
   final String docType;
+
+  /// When set (and [editId] is null), a NEW bill is seeded from a scanned
+  /// supplier bill: the scan screen reviewed the model's reading and this is
+  /// what survived. The supplier is matched by GSTIN/name, created when no
+  /// match exists, and everything remains editable exactly like a typed bill.
+  final ScannedBillSeed? scanSeed;
+
+  /// When set (and [editId] is null), a NEW document of [docType] is created
+  /// seeded from that purchase order: party, lines and adjustments are
+  /// copied, the number is fresh, and after save the source is marked
+  /// `converted` so it cannot be converted twice.
+  final String? convertFromId;
 
   @override
   ConsumerState<PurchaseEditorScreen> createState() =>
@@ -53,6 +76,8 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
   final _invoiceDiscountController = TextEditingController();
   final _shippingController = TextEditingController();
   final _otherChargesController = TextEditingController();
+  /// TDS percentage deducted at source on this bill. Zero for none.
+  final _tdsRateController = TextEditingController(text: '0');
   final _notesController = TextEditingController();
 
   final List<_LineState> _lines = <_LineState>[];
@@ -127,11 +152,100 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
     _invoiceDiscountController.dispose();
     _shippingController.dispose();
     _otherChargesController.dispose();
+    _tdsRateController.dispose();
     _notesController.dispose();
     for (final line in _lines) {
       line.dispose();
     }
     super.dispose();
+  }
+
+  /// Id of the purchase order this document was converted from, if any.
+  /// Cleared on successful save after the source is marked converted.
+  String? _convertSourceId;
+
+  /// Applies the scan screen's reviewed reading to the empty form. Runs in
+  /// the same post-first-frame slot as the conversion flow, so the supplier
+  /// lookup sees the loaded list.
+  Future<void> _applyScanSeed(ScannedBillSeed seed) async {
+    final firm = ref.read(activeFirmProvider).valueOrNull;
+
+    _supplierInvoiceController.text = seed.invoiceNumber ?? '';
+    _shippingController.text =
+        seed.shippingCharge == 0 ? '' : _formatAmount(seed.shippingCharge);
+    _otherChargesController.text =
+        seed.otherCharges == 0 ? '' : _formatAmount(seed.otherCharges);
+    if (seed.billDate != null) _billDate = seed.billDate!;
+    if (seed.dueDate != null) _dueDate = seed.dueDate;
+
+    // Supplier: match an existing one by GSTIN first (the reliable key), then
+    // by case-insensitive name; create one when nothing matches so the bill
+    // links properly instead of floating on a free-text name.
+    if (seed.supplierName != null || seed.supplierGstin != null) {
+      final match = seed.matchSupplier(_suppliers);
+      if (match != null) {
+        _selectSupplier(match.id);
+      } else if (seed.supplierName != null) {
+        try {
+          final partyRepo = ref.read(partyRepositoryProvider);
+          if (partyRepo != null) {
+            final gstin = seed.supplierGstin;
+            final created = await partyRepo.create(
+              name: seed.supplierName!,
+              type: 'supplier',
+              gstin: gstin,
+              gstType:
+                  (gstin == null || gstin.isEmpty) ? 'unregistered' : 'registered',
+              phone: seed.supplierPhone,
+              addressLine1: seed.supplierAddress,
+              stateCode: seed.placeOfSupply,
+            );
+            if (!mounted) return;
+            final suppliers = await partyRepo.all(type: 'supplier', limit: 1000);
+            if (!mounted) return;
+            setState(() => _suppliers = suppliers);
+            _selectSupplier(created.id);
+          }
+        } on Object {
+          // A supplier that failed to create must not block the scanned
+          // lines: the bill can still be saved and the supplier fixed after.
+        }
+      }
+    }
+
+    // Fall back to deriving the inter-state split from the scanned state
+    // code when no supplier was resolved.
+    if (_selectedSupplierId == null &&
+        seed.placeOfSupply != null &&
+        firm != null) {
+      _isInterState = resolveGstSplit(
+            supplierState: seed.placeOfSupply,
+            buyerState: firm.stateCode,
+          ) ==
+          GstSplit.interState;
+    }
+
+    for (final scanned in seed.lines) {
+      final line = _LineState(id: IdUtils.newId());
+      line.nameController.text = scanned.name;
+      if (scanned.hsn != null && scanned.hsn!.isNotEmpty) {
+        line.hsnController.text = scanned.hsn!;
+      }
+      line.unit = scanned.unit.isEmpty ? 'pcs' : scanned.unit;
+      line.quantityController.text = Formatters.qty(Money.of(scanned.quantity));
+      line.rateController.text = _formatAmount(scanned.rate);
+      if (scanned.discountPercent != 0) {
+        line.discountController.text =
+            _formatAmount(scanned.discountPercent);
+      }
+      line.gstRate = scanned.gstRate;
+      line.cessRate = scanned.cessRate;
+      _lines.add(line);
+    }
+    if (seed.lines.isEmpty) {
+      _lines.add(_LineState(id: IdUtils.newId()));
+    }
+    if (mounted) setState(() {});
   }
 
   Future<void> _load() async {
@@ -157,7 +271,13 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
     List<PurchaseBillItemEntity> billItems = const [];
     if (widget.editId != null && purchaseRepo != null) {
       bill = await purchaseRepo.getById(widget.editId!);
-      billItems = bill == null ? const [] : await purchaseRepo.itemsFor(bill.id);
+      // A binned bill must not open for editing: the save path's upsert
+      // would clear its isDeleted flag and resurrect it (stock re-posted,
+      // payables re-counted). Same treatment as a missing row.
+      if (bill != null && bill.isDeleted) bill = null;
+      billItems = bill == null
+          ? const []
+          : await purchaseRepo.itemsFor(bill.id);
     }
 
     if (!mounted) return;
@@ -176,22 +296,50 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
       }
       _loading = false;
     });
+
+    // Scan seed: apply the reviewed reading after the first frame, the same
+    // slot the conversion flow uses, so supplier lookups see loaded lists.
+    if (widget.scanSeed != null && mounted && !_isEditing) {
+      await _applyScanSeed(widget.scanSeed!);
+    }
+
+    // Conversion: seed the new document from a purchase order. Runs after
+    // the first frame so _selectSupplier's lookups see the loaded lists.
+    if (widget.convertFromId != null && purchaseRepo != null && mounted) {
+      final source = await purchaseRepo.getById(widget.convertFromId!);
+      if (source != null && mounted && !_isEditing) {
+        _prefill(source, await purchaseRepo.itemsFor(source.id));
+        _billDate = DateTime.now();
+        _dueDate = null;
+        _supplierInvoiceController.clear();
+        _convertSourceId = source.id;
+        if (mounted) setState(() {});
+      }
+    }
+
     // Prefilling a bill being edited is not an unsaved change.
     _dirty = false;
   }
 
   void _prefill(PurchaseBillEntity bill, List<PurchaseBillItemEntity> items) {
     _supplierInvoiceController.text = bill.supplierInvoiceNumber ?? '';
-    _invoiceDiscountController.text = _formatAmount(bill.invoiceDiscountPercent);
+    _invoiceDiscountController.text = _formatAmount(
+      bill.invoiceDiscountPercent,
+    );
     _shippingController.text = _formatAmount(bill.shippingCharge);
     _otherChargesController.text = _formatAmount(bill.otherCharges);
+    _tdsRateController.text = Formatters.rateInput(bill.tdsRate);
     _notesController.text = bill.notes ?? '';
     _billDate = bill.billDate;
     _dueDate = bill.dueDate;
     _selectedSupplierId = bill.partyId;
     _isInterState = bill.isInterState;
     _reverseCharge = bill.reverseCharge;
-    _applyRoundOff = true;
+    // The stored round-off figure is the only record of the flag the bill
+    // was saved with — hardcoding true here silently re-rounded bills that
+    // were saved with round-off off (the sale editor already recovers it
+    // this way).
+    _applyRoundOff = bill.roundOff.abs() > 0.000001;
 
     for (final item in items) {
       _lines.add(_LineState(id: item.id)..applyEntity(item));
@@ -218,8 +366,7 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
     // `type=supplier` puts the party editor in supplier mode, and the popped
     // id lets us select the party that was just created. Without it the
     // dropdown stayed on nothing and the sentinel stayed "selected".
-    final createdId =
-        await context.push<String>('/parties/new?type=supplier');
+    final createdId = await context.push<String>('/parties/new?type=supplier');
     if (!mounted || createdId == null) return;
     final partyRepo = ref.read(partyRepositoryProvider);
     if (partyRepo == null) return;
@@ -238,7 +385,8 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
     setState(() {
       _selectedSupplierId = supplierId;
       if (supplier == null || firm == null) return;
-      _isInterState = resolveGstSplit(
+      _isInterState =
+          resolveGstSplit(
             supplierState: supplier.stateCode,
             buyerState: firm.stateCode,
           ) ==
@@ -262,12 +410,19 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
   }
 
   Future<void> _pickDate({required bool isBillDate}) async {
+    // A due date before the bill date is not a credit period, it is a bug:
+    // the bill would land in payables ageing as instantly overdue. Legacy
+    // rows can still carry one, so clamp the initial date instead of letting
+    // showDatePicker assert.
+    final firstDate = isBillDate ? DateTime(2000) : _billDate;
+    var initialDate = isBillDate
+        ? _billDate
+        : (_dueDate ?? _billDate.add(const Duration(days: 30)));
+    if (initialDate.isBefore(firstDate)) initialDate = firstDate;
     final picked = await showDatePicker(
       context: context,
-      initialDate: isBillDate
-          ? _billDate
-          : (_dueDate ?? _billDate.add(const Duration(days: 30))),
-      firstDate: DateTime(2000),
+      initialDate: initialDate,
+      firstDate: firstDate,
       lastDate: DateTime(2100),
     );
     if (picked == null || !mounted) return;
@@ -300,7 +455,29 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
 
     if (!(_formKey.currentState?.validate() ?? false)) return false;
 
-    final lines = _lines.where((line) => line.isValid).map((line) => line.toDraft()).toList();
+    // The bill may have been deleted (or never found) after this editor
+    // opened. Both `_existing!` reads below would crash on the not-found
+    // path — reachable because the save shortcut stays live over the
+    // not-found empty state — and the upsert would resurrect a binned one.
+    if (_isEditing) {
+      final live = _existing == null
+          ? null
+          : await repo.getById(_existing!.id);
+      if (live == null || live.isDeleted) {
+        messenger?.showSnackBar(
+          const SnackBar(
+            content: Text('This bill no longer exists — it may have been '
+                'deleted. Nothing was saved.'),
+          ),
+        );
+        return false;
+      }
+    }
+
+    final lines = _lines
+        .where((line) => line.isValid)
+        .map((line) => line.toDraft())
+        .toList();
     if (lines.isEmpty) {
       messenger?.showSnackBar(
         const SnackBar(
@@ -318,10 +495,13 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
           ? _existing!.number
           : await firmRepo.nextNumber(
               firm,
-              widget.docType == 'debit_note'
-                  ? DocSequence.debitNote
-                  : DocSequence.purchase,
-              date: _billDate);
+              switch (widget.docType) {
+                'debit_note' => DocSequence.debitNote,
+                'purchase_order' => DocSequence.purchaseOrder,
+                _ => DocSequence.purchase,
+              },
+              date: _billDate,
+            );
       final supplier = _supplierWithId(_selectedSupplierId);
       final address = [
         supplier?.addressLine1,
@@ -359,6 +539,7 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
             Money.tryParse(_shippingController.text) ?? Decimal.zero,
         otherCharges:
             Money.tryParse(_otherChargesController.text) ?? Decimal.zero,
+        tdsRate: Money.tryParse(_tdsRateController.text) ?? Decimal.zero,
         applyRoundOff: _applyRoundOff,
         notes: _notesController.text.trim().isEmpty
             ? null
@@ -366,7 +547,19 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
         sequence: _isEditing ? _existing!.sequence : 0,
       );
 
-      await repo.save(draft, affectStock: true);
+      await repo.save(
+        draft,
+        // An order is a promise, not goods received — the bill raised
+        // against it does the stock work (mirrors the sales-side rule).
+        affectStock: widget.docType != 'purchase_order',
+      );
+      // A converted purchase order is flagged so it shows its badge in the
+      // list and cannot be converted a second time.
+      final sourceId = _convertSourceId;
+      if (sourceId != null) {
+        await repo.markConverted(sourceId);
+        _convertSourceId = null;
+      }
       if (!mounted) return false;
       _dirty = false;
       return true;
@@ -396,6 +589,7 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
       _invoiceDiscountController.text = '0';
       _shippingController.text = '0';
       _otherChargesController.text = '0';
+      _tdsRateController.text = '0';
       _notesController.clear();
       _billDate = DateTime.now();
       _dueDate = null;
@@ -422,17 +616,20 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
         child: EditorShell(
           title: _isEditing
               ? (widget.docType == 'debit_note'
-                  ? 'Edit Debit Note'
-                  : 'Edit Purchase Bill')
+                    ? 'Edit Debit Note'
+                    : 'Edit Purchase Bill')
               : (widget.docType == 'debit_note'
-                  ? 'New Debit Note'
-                  : 'New Purchase Bill'),
+                    ? 'New Debit Note'
+                    : 'New Purchase Bill'),
           actions: EditorActions(
             onSave: _save,
             onSaveAndNew: _isEditing || repo == null ? null : _saveAndNew,
             onExit: () => context.pop(),
             saving: _saving,
           ),
+          hint:
+              'Tab → next cell   ·   Enter → next line   ·   '
+              'Ctrl+S → save & close',
           body: _body(repo),
         ),
       ),
@@ -458,48 +655,243 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
       );
     }
     return SafeArea(
+      // One column, exactly like the sale editor: the totals sit under the
+      // last line instead of in a side rail, so the whole bill — supplier,
+      // lines, tax — is read top-to-bottom in a single sweep, and the sheet
+      // takes the width of the window rather than a fixed strip of it.
       child: EditorShellBody(
-        form: _form(),
-        summary: _summaryPanel(),
+        form: Form(
+          key: _formKey,
+          child: AtriaEditorForm(
+            header: _supplierSection(),
+            headerTrailing: _metaSection(),
+            lines: _lineGrid(),
+            totals: _totalsSection(),
+            sections: [
+              EditorLinkSection(
+                icon: Icons.percent_rounded,
+                title: 'Tax treatment',
+                initiallyOpen: true,
+                builder: (_) => _taxSection(),
+              ),
+              EditorLinkSection(
+                icon: Icons.discount_outlined,
+                title: 'Discount, charges and round off',
+                builder: (_) => _chargesSection(),
+              ),
+              EditorLinkSection(
+                icon: Icons.note_add_rounded,
+                title: 'Add Notes',
+                builder: (_) => _notesSection(),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  /// The sticky summary: charges are edited in the form, so the panel shows
-  /// the tax breakdown, grand total, and the inter-state / reverse-charge
-  /// state the document will be saved with.
-  Widget _summaryPanel() {
-    final result = _totals;
-    final shipping =
-        Money.tryParse(_shippingController.text) ?? Decimal.zero;
-    final other = Money.tryParse(_otherChargesController.text) ?? Decimal.zero;
-    final grandTotal = result.grandTotal + shipping + other;
+  /// The line sheet's columns — kept in step with the sale editor so a bill is
+  /// entered with the same eye movement as an invoice.
+  // Byte-for-byte the invoice's column set and shares — a bill and an
+  // invoice put the same figures in the same places.
+  static const List<AtriaLineColumn> _lineColumns = [
+    AtriaLineColumn('Item / Description', flex: 6),
+    AtriaLineColumn('HSN/SAC', flex: 2),
+    AtriaLineColumn('Qty', flex: 3, numeric: true),
+    AtriaLineColumn('Rate', flex: 3, numeric: true),
+    AtriaLineColumn('Disc %', flex: 2, numeric: true),
+    AtriaLineColumn('GST', flex: 3),
+    AtriaLineColumn('Amount', flex: 3, numeric: true),
+  ];
 
-    final rows = <EditorTotalsRow>[
-      EditorTotalsRow('Subtotal', result.subTotal),
-      if (result.itemDiscountTotal > Decimal.zero)
-        EditorTotalsRow('Item discount', -result.itemDiscountTotal,
-            signed: true),
-      if (result.invoiceDiscount > Decimal.zero)
-        EditorTotalsRow('Invoice discount', -result.invoiceDiscount,
-            signed: true),
-      EditorTotalsRow('Taxable value', result.taxableValue, emphasize: true),
-      if (_split == GstSplit.intraState) ...[
-        if (result.cgstTotal > Decimal.zero)
-          EditorTotalsRow('CGST', result.cgstTotal),
-        if (result.sgstTotal > Decimal.zero)
-          EditorTotalsRow('SGST', result.sgstTotal),
-      ] else if (result.igstTotal > Decimal.zero)
-        EditorTotalsRow('IGST', result.igstTotal),
-      if (result.roundOff.abs() > Decimal.zero)
-        EditorTotalsRow('Round off', result.roundOff, signed: true),
-      if (shipping > Decimal.zero) EditorTotalsRow('Shipping', shipping),
-      if (other > Decimal.zero) EditorTotalsRow('Other charges', other),
+  Widget _lineGrid() {
+    return AtriaLineGrid(
+      columns: _lineColumns,
+      addLabel: 'Add lines',
+      onAddRow: () => _addLine(focus: true),
+      rows: [
+        for (var i = 0; i < _lines.length; i++)
+          AtriaLineGridRow(
+            cells: _lineCells(i),
+            onRemove: _lines.length == 1 ? null : () => _deleteLine(_lines[i]),
+          ),
+      ],
+    );
+  }
+
+  List<Widget> _lineCells(int index) {
+    final line = _lines[index];
+    final isLastRow = index == _lines.length - 1;
+    final scheme = Theme.of(context).colorScheme;
+
+    void advance() {
+      if (isLastRow) {
+        _addLine(focus: true);
+      } else {
+        FocusScope.of(context).nextFocus();
+      }
+    }
+
+    final lineTotals = GstEngine.computeLine(line.toTaxLine(), _split);
+
+    return [
+      ItemTypeAheadField(
+        key: ValueKey('${line.id}-item'),
+        controller: line.nameController,
+        focusNode: line.nameFocus,
+        label: 'Item',
+        hintText: 'Item or service',
+        validator: (value) =>
+            (value == null || value.trim().isEmpty) ? 'Required' : null,
+        decoration: (context) =>
+            AtriaGridCell.decorationFor(context, hint: 'Item or service'),
+        items: [
+          for (final item in _items)
+            ItemSuggestion(
+              name: item.name,
+              salePrice: item.purchasePrice,
+              unit: item.unit,
+            ),
+        ],
+        onPickItem: (s) {
+          final match = _items
+              .where((i) => i.name == s.name)
+              .cast<ItemEntity?>()
+              .firstWhere((i) => i != null, orElse: () => null);
+          if (match != null) {
+            line.applyItem(match, _formatAmount);
+            _changed();
+          }
+        },
+        onCreateItem: (name) => _createItemFromLine(line, name),
+      ),
+      AtriaGridInput(
+        key: ValueKey('${line.id}-hsn'),
+        controller: line.hsnController,
+        hint: 'HSN',
+        textCapitalization: TextCapitalization.characters,
+        onChanged: (_) => _changed(),
+      ),
+      Row(
+        key: ValueKey('${line.id}-qty'),
+        children: [
+          Expanded(
+            child: AtriaGridInput(
+              controller: line.quantityController,
+              numeric: true,
+              textAlign: TextAlign.right,
+              onChanged: (_) => _changed(),
+              onSubmitted: advance,
+              validator: (value) {
+                final qty = Money.tryParse(value ?? '');
+                if (qty == null || qty <= Decimal.zero) {
+                  return 'Must be greater than 0';
+                }
+                return null;
+              },
+            ),
+          ),
+          ConstrainedBox(
+            // Wider when boxed: the stacked card gives the unit its own box
+            // inside the Qty cell, and 50px leaves no room for it.
+            constraints: BoxConstraints(
+              maxWidth: AtriaGridCellMode.boxedOf(context) ? 78 : 50,
+            ),
+            child: AtriaUnitPicker(
+              value: line.unit,
+              onChanged: (unit) => _changed(() => line.unit = unit),
+            ),
+          ),
+        ],
+      ),
+      AtriaGridInput(
+        key: ValueKey('${line.id}-rate'),
+        controller: line.rateController,
+        numeric: true,
+        textAlign: TextAlign.right,
+        prefix: '₹ ',
+        onChanged: (_) => _changed(),
+        onSubmitted: advance,
+      ),
+      AtriaGridInput(
+        key: ValueKey('${line.id}-disc'),
+        controller: line.discountController,
+        numeric: true,
+        textAlign: TextAlign.right,
+        onChanged: (_) => _changed(),
+        onSubmitted: advance,
+      ),
+      Row(
+        key: ValueKey('${line.id}-gst'),
+        children: [
+          Expanded(
+            child: AtriaGstRatePicker(
+              value: line.gstRate,
+              onChanged: (rate) => _changed(() => line.gstRate = rate),
+            ),
+          ),
+          if (line.gstRate > 0)
+            AtriaTaxModePill(
+              value: line.taxMode,
+              onChanged: (mode) => _changed(() => line.taxMode = mode),
+            ),
+        ],
+      ),
+      Padding(
+        key: ValueKey('${line.id}-amount'),
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        // Bare in the sheet, hairline-boxed in the stacked card, where every
+        // other cell is a box too.
+        child: Container(
+          decoration: AtriaGridCell.boxDecorationOf(context),
+          padding: EdgeInsets.symmetric(
+            horizontal: AtriaGridCellMode.boxedOf(context) ? 10 : 0,
+            vertical: AtriaGridCellMode.boxedOf(context) ? 12 : 0,
+          ),
+          alignment: AtriaGridCellMode.boxedOf(context)
+              ? Alignment.centerRight
+              : null,
+          child: MoneyText(
+            lineTotals.total,
+            colorize: false,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: scheme.onSurface,
+            ),
+          ),
+        ),
+      ),
     ];
+  }
 
-    return EditorTotalsPanel(
-      rows: rows,
-      total: grandTotal,
+  /// The same breakdown every document shows, so a purchase bill and an
+  /// invoice can never disagree about what a total means.
+  Widget _totalsSection() {
+    final result = _totals;
+    final shipping = Money.tryParse(_shippingController.text) ?? Decimal.zero;
+    final other = Money.tryParse(_otherChargesController.text) ?? Decimal.zero;
+    final tdsRate = Money.tryParse(_tdsRateController.text) ?? Decimal.zero;
+    // Deducted, not charged: TDS reduces what the supplier is paid, so it comes
+    // off the total the same way a discount does.
+    final tds = GstEngine.settlementTax(
+      taxableValue: result.taxableValue,
+      rate: tdsRate,
+    );
+    return AtriaTotalsBlock(
+      totals: result,
+      extraCharges: shipping + other - tds,
+      extraRows: [
+        if (shipping > Decimal.zero) EditorTotalsRow('Shipping', shipping),
+        if (other > Decimal.zero) EditorTotalsRow('Other charges', other),
+        if (tds > Decimal.zero)
+          EditorTotalsRow(
+            'TDS ${Formatters.percent(tdsRate.toDouble())}',
+            -tds,
+            signed: true,
+          ),
+      ],
+      isInterState: _split == GstSplit.interState,
       footer: SwitchListTile(
         contentPadding: EdgeInsets.zero,
         dense: true,
@@ -510,97 +902,68 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
     );
   }
 
-  Widget _form() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return Center(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: constraints.isCompact ? double.infinity : 900,
-            ),
-            child: Form(
-              key: _formKey,
-              child: SingleChildScrollView(
-                keyboardDismissBehavior:
-                    ScrollViewKeyboardDismissBehavior.onDrag,
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _supplierSection(),
-                    const SizedBox(height: 12),
-                    ..._lines.map(
-                      (line) => Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _LineCard(
-                          line: line,
-                          items: _items,
-                          split: _split,
-                          onChanged: _changed,
-                          onDeleted: () => _deleteLine(line),
-                          onCreateItem: _createItemFromLine,
-                        ),
-                      ),
-                    ),
-                    _addLineStrip(),
-                    const SizedBox(height: 12),
-                    EditorLinkSection(
-                      icon: Icons.discount_outlined,
-                      title: 'Add Discount & Charges',
-                      builder: (_) => _chargesSection(),
-                    ),
-                    const SizedBox(height: 10),
-                    EditorLinkSection(
-                      icon: Icons.note_add_rounded,
-                      title: 'Add Notes',
-                      builder: (_) => _notesSection(),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
+  Widget _supplierSection() {
+    final supplier = _supplierWithId(_selectedSupplierId);
+    return AtriaFormSection(
+      icon: Icons.storefront_outlined,
+      title: 'Supplier',
+      trailing: TextButton.icon(
+        onPressed: _addNewSupplier,
+        icon: const Icon(Icons.person_add_alt_outlined, size: 18),
+        label: const Text('New'),
+      ),
+      children: [
+        _supplierField(),
+        if (supplier != null) _supplierInfo(supplier),
+      ],
     );
   }
 
-  Widget _sectionCard(Widget child) =>
-      AtriaCard(padding: const EdgeInsets.all(16), child: child);
+  /// Who this bill is from, at a glance — the facts that decide the tax split,
+  /// without opening the party record.
+  Widget _supplierInfo(PartyEntity supplier) {
+    final scheme = Theme.of(context).colorScheme;
+    final details = [
+      if ((supplier.gstin ?? '').isNotEmpty) supplier.gstin!.toUpperCase(),
+      if ((supplier.phone ?? '').isNotEmpty) supplier.phone!,
+      if (supplier.stateCode != null)
+        'Place of supply: '
+            '${IndianStates.byCode(supplier.stateCode)?.name ?? supplier.stateCode}',
+    ];
+    if (details.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+        ),
+        child: Text(
+          details.join('  •  '),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ),
+    );
+  }
 
-  Widget _supplierSection() {
-    return _sectionCard(
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SectionHeader(
-            title: 'Supplier & dates',
-            subtitle: 'Supplier invoice number helps match their bill',
-            padding: EdgeInsets.zero,
+  Widget _metaSection() {
+    return AtriaFormSection(
+      icon: Icons.event_outlined,
+      title: 'Dates & reference',
+      children: [
+        AtriaFormFieldRow(
+          minWidth: 420,
+          first: _dateField(
+            label: 'Bill date *',
+            icon: Icons.calendar_today_rounded,
+            value: _billDate,
+            onTap: () => _pickDate(isBillDate: true),
           ),
-          const SizedBox(height: 16),
-          _supplierField(),
-          const SizedBox(height: 12),
-          _FieldRow(
-            first: TextFormField(
-              controller: _supplierInvoiceController,
-              textCapitalization: TextCapitalization.characters,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'Supplier invoice no.',
-                hintText: 'Their bill reference',
-                prefixIcon: Icon(Icons.receipt_outlined),
-              ),
-            ),
-            second: _dateField(
-              label: 'Bill date *',
-              icon: Icons.calendar_today_rounded,
-              value: _billDate,
-              onTap: () => _pickDate(isBillDate: true),
-            ),
-          ),
-          const SizedBox(height: 12),
-          _dateField(
+          second: _dateField(
             label: 'Due date',
             icon: Icons.event_rounded,
             value: _dueDate,
@@ -610,34 +973,58 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
                 ? null
                 : () => setState(() => _dueDate = null),
           ),
-          const SizedBox(height: 8),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Inter-state purchase'),
-            subtitle: Text(_isInterState
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _supplierInvoiceController,
+          textCapitalization: TextCapitalization.characters,
+          textInputAction: TextInputAction.next,
+          decoration: const InputDecoration(
+            labelText: 'Supplier invoice no.',
+            hintText: 'Their bill reference',
+            prefixIcon: AtriaFieldIcon(Icons.receipt_outlined),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _taxSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Inter-state purchase'),
+          subtitle: Text(
+            _isInterState
                 ? 'IGST applies (different states)'
-                : 'CGST + SGST apply (same state)'),
-            value: _isInterState,
-            onChanged: (value) => _changed(() => _isInterState = value),
+                : 'CGST + SGST apply (same state)',
           ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Reverse charge'),
-            subtitle: const Text('Tax is paid by you directly to the authority'),
-            value: _reverseCharge,
-            onChanged: (value) => _changed(() => _reverseCharge = value),
-          ),
-        ],
-      ),
+          value: _isInterState,
+          onChanged: (value) => _changed(() => _isInterState = value),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Reverse charge'),
+          subtitle: const Text('Tax is paid by you directly to the authority'),
+          value: _reverseCharge,
+          onChanged: (value) => _changed(() => _reverseCharge = value),
+        ),
+      ],
     );
   }
 
   Widget _supplierField() {
     return DropdownButtonFormField<String?>(
+      iconSize: AppIconSize.md,
       initialValue: _selectedSupplierId,
+      // isExpanded: a DropdownButton sizes to its WIDEST item, so an
+      // unexpanded one overflows the field on a phone.
+      isExpanded: true,
       decoration: const InputDecoration(
         labelText: 'Supplier *',
-        prefixIcon: Icon(Icons.storefront_outlined),
+        prefixIcon: AtriaFieldIcon(Icons.storefront_outlined),
       ),
       items: [
         for (final supplier in _suppliers)
@@ -655,7 +1042,13 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
             children: [
               Icon(Icons.person_add_rounded, size: 18),
               SizedBox(width: 6),
-              Text('Add new supplier'),
+              Flexible(
+                child: Text(
+                  'Add new supplier',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
         ),
@@ -686,11 +1079,14 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
       child: InputDecorator(
         decoration: InputDecoration(
           labelText: label,
-          prefixIcon: Icon(icon),
+          prefixIcon: AtriaFieldIcon(icon),
           suffixIcon: onClear == null
               ? null
               : IconButton(
-                  icon: const Icon(Icons.close_rounded),
+                  icon: const Icon(
+                    Icons.close_rounded,
+                    size: AppIconSize.md,
+                  ),
                   tooltip: 'Clear',
                   onPressed: onClear,
                 ),
@@ -698,18 +1094,25 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
         child: Text(
           value == null ? placeholder : Formatters.date(value),
           style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                color: value == null
-                    ? Theme.of(context).colorScheme.onSurfaceVariant
-                    : null,
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
+            color: value == null
+                ? Theme.of(context).colorScheme.onSurfaceVariant
+                : null,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
         ),
       ),
     );
   }
 
-  void _addLine() {
-    _changed(() => _lines.add(_LineState(id: IdUtils.newId())));
+  /// Appends a line; [focus] puts the caret in the new line's item cell —
+  /// Enter at the end of the sheet.
+  void _addLine({bool focus = false}) {
+    final line = _LineState(id: IdUtils.newId());
+    _changed(() => _lines.add(line));
+    if (!focus) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) line.nameFocus.requestFocus();
+    });
   }
 
   void _deleteLine(_LineState line) {
@@ -720,68 +1123,66 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
   }
 
   Widget _chargesSection() {
-    return _sectionCard(
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SectionHeader(
-            title: 'Charges & adjustments',
-            padding: EdgeInsets.zero,
+    // No card of its own: the link section above it is already the surface.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AtriaFormFieldRow(
+          first: TextFormField(
+            controller: _invoiceDiscountController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [IndianAmountInputFormatter(decimals: 2)],
+            decoration: const InputDecoration(
+              labelText: 'Invoice discount',
+              suffixText: '%',
+              prefixIcon: AtriaFieldIcon(Icons.discount_outlined),
+            ),
+            validator: (value) => value == null || value.trim().isEmpty
+                ? null
+                : Validators.gstRate(value),
+            onChanged: (_) => _changed(),
           ),
-          const SizedBox(height: 16),
-          _FieldRow(
-            first: TextFormField(
-              controller: _invoiceDiscountController,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [IndianAmountInputFormatter(decimals: 2)],
-              decoration: const InputDecoration(
-                labelText: 'Invoice discount',
-                suffixText: '%',
-                prefixIcon: Icon(Icons.discount_outlined),
-              ),
-              validator: (value) => value == null || value.trim().isEmpty
-                  ? null
-                  : Validators.gstRate(value),
-              onChanged: (_) => _changed(),
+          second: TextFormField(
+            controller: _shippingController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [IndianAmountInputFormatter(decimals: 2)],
+            decoration: const InputDecoration(
+              labelText: 'Shipping / freight',
+              prefixIcon: AtriaFieldIcon(Icons.local_shipping_outlined),
             ),
-            second: TextFormField(
-              controller: _shippingController,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [IndianAmountInputFormatter(decimals: 2)],
-              decoration: const InputDecoration(
-                labelText: 'Shipping / freight',
-                prefixIcon: Icon(Icons.local_shipping_outlined),
-              ),
-              validator: _optionalAmount,
-              onChanged: (_) => _changed(),
-            ),
+            validator: _optionalAmount,
+            onChanged: (_) => _changed(),
           ),
-          const SizedBox(height: 12),
-          _FieldRow(
-            first: TextFormField(
-              controller: _otherChargesController,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [IndianAmountInputFormatter(decimals: 2)],
-              decoration: const InputDecoration(
-                labelText: 'Other charges',
-                prefixIcon: Icon(Icons.add_circle_outline_rounded),
-              ),
-              validator: _optionalAmount,
-              onChanged: (_) => _changed(),
+        ),
+        const SizedBox(height: 12),
+        AtriaFormFieldRow(
+          first: TextFormField(
+            controller: _otherChargesController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [IndianAmountInputFormatter(decimals: 2)],
+            decoration: const InputDecoration(
+              labelText: 'Other charges',
+              prefixIcon: AtriaFieldIcon(Icons.add_circle_outline_rounded),
             ),
-            second: SwitchListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-              title: const Text('Round off'),
-              subtitle: const Text('Round the total to the nearest rupee'),
-              value: _applyRoundOff,
-              onChanged: (value) => _changed(() => _applyRoundOff = value),
-            ),
+            validator: _optionalAmount,
+            onChanged: (_) => _changed(),
           ),
-        ],
-      ),
+          second: TextFormField(
+            controller: _tdsRateController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [IndianAmountInputFormatter(decimals: 2)],
+            decoration: const InputDecoration(
+              labelText: 'TDS %',
+              helperText: '0 for none',
+              prefixIcon: AtriaFieldIcon(Icons.percent_rounded),
+            ),
+            // Deducted on the taxable value, which is what a 194Q deduction is
+            // taken on (the GST the buyer also pays is not the supplier's
+            // income). The row in the totals panel shows the amount.
+            onChanged: (_) => _changed(),
+          ),
+        ),
+      ],
     );
   }
 
@@ -794,62 +1195,15 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
   }
 
   Widget _notesSection() {
-    return _sectionCard(
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SectionHeader(title: 'Notes', padding: EdgeInsets.zero),
-          const SizedBox(height: 16),
-          TextFormField(
-            controller: _notesController,
-            textCapitalization: TextCapitalization.sentences,
-            maxLines: 3,
-            minLines: 2,
-            decoration: const InputDecoration(
-              labelText: 'Notes',
-              hintText: 'Anything to remember about this purchase',
-              alignLabelWithHint: true,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// The dashed "＋ Add line" strip, same affordance as the sale editor.
-  Widget _addLineStrip() {
-    final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: InkWell(
-        onTap: _addLine,
-        borderRadius: AppRadius.mdAll,
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 13),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            borderRadius: AppRadius.mdAll,
-            border: Border.all(
-              color: scheme.primary.withValues(alpha: 0.45),
-              width: 1.2,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.add_rounded, size: 18, color: scheme.primary),
-              const SizedBox(width: 6),
-              Text(
-                'Add line',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: scheme.primary,
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-            ],
-          ),
-        ),
+    return TextFormField(
+      controller: _notesController,
+      textCapitalization: TextCapitalization.sentences,
+      maxLines: 3,
+      minLines: 2,
+      decoration: const InputDecoration(
+        labelText: 'Notes',
+        hintText: 'Anything to remember about this purchase',
+        alignLabelWithHint: true,
       ),
     );
   }
@@ -860,18 +1214,26 @@ class _LineState {
   _LineState({required this.id});
 
   final String id;
+
+  /// Focus target for the line's item cell — Enter at the end of the sheet
+  /// lands here.
+  final FocusNode nameFocus = FocusNode();
+
   String? itemId;
-  String? hsn;
   String unit = 'pcs';
   double gstRate = 0;
   double cessRate = 0;
   TaxMode taxMode = TaxMode.exclusive;
 
   final TextEditingController nameController = TextEditingController();
-  final TextEditingController quantityController =
-      TextEditingController(text: '1');
+  final TextEditingController hsnController = TextEditingController();
+  final TextEditingController quantityController = TextEditingController(
+    text: '1',
+  );
   final TextEditingController rateController = TextEditingController();
   final TextEditingController discountController = TextEditingController();
+
+  String get hsn => hsnController.text.trim().toUpperCase();
 
   Decimal get quantity =>
       Money.tryParse(quantityController.text) ?? Decimal.zero;
@@ -888,7 +1250,7 @@ class _LineState {
   void applyEntity(PurchaseBillItemEntity entity) {
     itemId = entity.itemId;
     nameController.text = entity.name;
-    hsn = entity.hsn;
+    hsnController.text = entity.hsn ?? '';
     unit = entity.unit;
     quantityController.text = Formatters.qty(Money.of(entity.quantity));
     rateController.text = Formatters.number(Money.of(entity.rate));
@@ -897,311 +1259,60 @@ class _LineState {
         : Formatters.number(Money.of(entity.discountPercent));
     gstRate = entity.gstRate;
     cessRate = entity.cessRate;
-    taxMode =
-        entity.taxMode == 'inclusive' ? TaxMode.inclusive : TaxMode.exclusive;
+    taxMode = entity.taxMode == 'inclusive'
+        ? TaxMode.inclusive
+        : TaxMode.exclusive;
   }
 
   void applyItem(ItemEntity item, String Function(double) formatAmount) {
     itemId = item.id;
     nameController.text = item.name;
-    hsn = item.hsn;
+    hsnController.text = item.hsn ?? '';
     unit = item.unit;
     rateController.text = formatAmount(item.purchasePrice);
     gstRate = item.gstRate;
     cessRate = item.cessRate;
-    taxMode =
-        item.taxMode == 'inclusive' ? TaxMode.inclusive : TaxMode.exclusive;
+    taxMode = item.taxMode == 'inclusive'
+        ? TaxMode.inclusive
+        : TaxMode.exclusive;
   }
 
   TaxLine toTaxLine() => TaxLine(
-        id: id,
-        itemId: itemId,
-        name: nameController.text.trim().isEmpty
-            ? 'Untitled line'
-            : nameController.text.trim(),
-        hsn: hsn,
-        quantity: quantity,
-        unit: unit,
-        rate: rate,
-        discountPercent: discountPercent,
-        gstRate: gstRate,
-        cessRate: cessRate,
-        taxMode: taxMode,
-      );
+    id: id,
+    itemId: itemId,
+    name: nameController.text.trim().isEmpty
+        ? 'Untitled line'
+        : nameController.text.trim(),
+    hsn: hsn,
+    quantity: quantity,
+    unit: unit,
+    rate: rate,
+    discountPercent: discountPercent,
+    gstRate: gstRate,
+    cessRate: cessRate,
+    taxMode: taxMode,
+  );
 
   PurchaseLineDraft toDraft() => PurchaseLineDraft(
-        id: id,
-        itemId: itemId,
-        name: nameController.text.trim(),
-        hsn: hsn,
-        quantity: quantity,
-        unit: unit,
-        rate: rate,
-        discountPercent: discountPercent,
-        gstRate: gstRate,
-        cessRate: cessRate,
-        taxMode: taxMode,
-      );
+    id: id,
+    itemId: itemId,
+    name: nameController.text.trim(),
+    hsn: hsn,
+    quantity: quantity,
+    unit: unit,
+    rate: rate,
+    discountPercent: discountPercent,
+    gstRate: gstRate,
+    cessRate: cessRate,
+    taxMode: taxMode,
+  );
 
   void dispose() {
+    nameFocus.dispose();
     nameController.dispose();
+    hsnController.dispose();
     quantityController.dispose();
     rateController.dispose();
     discountController.dispose();
-  }
-}
-
-class _LineCard extends StatelessWidget {
-  const _LineCard({
-    required this.line,
-    required this.items,
-    required this.split,
-    required this.onChanged,
-    required this.onDeleted,
-    required this.onCreateItem,
-  });
-
-  final _LineState line;
-  final List<ItemEntity> items;
-  final GstSplit split;
-  final VoidCallback onChanged;
-  final VoidCallback onDeleted;
-
-  /// The typed name matched nothing in the catalogue — persist it silently
-  /// (Vyapar-style) and link the line to it.
-  final void Function(_LineState line, String name) onCreateItem;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    final totals = GstEngine.computeLine(line.toTaxLine(), split);
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
-        borderRadius: AppRadius.mdAll,
-        border: Border.all(color: scheme.outline, width: 0.9),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: _itemField()),
-              const SizedBox(width: 8),
-              IconButton(
-                tooltip: 'Delete line',
-                onPressed: onDeleted,
-                icon: Icon(
-                  Icons.delete_outline_rounded,
-                  color: atriaColors(context).negative,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          TextFormField(
-            controller: line.nameController,
-            textCapitalization: TextCapitalization.words,
-            textInputAction: TextInputAction.next,
-            onChanged: (_) => onChanged(),
-            decoration: const InputDecoration(
-              labelText: 'Description *',
-              hintText: 'Item or service name',
-              isDense: true,
-            ),
-            validator: (value) => Validators.name(value),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                flex: 1,
-                child: TextFormField(
-                  controller: line.quantityController,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [IndianAmountInputFormatter(decimals: 3)],
-                  onChanged: (_) => onChanged(),
-                  decoration: InputDecoration(
-                    labelText: 'Qty',
-                    isDense: true,
-                    suffixText: Unit.symbolOf(line.unit),
-                  ),
-                  validator: (value) => Validators.amount(value),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                flex: 2,
-                child: TextFormField(
-                  controller: line.rateController,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [IndianAmountInputFormatter(decimals: 2)],
-                  onChanged: (_) => onChanged(),
-                  decoration: const InputDecoration(
-                    labelText: 'Rate',
-                    isDense: true,
-                    prefixText: '₹ ',
-                  ),
-                  validator: (value) => Validators.amount(value),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                flex: 1,
-                child: TextFormField(
-                  controller: line.discountController,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [IndianAmountInputFormatter(decimals: 2)],
-                  onChanged: (_) => onChanged(),
-                  decoration: const InputDecoration(
-                    labelText: 'Disc.',
-                    isDense: true,
-                    suffixText: '%',
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              SizedBox(
-                width: 112,
-                child: DropdownButtonFormField<double>(
-                  key: ValueKey<double>(line.gstRate),
-                  initialValue: line.gstRate,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'GST',
-                    isDense: true,
-                  ),
-                  items: [
-                    for (final rate in GstRate.standard)
-                      DropdownMenuItem<double>(
-                        value: rate.rate,
-                        child: Text(rate.label),
-                      ),
-                  ],
-                  onChanged: (value) {
-                    line.gstRate = value ?? 0;
-                    onChanged();
-                  },
-                ),
-              ),
-              const SizedBox(width: 12),
-              // Per-line inclusive/exclusive, same as the sale editor.
-              if (line.gstRate > 0) ...[
-                TaxModeToggle(
-                  value: line.taxMode,
-                  onChanged: (mode) {
-                    line.taxMode = mode;
-                    onChanged();
-                  },
-                ),
-                const SizedBox(width: 12),
-              ],
-              Expanded(
-                child: Text(
-                  'Taxable ${Formatters.money(totals.taxable)}  ·  '
-                  'Tax ${Formatters.money(totals.tax)}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.end,
-                  style: text.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w600,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _itemField() {
-    // Type-ahead, Vyapar-style: typing filters the catalogue, and a name
-    // matching nothing is saved as a NEW item silently — no dialog, no
-    // extra step. (Was a closed dropdown over a snapshot.)
-    return ItemTypeAheadField(
-      controller: line.nameController,
-      items: [
-        for (final item in items)
-          ItemSuggestion(
-            name: item.name,
-            salePrice: item.purchasePrice,
-            unit: item.unit,
-          ),
-      ],
-      onPickItem: (s) {
-        final match = items
-            .where((i) => i.name == s.name)
-            .cast<ItemEntity?>()
-            .firstWhere((i) => i != null, orElse: () => null);
-        if (match != null) {
-          line.applyItem(match, _formatAmount);
-          onChanged();
-        }
-      },
-      onCreateItem: (name) {
-        onCreateItem(line, name);
-        onChanged();
-      },
-    );
-  }
-
-  /// Groups digits the Indian way and drops ".0" for whole numbers.
-  String _formatAmount(double value) {
-    if (value == value.roundToDouble()) {
-      return Formatters.indianGroup(value.toInt().toString());
-    }
-    return Formatters.number(Money.of(value));
-  }
-}
-
-/// Two fields side by side on wide content areas, stacked on narrow ones.
-class _FieldRow extends StatelessWidget {
-  const _FieldRow({required this.first, required this.second});
-
-  final Widget first;
-  final Widget second;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 560) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              first,
-              const SizedBox(height: 12),
-              second,
-            ],
-          );
-        }
-        return IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(child: first),
-              const SizedBox(width: 12),
-              Expanded(child: second),
-            ],
-          ),
-        );
-      },
-    );
   }
 }

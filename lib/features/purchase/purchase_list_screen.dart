@@ -11,7 +11,11 @@ import '../../core/responsive/breakpoints.dart';
 import '../../core/state/providers.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/money.dart';
+import '../../shared/widgets/atria_list_page.dart';
+import '../../shared/widgets/atria_list_toolbar.dart';
+import '../../shared/widgets/atria_page_header.dart';
 import '../../shared/widgets/common_widgets.dart';
+import '../../shared/widgets/document_row_menu.dart';
 import '../../shared/widgets/period_selector.dart';
 import '../../shared/widgets/status_chip.dart';
 import '../../shared/widgets/transaction_list.dart';
@@ -24,23 +28,24 @@ class PurchaseListScreen extends ConsumerStatefulWidget {
   final String? initialType;
 
   @override
-  ConsumerState<PurchaseListScreen> createState() =>
-      _PurchaseListScreenState();
+  ConsumerState<PurchaseListScreen> createState() => _PurchaseListScreenState();
 }
 
 class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
 
-  Period _period = Period.thisMonth;
+  PeriodRange _range = PeriodRange(period: Period.thisMonth);
   String _search = '';
   Timer? _debounce;
 
-  /// The document type this list shows — the two tabs moved into the left
-  /// rail's Purchase dropdown.
-  late String _docType = widget.initialType == 'debit_note'
-      ? 'debit_note'
-      : 'bill';
+  /// The document type this list shows — the rail's Purchase dropdown
+  /// deep-links here with the type.
+  late String _docType = switch (widget.initialType) {
+    'debit_note' => 'debit_note',
+    'purchase_order' => 'purchase_order',
+    _ => 'bill',
+  };
 
   @override
   void dispose() {
@@ -51,9 +56,7 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
   }
 
   String get _activeDocType => _docType;
-  bool get _isDebitTab => _docType == 'debit_note';
-
-  String get _typeLabel => _isDebitTab ? 'Debit Notes' : 'Bills';
+  bool get _isOrderTab => _docType == 'purchase_order';
 
   void _onSearchChanged(String value) {
     _debounce?.cancel();
@@ -66,85 +69,80 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
   @override
   Widget build(BuildContext context) {
     final repo = ref.watch(purchaseRepositoryProvider);
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Purchase · $_typeLabel'),
-        actions: [
-          PopupMenuButton<String>(
-            tooltip: 'Switch document type',
-            onSelected: (value) => setState(() => _docType = value),
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'bill', child: Text('Bills')),
-              PopupMenuItem(value: 'debit_note', child: Text('Debit Notes')),
-            ],
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_typeLabel,
-                      style: Theme.of(context).textTheme.bodyMedium),
-                  const Icon(Icons.arrow_drop_down_rounded),
-                ],
-              ),
-            ),
+    // The shared page frame: the same gutter, heading and toolbar rhythm as
+    // Sales, Items and Parties. This screen used to centre a 1100px column
+    // inside the body, which put its heading 52px right of every other list's
+    // and its action button 72px short of the right edge.
+    return AtriaListPage(
+      title: switch (_activeDocType) {
+        'debit_note' => 'Debit notes',
+        'purchase_order' => 'Purchase orders',
+        _ => 'Bills',
+      },
+      actions: [
+        if (repo != null && _activeDocType == 'bill')
+          // Scan sits next to Add on bills only: orders and returns are
+          // constructed, not photographed.
+          AtriaPrimaryAction(
+            label: 'Scan bill',
+            icon: Icons.document_scanner_outlined,
+            onPressed: () => context.push('/purchase/scan'),
           ),
-        ],
+        if (repo != null)
+          AtriaPrimaryAction(
+            label: switch (_activeDocType) {
+              'debit_note' => 'New debit note',
+              'purchase_order' => 'New purchase order',
+              _ => 'Add bill',
+            },
+            onPressed: () =>
+                context.push('/purchase/new?type=$_activeDocType'),
+          ),
+      ],
+      search: TransactionSearchField(
+        controller: _searchController,
+        hintText: 'Search supplier, bill or invoice no.',
+        onChanged: _onSearchChanged,
+        onClear: () {
+          _searchController.clear();
+          _searchFocus.unfocus();
+          setState(() => _search = '');
+        },
       ),
-      floatingActionButton: repo == null
-          ? null
-          : FloatingActionButton.extended(
-              onPressed: () =>
-                  context.push('/purchase/new?type=$_activeDocType'),
-              icon: const Icon(Icons.add_rounded),
-              label: Text(_isDebitTab ? 'New Debit Note' : 'Add Bill'),
-            ),
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return Center(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: constraints.isCompact ? double.infinity : 1100,
-                ),
-                child: Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                      child: TransactionSearchField(
-                        controller: _searchController,
-                        hintText: 'Search supplier, bill or invoice no.',
-                        onChanged: _onSearchChanged,
-                        onClear: () {
-                          _searchController.clear();
-                          _searchFocus.unfocus();
-                          setState(() => _search = '');
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    PeriodPillRow(
-                      value: _period,
-                      onChanged: (period) => setState(() => _period = period),
-                    ),
-                    const SizedBox(height: 4),
-                    Expanded(
-                      child: repo == null
-                          ? const EmptyState(
-                              icon: Icons.storefront_outlined,
-                              title: 'No business open',
-                              message: 'Set up a firm in Settings to start '
-                                  'recording purchase bills.',
-                            )
-                          : _area(repo),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
+      filters: [
+        AtriaAdaptiveFilter<String>(
+          label: 'Type',
+          segments: const [
+            AtriaSegment(value: 'bill', label: 'Bills'),
+            AtriaSegment(value: 'purchase_order', label: 'Purchase orders'),
+            AtriaSegment(value: 'debit_note', label: 'Debit notes'),
+          ],
+          value: _docType,
+          onChanged: (value) => setState(() => _docType = value),
         ),
-      ),
+        AtriaAdaptiveFilter<Period>(
+          label: 'Date',
+          segments: periodSegments(),
+          value: _range.period,
+          onChanged: (period) =>
+              setState(() => _range = _range.withPeriod(period)),
+        ),
+        // A custom window needs its two days on screen; the named ones show
+        // the window in the select itself.
+        if (_range.isCustom)
+          PeriodCustomRange(
+            range: _range,
+            onChanged: (range) => setState(() => _range = range),
+          ),
+      ],
+      body: repo == null
+          ? const EmptyState(
+              icon: Icons.storefront_outlined,
+              title: 'No business open',
+              message: 'Set up a firm in Settings to start '
+                  'recording purchase bills.',
+            )
+          : _area(repo),
     );
   }
 
@@ -153,13 +151,14 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
   PurchaseRepository? _streamRepo;
 
   Stream<List<PurchaseBillEntity>> _streamFor(PurchaseRepository repo) {
-    final key = '${_period.name}-$_activeDocType';
+    final key = '$_activeDocType-${_range.cacheKey}';
     if (_stream == null || _streamKey != key || _streamRepo != repo) {
       _streamKey = key;
       _streamRepo = repo;
       _stream = repo.watchList(
         docType: _activeDocType,
-        from: periodStart(_period),
+        from: _range.from,
+        to: _range.to,
         limit: 1000,
       );
     }
@@ -167,14 +166,18 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
   }
 
   List<PurchaseBillEntity> _applySearch(
-      List<PurchaseBillEntity> bills, String search) {
+    List<PurchaseBillEntity> bills,
+    String search,
+  ) {
     if (search.isEmpty) return bills;
     final q = search.toLowerCase();
     return bills
-        .where((bill) =>
-            bill.number.toLowerCase().contains(q) ||
-            (bill.partyName ?? '').toLowerCase().contains(q) ||
-            (bill.supplierInvoiceNumber ?? '').toLowerCase().contains(q))
+        .where(
+          (bill) =>
+              bill.number.toLowerCase().contains(q) ||
+              (bill.partyName ?? '').toLowerCase().contains(q) ||
+              (bill.supplierInvoiceNumber ?? '').toLowerCase().contains(q),
+        )
         .toList(growable: false);
   }
 
@@ -184,8 +187,7 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting &&
             !snapshot.hasData) {
-          return const Center(
-              child: CircularProgressIndicator(strokeWidth: 2));
+          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
         }
         if (snapshot.hasError) {
           return EmptyState(
@@ -199,18 +201,18 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
         final bills = _applySearch(all, _search);
         final stats = _statsOf(all);
         if (bills.isEmpty) {
+          // The Date filter is what usually hides a bill: say so instead of
+          // insisting none exist (the "my March bill is missing" report).
+          final range = _range;
           return CustomScrollView(
             slivers: [
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  padding: const EdgeInsets.fromLTRB(0, 8, 0, 0),
                   child: TotalsCard(
                     compact: true,
-                    title: _isDebitTab ? 'Total Returned' : 'Total Purchases',
-                    entries: [
-                      TotalsEntry(label: 'Total', amount: stats.purchases),
-                      TotalsEntry(label: 'Payable', amount: stats.payable),
-                    ],
+                    title: _totalsTitle,
+                    entries: _totalsEntries(stats),
                   ),
                 ),
               ),
@@ -221,19 +223,19 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
                       ? Icons.shopping_cart_checkout_rounded
                       : Icons.search_off_rounded,
                   title: _search.isEmpty
-                      ? (_isDebitTab ? 'No debit notes' : 'No purchase bills')
+                      ? (range.isAllTime
+                            ? _emptyTitle
+                            : 'Nothing in ${range.label}')
                       : 'No matches',
-                  message: _search.isEmpty
-                      ? 'Record your first purchase bill to track stock and '
-                          'payables.'
-                      : 'Nothing matches “$_search”. Try a different supplier '
-                          'or bill number.',
-                  actionLabel: _search.isEmpty
-                      ? (_isDebitTab ? 'Add Debit Note' : 'Add Bill')
-                      : null,
+                  message: _search.isNotEmpty
+                      ? 'Nothing matches “$_search”. Try a different supplier '
+                            'or bill number.'
+                      : range.isAllTime
+                          ? _emptyMessage
+                          : range.emptyWindowMessage(_emptyNoun),
+                  actionLabel: _search.isEmpty ? _emptyAction : null,
                   onAction: _search.isEmpty
-                      ? () =>
-                          context.push('/purchase/new?type=$_activeDocType')
+                      ? () => context.push('/purchase/new?type=$_activeDocType')
                       : null,
                 ),
               ),
@@ -252,15 +254,12 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
 
   Widget _cardList(List<PurchaseBillEntity> bills, _BillStats stats) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+      padding: const EdgeInsets.fromLTRB(0, 8, 0, 96),
       children: [
         TotalsCard(
           compact: true,
-          title: _isDebitTab ? 'Total Returned' : 'Total Purchases',
-          entries: [
-            TotalsEntry(label: 'Total', amount: stats.purchases),
-            TotalsEntry(label: 'Payable', amount: stats.payable),
-          ],
+          title: _totalsTitle,
+          entries: _totalsEntries(stats),
         ),
         const SizedBox(height: 12),
         for (final bill in bills)
@@ -274,15 +273,12 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
 
   Widget _tableList(List<PurchaseBillEntity> bills, _BillStats stats) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+      padding: const EdgeInsets.fromLTRB(0, 8, 0, 96),
       children: [
         TotalsCard(
           compact: true,
-          title: _isDebitTab ? 'Total Returned' : 'Total Purchases',
-          entries: [
-            TotalsEntry(label: 'Total', amount: stats.purchases),
-            TotalsEntry(label: 'Payable', amount: stats.payable),
-          ],
+          title: _totalsTitle,
+          entries: _totalsEntries(stats),
         ),
         const SizedBox(height: 14),
         SectionHeader(
@@ -307,6 +303,49 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
     );
   }
 
+  String get _emptyTitle => switch (_activeDocType) {
+    'debit_note' => 'No debit notes',
+    'purchase_order' => 'No purchase orders',
+    _ => 'No purchase bills',
+  };
+
+  String get _emptyMessage => switch (_activeDocType) {
+    'debit_note' =>
+      'Record a purchase return to send goods back and reverse the tax.',
+    'purchase_order' =>
+      'Track orders placed with suppliers before the goods arrive — then '
+          'convert them into bills.',
+    _ => 'Record your first purchase bill to track stock and payables.',
+  };
+
+  String get _emptyAction => switch (_activeDocType) {
+    'debit_note' => 'Add Debit Note',
+    'purchase_order' => 'Add Purchase Order',
+    _ => 'Add Bill',
+  };
+
+  /// Plural noun for the period-aware empty state.
+  String get _emptyNoun => switch (_activeDocType) {
+    'debit_note' => 'debit notes',
+    'purchase_order' => 'purchase orders',
+    _ => 'bills',
+  };
+
+  String get _totalsTitle => switch (_activeDocType) {
+    'debit_note' => 'Total Returned',
+    'purchase_order' => 'Total Ordered',
+    _ => 'Total Purchases',
+  };
+
+  /// Orders never touch payables — the bill raised against them does.
+  List<TotalsEntry> _totalsEntries(_BillStats stats) =>
+      _isOrderTab
+          ? [TotalsEntry(label: 'Total', amount: stats.purchases)]
+          : [
+              TotalsEntry(label: 'Total', amount: stats.purchases),
+              TotalsEntry(label: 'Payable', amount: stats.payable),
+            ];
+
   _BillStats _statsOf(List<PurchaseBillEntity> bills) {
     var purchases = Decimal.zero;
     var payable = Decimal.zero;
@@ -327,82 +366,63 @@ class _BillStats {
 }
 
 IconData _docIcon(String docType) => switch (docType) {
-      'debit_note' => Icons.assignment_return_outlined,
-      _ => Icons.local_shipping_rounded,
-    };
+  'debit_note' => Icons.assignment_return_outlined,
+  'purchase_order' => Icons.shopping_bag_outlined,
+  _ => Icons.local_shipping_rounded,
+};
 
 String? _statusText(PurchaseBillEntity bill) {
   if (bill.status == 'cancelled') return 'Cancelled';
   return null;
 }
 
+
 class _PurchaseRow extends ConsumerWidget {
   const _PurchaseRow({required this.bill, required this.docType});
-
 
   final PurchaseBillEntity bill;
   final String docType;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isDebit = docType == 'debit_note';
     return TransactionRow(
       leading: LeadingGlyph(icon: _docIcon(docType)),
       title: bill.partyName ?? 'Unknown supplier',
       subtitle: _subtitle,
       amount: Money.of(bill.grandTotal),
       amountColorize: false,
-      statusLabel: _statusText(bill) ?? _paymentLabel,
-      statusKind: bill.status == 'cancelled'
-          ? ChipKind.danger
-          : _paymentKind,
+      statusLabel: _statusText(bill) ?? _statusLabel,
+      statusKind: bill.status == 'cancelled' ? ChipKind.danger : _statusKind,
       dimmed: bill.status == 'cancelled',
-      onTap: () =>
-          context.push('/purchase/edit/${bill.id}?type=$docType'),
-      trailing: RowActionsButton(
-        actions: [
-          RowAction(
-            label: isDebit ? 'Edit debit note' : 'Edit bill',
-            icon: Icons.edit_outlined,
-            onSelected: () =>
-                context.push('/purchase/edit/${bill.id}?type=$docType'),
-          ),
-          RowAction(
-            label: 'Delete',
-            icon: Icons.delete_outline_rounded,
-            destructive: true,
-            onSelected: () async {
-              final ok = await _confirmDelete(context, bill.number);
-              if (ok == true) {
-                try {
-                  await ref
-                      .read(purchaseRepositoryProvider)
-                      ?.softDelete(bill.id);
-                } catch (e) {
-                  if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Could not delete: $e')),
-                  );
-                }
-              }
-            },
-          ),
-        ],
+      onTap: () => context.push('/purchase/edit/${bill.id}?type=$docType'),
+      trailing: DocumentRowMenu(
+        docType: docType,
+        docId: bill.id,
+        number: bill.number,
+        status: bill.status,
+        paymentStatus: bill.paymentStatus,
       ),
     );
   }
 
-  String get _paymentLabel => switch (bill.paymentStatus) {
-        'paid' => 'Paid',
-        'partial' => 'Partial',
-        _ => 'Unpaid',
-      };
+  String get _statusLabel => switch (bill.status) {
+    'converted' => 'Converted',
+    _ => switch (bill.paymentStatus) {
+      'paid' => 'Paid',
+      'partial' => 'Partial',
+      _ => 'Unpaid',
+    },
+  };
 
-  ChipKind get _paymentKind => switch (bill.paymentStatus) {
-        'paid' => ChipKind.success,
-        'partial' => ChipKind.warning,
-        _ => ChipKind.neutral,
-      };
+  ChipKind get _statusKind {
+    if (bill.status == 'cancelled') return ChipKind.danger;
+    if (bill.status == 'converted') return ChipKind.info;
+    return switch (bill.paymentStatus) {
+      'paid' => ChipKind.success,
+      'partial' => ChipKind.warning,
+      _ => ChipKind.neutral,
+    };
+  }
 
   String get _subtitle {
     final parts = <String>[bill.number];
@@ -422,8 +442,7 @@ class _PurchaseTableRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return TransactionTableRow(
-      onTap: () =>
-          context.push('/purchase/edit/${bill.id}?type=$docType'),
+      onTap: () => context.push('/purchase/edit/${bill.id}?type=$docType'),
       leading: LeadingGlyph(icon: _docIcon(docType)),
       date: Formatters.date(bill.billDate),
       number: bill.number,
@@ -434,78 +453,39 @@ class _PurchaseTableRow extends ConsumerWidget {
       amount: Money.of(bill.grandTotal),
       amountColorize: false,
       balance: Money.of(bill.balanceDue),
-      statusLabel: _statusText(bill) ?? _paymentLabel,
-      statusKind:
-          bill.status == 'cancelled' ? ChipKind.danger : _paymentKind,
-      trailing: RowActionsButton(
-        actions: [
-          RowAction(
-            label: docType == 'debit_note' ? 'Edit debit note' : 'Edit bill',
-            icon: Icons.edit_outlined,
-            onSelected: () =>
-                context.push('/purchase/edit/${bill.id}?type=$docType'),
-          ),
-          RowAction(
-            label: 'Delete',
-            icon: Icons.delete_outline_rounded,
-            destructive: true,
-            onSelected: () async {
-              final ok = await _confirmDelete(context, bill.number);
-              if (ok == true) {
-                try {
-                  await ref
-                      .read(purchaseRepositoryProvider)
-                      ?.softDelete(bill.id);
-                } catch (e) {
-                  if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Could not delete: $e')),
-                  );
-                }
-              }
-            },
-          ),
-        ],
+      statusLabel: _statusText(bill) ?? _statusLabel,
+      statusKind: _statusKind,
+      // The Status column already carries this; the pill beside the balance
+      // duplicated it and pushed the figure left of its header.
+      showStatusChip: false,
+      trailing: DocumentRowMenu(
+        docType: docType,
+        docId: bill.id,
+        number: bill.number,
+        status: bill.status,
+        paymentStatus: bill.paymentStatus,
       ),
       dimmed: bill.status == 'cancelled',
     );
   }
 
-  String get _paymentLabel => switch (bill.paymentStatus) {
-        'paid' => 'Paid',
-        'partial' => 'Partial',
-        _ => 'Unpaid',
-      };
+  String get _statusLabel => switch (bill.status) {
+    'converted' => 'Converted',
+    _ => switch (bill.paymentStatus) {
+      'paid' => 'Paid',
+      'partial' => 'Partial',
+      _ => 'Unpaid',
+    },
+  };
 
-  ChipKind get _paymentKind => switch (bill.paymentStatus) {
-        'paid' => ChipKind.success,
-        'partial' => ChipKind.warning,
-        _ => ChipKind.neutral,
-      };
+  ChipKind get _statusKind {
+    if (bill.status == 'cancelled') return ChipKind.danger;
+    if (bill.status == 'converted') return ChipKind.info;
+    return switch (bill.paymentStatus) {
+      'paid' => ChipKind.success,
+      'partial' => ChipKind.warning,
+      _ => ChipKind.neutral,
+    };
+  }
 }
 
-/// Confirmation used by both row variants before a soft delete.
-Future<bool?> _confirmDelete(BuildContext context, String number) {
-  return showDialog<bool>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: Text('Delete $number?'),
-      content: const Text(
-          'Stock received is reversed. The bill moves to the recycle bin '
-          'and can be restored from Settings.'),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(dialogContext).pop(false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton.tonal(
-          style: FilledButton.styleFrom(
-            foregroundColor: Theme.of(dialogContext).colorScheme.error,
-          ),
-          onPressed: () => Navigator.of(dialogContext).pop(true),
-          child: const Text('Delete'),
-        ),
-      ],
-    ),
-  );
-}

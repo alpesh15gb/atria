@@ -9,6 +9,10 @@ import '../../features/expenses/expense_editor_screen.dart';
 import '../../features/expenses/expenses_screen.dart';
 import '../../features/items/item_editor_screen.dart';
 import '../../features/items/items_screen.dart';
+import '../../features/ledger/chart_of_accounts_screen.dart';
+import '../../features/ledger/journal_editor_screen.dart';
+import '../../features/ledger/journal_list_screen.dart';
+import '../../features/ledger/ledger_reports_screen.dart';
 import '../../features/onboarding/firm_setup_screen.dart';
 import '../../features/onboarding/onboarding_screen.dart';
 import '../../features/payments/payments_screen.dart';
@@ -16,8 +20,10 @@ import '../../features/parties/party_editor_screen.dart';
 import '../../features/parties/party_statement_screen.dart';
 import '../../features/parties/statement_of_account_screen.dart';
 import '../../features/parties/parties_screen.dart';
+import '../../features/purchase/bill_scan_screen.dart';
 import '../../features/purchase/purchase_editor_screen.dart';
 import '../../features/purchase/purchase_list_screen.dart';
+import '../../core/sync/scan_seed.dart';
 import '../../features/recycle_bin/recycle_bin_screen.dart';
 import '../../features/reports/gst_reports_screen.dart';
 import '../../features/reports/reports_screen.dart';
@@ -29,6 +35,10 @@ import '../../features/settings/backup_restore_screen.dart';
 import '../../features/settings/firm_settings_screen.dart';
 import '../../features/settings/period_lock_and_audit_screens.dart';
 import '../../features/settings/settings_screen.dart';
+import '../../features/settings/sign_in_screen.dart';
+import '../../features/pos/pos_screen.dart';
+import '../../features/settings/printer_settings_screen.dart';
+import '../../features/settings/vyapar_import_screen.dart';
 import '../../features/stock/stock_screen.dart';
 import '../../shared/widgets/adaptive_nav_shell.dart';
 
@@ -125,6 +135,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/payment-reminders',
         builder: (context, state) => const PaymentRemindersScreen(),
       ),
+      // Outside the shell on purpose: the counter screen takes the whole
+      // window, because at a counter the navigation rail is only something to
+      // scroll past between customers.
+      GoRoute(
+        path: PosScreen.routePath,
+        builder: (context, state) => const PosScreen(),
+      ),
       StatefulShellRoute.indexedStack(
         // The shell must mount `navigationShell` — that widget hosts the
         // per-branch navigators, i.e. every list screen AND the editor/detail
@@ -202,7 +219,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           StatefulShellBranch(routes: [
             GoRoute(
               path: '/parties',
-              builder: (context, state) => const PartiesScreen(),
+              builder: (context, state) => PartiesScreen(
+                // ?type=customer lands on the rail's Customers row, and
+                // ?type=supplier on Vendors — one screen, two QBO entries.
+                initialType: state.uri.queryParameters['type'],
+              ),
               routes: [
                 GoRoute(
                   path: 'new',
@@ -241,10 +262,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               ),
               routes: [
                 GoRoute(
+                  path: 'scan',
+                  builder: (context, state) => const BillScanScreen(),
+                ),
+                GoRoute(
                   path: 'new',
                   builder: (context, state) => PurchaseEditorScreen(
-                    // ?type=debit_note creates a purchase return.
+                    // ?type=debit_note creates a purchase return;
+                    // ?from=<id> seeds a new bill from a purchase order —
+                    // the convert flow. The scan flow arrives via `extra`.
                     docType: state.uri.queryParameters['type'] ?? 'bill',
+                    convertFromId: state.uri.queryParameters['from'],
+                    scanSeed: state.extra is ScannedBillSeed
+                        ? state.extra as ScannedBillSeed
+                        : null,
                   ),
                 ),
                 GoRoute(
@@ -323,6 +354,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                   builder: (context, state) => const BackupRestoreScreen(),
                 ),
                 GoRoute(
+                  path: 'vyapar-import',
+                  builder: (context, state) => const VyaparImportScreen(),
+                ),
+                GoRoute(
+                  path: 'printers',
+                  builder: (context, state) => const PrinterSettingsScreen(),
+                ),
+                GoRoute(
                   path: 'recycle-bin',
                   builder: (context, state) => const RecycleBinScreen(),
                 ),
@@ -333,6 +372,52 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 GoRoute(
                   path: 'audit-log',
                   builder: (context, state) => const AuditLogScreen(),
+                ),
+                GoRoute(
+                  path: 'sign-in',
+                  builder: (context, state) => const SignInScreen(),
+                ),
+              ],
+            ),
+          ]),
+          // Appended after Settings so the twelve branch indexes above keep
+          // their meaning: the mobile bottom bar and the rail both key off
+          // them, and renumbering would move screens under the user's finger.
+          StatefulShellBranch(routes: [
+            GoRoute(
+              path: '/ledger',
+              builder: (context, state) => const ChartOfAccountsScreen(),
+              routes: [
+                GoRoute(
+                  path: 'journals',
+                  builder: (context, state) => const JournalListScreen(),
+                  routes: [
+                    GoRoute(
+                      path: 'new',
+                      builder: (context, state) =>
+                          const JournalEditorScreen(),
+                    ),
+                    GoRoute(
+                      path: 'edit/:id',
+                      builder: (context, state) => JournalEditorScreen(
+                        editId: state.pathParameters['id'],
+                      ),
+                    ),
+                  ],
+                ),
+                GoRoute(
+                  path: 'trial-balance',
+                  builder: (context, state) => const TrialBalanceScreen(),
+                ),
+                GoRoute(
+                  path: 'balance-sheet',
+                  builder: (context, state) => const BalanceSheetScreen(),
+                ),
+                GoRoute(
+                  path: 'account/:id',
+                  builder: (context, state) => AccountLedgerScreen(
+                    accountId: state.pathParameters['id']!,
+                  ),
                 ),
               ],
             ),

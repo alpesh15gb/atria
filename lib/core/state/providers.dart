@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/api_config.dart';
 import '../api/auth_client.dart';
+import '../api/scan_client.dart';
 import '../api/server_client.dart';
 import '../api/server_session.dart';
 import '../api/sync_client.dart';
@@ -60,6 +61,10 @@ final authControllerProvider =
 /// The change-journal endpoint (sync push).
 final Provider<SyncClient> syncClientProvider =
     Provider((ref) => SyncClient(ref.read(apiConfigProvider)));
+
+/// The server's bill-scan endpoint (purchase OCR via the VPS).
+final Provider<ScanClient> scanClientProvider =
+    Provider((ref) => ScanClient(ref.read(apiConfigProvider)));
 
 /// Drains the outbox. Holds no state of its own — a run is a call, and what it
 /// did is reported back to whoever asked.

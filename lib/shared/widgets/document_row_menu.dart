@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:decimal/decimal.dart';
 import 'package:flutter/material.dart';
@@ -9,10 +10,12 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:printing/printing.dart';
 
+import '../../core/database/app_database.dart';
 import '../../core/database/repositories/firm_repository.dart';
 import '../../core/database/repositories/payment_repository.dart';
 import '../../core/database/repositories/repository_extensions.dart';
 import '../../core/services/invoice_pdf.dart';
+import '../../core/services/purchase_pdf.dart';
 import '../../core/state/providers.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/utils/file_names.dart';
@@ -26,8 +29,9 @@ import '../../core/utils/money.dart';
 /// - *Receive Payment* only on an invoice that still has a balance.
 /// - *Convert* only on an open quotation / sales order / purchase order.
 /// - *Cancel* only on an invoice (and never on one already cancelled).
-/// - *Open PDF / Print / Preview* only where a PDF builder and a detail
-///   screen exist.
+/// - *Open PDF / Print* on everything that can be printed — sales documents,
+///   purchase documents and payment vouchers. *Preview* only on an invoice,
+///   the one document with its own screen.
 /// - *Duplicate* only where a seed flow exists (it re-opens the editor as a
 ///   new document copied from this one).
 /// - *View History* on everything, from the audit trail.
@@ -195,8 +199,8 @@ class DocumentRowMenu extends ConsumerWidget {
       );
     }
 
-    // Print / PDF — only where a builder exists (sales documents).
-    if (_isSalesDoc) {
+    // Print / PDF — every document the app can build a PDF for.
+    if (_isSalesDoc || _isPurchaseDoc || _isPayment) {
       add(
         label: 'Open PDF',
         icon: Icons.picture_as_pdf_outlined,
@@ -207,13 +211,13 @@ class DocumentRowMenu extends ConsumerWidget {
         icon: Icons.print_outlined,
         onTap: () => _print(context, ref),
       );
-      if (docType == 'invoice') {
-        add(
-          label: 'Preview',
-          icon: Icons.visibility_outlined,
-          onTap: () => _push(context, '/sales/detail/$docId'),
-        );
-      }
+    }
+    if (_isSalesDoc && docType == 'invoice') {
+      add(
+        label: 'Preview',
+        icon: Icons.visibility_outlined,
+        onTap: () => _push(context, '/sales/detail/$docId'),
+      );
     }
 
     // Cancel — an invoice stops chasing money. Never on one already
@@ -314,26 +318,28 @@ class DocumentRowMenu extends ConsumerWidget {
     }
   }
 
-  /// Builds the document's PDF through the same service the detail screen
-  /// uses and hands it to the OS viewer.
+  /// Builds the document's PDF and hands it to the OS viewer.
+  ///
+  /// The row knows only a doc type, so the builder is chosen here: a sales
+  /// document goes through [InvoicePdf], a purchase document and a payment
+  /// voucher through [PurchasePdf]. They are separate services on purpose —
+  /// the tax split, the totals and who-owes-what all differ — but they share
+  /// the same furniture, so they print as one family.
   Future<void> _openPdf(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.maybeOf(context);
-    final sales = ref.read(salesRepositoryProvider);
     final firm = ref.read(activeFirmProvider).valueOrNull;
-    if (sales == null || firm == null) return;
+    if (firm == null) return;
     try {
-      final doc = await sales.getById(docId);
-      final items = await sales.itemsFor(docId);
-      if (doc == null) return;
-      final bytes = await InvoicePdf.forFirm(firm).build(
-        invoice: doc,
-        items: items,
-      );
+      final bytes = await _buildPdf(ref, firm);
+      if (bytes == null) return;
       final dir = await getApplicationDocumentsDirectory();
-      final outDir = Directory(p.join(dir.path, 'atria', 'invoices'));
+      final outDir = Directory(
+        p.join(dir.path, 'atria', _isSalesDoc ? 'invoices' : 'purchases'),
+      );
       if (!outDir.existsSync()) outDir.createSync(recursive: true);
+      final stem = await _pdfFileStem(ref);
       final file = File(
-        p.join(outDir.path, '${sanitizeFileName(doc.number)}.pdf'),
+        p.join(outDir.path, '${sanitizeFileName(stem)}.pdf'),
       );
       await file.writeAsBytes(bytes, flush: true);
       await OpenFilex.open(file.path);
@@ -345,19 +351,12 @@ class DocumentRowMenu extends ConsumerWidget {
   }
 
   Future<void> _print(BuildContext context, WidgetRef ref) async {
-    final sales = ref.read(salesRepositoryProvider);
     final firm = ref.read(activeFirmProvider).valueOrNull;
-    if (sales == null || firm == null) return;
+    if (firm == null) return;
     try {
-      final doc = await sales.getById(docId);
-      final items = await sales.itemsFor(docId);
-      if (doc == null) return;
-      await Printing.layoutPdf(
-        onLayout: (_) async => InvoicePdf.forFirm(firm).build(
-          invoice: doc,
-          items: items,
-        ),
-      );
+      final bytes = await _buildPdf(ref, firm);
+      if (bytes == null) return;
+      await Printing.layoutPdf(onLayout: (_) async => bytes);
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
@@ -365,6 +364,51 @@ class DocumentRowMenu extends ConsumerWidget {
         );
       }
     }
+  }
+
+  /// The rendered bytes for whichever document this row is, or null when the
+  /// row has been deleted from under us.
+  Future<Uint8List?> _buildPdf(WidgetRef ref, FirmEntity firm) async {
+    if (_isSalesDoc) {
+      final sales = ref.read(salesRepositoryProvider);
+      if (sales == null) return null;
+      final doc = await sales.getById(docId);
+      if (doc == null) return null;
+      return InvoicePdf.forFirm(firm).build(
+        invoice: doc,
+        items: await sales.itemsFor(docId),
+      );
+    }
+    if (_isPurchaseDoc) {
+      final purchases = ref.read(purchaseRepositoryProvider);
+      if (purchases == null) return null;
+      final bill = await purchases.getById(docId);
+      if (bill == null) return null;
+      return PurchasePdf.forFirm(firm).build(
+        bill: bill,
+        items: await purchases.itemsFor(docId),
+      );
+    }
+    final payments = ref.read(paymentRepositoryProvider);
+    final payment = await payments?.getById(docId);
+    if (payment == null) return null;
+    return PurchasePdf.forFirm(firm).buildVoucher(payment: payment);
+  }
+
+  /// The file name, which has to be the document's own number rather than the
+  /// row's id — the id is a uuid and tells the reader nothing.
+  Future<String> _pdfFileStem(WidgetRef ref) async {
+    if (_isSalesDoc) {
+      final doc = await ref.read(salesRepositoryProvider)?.getById(docId);
+      if (doc != null) return doc.number;
+    } else if (_isPurchaseDoc) {
+      final bill = await ref.read(purchaseRepositoryProvider)?.getById(docId);
+      if (bill != null) return bill.number;
+    } else {
+      final payment = await ref.read(paymentRepositoryProvider)?.getById(docId);
+      if (payment != null) return payment.number;
+    }
+    return number;
   }
 
   Future<void> _cancel(BuildContext context, WidgetRef ref) async {

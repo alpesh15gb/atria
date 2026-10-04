@@ -783,51 +783,6 @@ abstract class PdfSections {
     );
   }
 
-  /// A plain two-column label/value table, for the details a receipt carries in
-  /// place of line items.
-  pw.Widget detailTable(List<PdfTotalRow> rows) {
-    return pw.Table(
-      columnWidths: {
-        0: const pw.FlexColumnWidth(1),
-        1: const pw.FixedColumnWidth(150),
-      },
-      children: [
-        for (final row in rows)
-          pw.TableRow(
-            children: [
-              pw.Padding(
-                padding: const pw.EdgeInsets.symmetric(vertical: 3),
-                child: pw.Text(
-                  row.label,
-                  style: pw.TextStyle(
-                    fontSize: 9.2,
-                    color: row.emphasize ? style.ink : style.inkSoft,
-                    fontWeight: row.emphasize
-                        ? pw.FontWeight.bold
-                        : pw.FontWeight.normal,
-                  ),
-                ),
-              ),
-              pw.Padding(
-                padding: const pw.EdgeInsets.symmetric(vertical: 3),
-                child: pw.Text(
-                  row.value,
-                  textAlign: pw.TextAlign.right,
-                  style: pw.TextStyle(
-                    fontSize: 9.2,
-                    color: row.emphasize ? style.brandDeep : style.ink,
-                    fontWeight: row.emphasize
-                        ? pw.FontWeight.bold
-                        : pw.FontWeight.normal,
-                  ),
-                ),
-              ),
-            ],
-          ),
-      ],
-    );
-  }
-
   /// The two signature lines at the foot of the page.
   pw.Widget signatureBlock({required String leftCaption}) {
     return pw.Padding(

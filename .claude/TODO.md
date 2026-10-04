@@ -120,11 +120,46 @@ so nothing ships as a stub.
             All Transactions silently dropped every hand-keyed voucher, and that
             `CallbackReportSource` never overrode `build` so *every*
             callback-sourced report threw. Details in `.claude/STATE.md`.
-      - [ ] **4b Party (6).** **Next.** Party Statement · Party wise P&L · All
-            parties · Party Report By Item · Sale Purchase By Party · Sale
-            Purchase By Party Group. Needs no migration — party grouping rides
-            on shipped schema v11 (`parties.categoryId`).
-      - [ ] **4c Item/Stock (11)** — five of them on the v11 costing.
+      - [x] **4b Party (6).** All six shipped. Party Statement · Party wise P&L ·
+            All parties · Party Report By Item · Sale Purchase By Party · Sale
+            Purchase By Party Group, plus the **filter bar the six needed** —
+            `ReportFilterBar` in `lib/shared/widgets/`, wired into
+            `ReportViewPage`. `test/report_party_test.dart` (31) + 2 in
+            `report_framework_test.dart`. Suite **946 / 0 failed**.
+            - **A spec is a `const` and cannot hold the party's id.** The firm
+              adds a customer and the spec does not know. So the filter declares
+              itself and the source answers it: `ReportSource.optionsFor` +
+              `CallbackReportSource.options`, with a named top-level
+              `partyOptions` because a `const` definition cannot contain a
+              closure calling `Future.value`. Both halves stay testable alone.
+            - **`reportFilterOptionsProvider` is separate from
+              `reportResultProvider` on purpose** — the party list changes when a
+              customer is added, and folding it into the result would re-run a
+              5,000-row report on every keystroke in the picker.
+            - **A filter back at "All" REMOVES its key, not nulls it.** The key
+              goes into `ReportQuery.cacheKey`; nulling it would make an
+              untouched filter and a reset one differ, re-running the whole
+              report to produce the same answer.
+            - **Three real defects found, all the same shape.** A credit note
+              stores its **tax columns positive**, and so do its **discount
+              columns** — the engine took a positive discount off a line whose
+              quantity was already reduced, so each number is positive alone and
+              only their combination carries the sign. Summing either unsigned
+              reports 180+72 for a ₹1,000 sale with a ₹400 return. Output tax
+              then exceeds what was ever collected. Both now group by `docType`
+              as well as party and sign in Dart, because the `SUM` arrives with
+              the document's identity detached and `SUM(CASE…)` would put an
+              accounting rule inside a SQL string no test can read.
+              `ledgerSignFor` — a second sign rule with no report to govern —
+              was removed rather than shipped.
+            - **`ReportGroupBy.category` reads the `category` cell**; the group
+              source emits `group`. Every row read as missing and landed in one
+              bucket named `?`, collapsing six rows into a single subtotal band
+              sorted by value. Now passes `groupKey` explicitly.
+            - **Party Statement totals on `grandTotal`, deliberately and alone**,
+              because what a party owes includes tax. It will not foot against
+              the P&L and that is correct.
+      - [ ] **4c Item/Stock (11)** — five of them on the v11 costing. **Next.**
       - [ ] **4d GST (6).** GSTR-1/3B reuse `GstReturnBuilder`; GSTR-9 is new.
       - [ ] **4e Business Status + Taxes (8)** — 27EQ needs v12.
       - [ ] **4f Expense + Order + Loan (6)**.
@@ -255,6 +290,14 @@ new tests proven to fail against reverted code) before its commit.
       post-launch scope.
 - [ ] Rebuild + install debug APK on the Android device to confirm the route
       fix on hardware (pure-Dart change; gradle surface untouched).
+      **Builds are green as of 2026-10-05** — `flutter build apk --debug` →
+      `build/app/outputs/flutter-apk/app-debug.apk` (203 MB) and
+      `flutter build windows --debug` → `build/windows/x64/runner/Debug/apex_books.exe`.
+      Both succeed on this machine. **Neither has been run on the target
+      hardware**, and a build that compiles is not evidence the menu works.
+- [ ] **Compare the app against the top accounting apps** (asked 2026-10-05).
+      Gap analysis against Vyapar / Khatabook / Zoho Books / TallyPrime / Busy /
+      WinApp. Not yet done.
 - [ ] Release builds: `--release` for Windows and APK (APK needs a signing
       config; the template signs with debug keys today).
 - [ ] The three `*_plus` plugins still apply the Kotlin Gradle Plugin; a future

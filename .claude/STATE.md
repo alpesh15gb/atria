@@ -1,7 +1,8 @@
 # Project State
 
-_Last updated: 2026-10-05 (**reporting build, Phase 4a Transaction shipped and
-committing**; Phases 0–3 shipped; the earlier six-phase build is complete)_
+_Last updated: 2026-10-05 (**reporting build, Phase 4b Party shipped**; the
+Print button fixed; Android + Windows debug builds green; Phases 0–3 shipped;
+the earlier six-phase build is complete)_
 
 ## Current objective
 
@@ -19,8 +20,12 @@ Six phases, full plan in
 | 1 | schema v11: costing, godown, party groups | **shipped** (`7da4eea`, `9931129`) |
 | 2 | schema v12: bank accounts, loans, TDS metadata | **shipped** (`ce845e1`) |
 | 3 | the framework (spec / engine / view / export / catalogue) | **shipped** (`2b483a4`) |
-| 4 | the 47 reports, one commit per category | **4a shipped**; next 4b Party (6) |
+| 4 | the 47 reports, one commit per category | **4a + 4b shipped**; next 4c Item/Stock (11) |
 | 5 | retire the dashboard to the menu + Overview | — |
+
+Also asked 2026-10-05, all three in hand: a **comparison against the top
+accounting apps** (in progress), **Android + Windows builds** (both green), and
+a **real check of the printing option** (found broken; fixed — see below).
 
 ### The earlier six-phase build — complete
 
@@ -38,12 +43,42 @@ Six phases, full plan in
 ## Current implementation state
 
 - `flutter analyze lib/ test/` → clean.
-- `flutter test` → **915 passed / 0 failed** (723 + 30 Phase 0 + 25 Phase 1 +
-  1 backup-integrity + 3 Phase 2 + 69 Phase 3 + 54 Phase 4a transaction +
-  10 Phase 4a documents).
-- Windows debug builds; APK debug **and** release build (release APK is
-  debug-key-signed, `CN=Android Debug`, per `build.gradle.kts`'s deliberate
-  fallback — 80.1 MB).
+- `flutter test` → **948 passed / 0 failed** (723 baseline + 30 Phase 0 +
+  25 Phase 1 + 1 backup-integrity + 3 Phase 2 + 69 Phase 3 + 54 Phase 4a
+  transaction + 10 Phase 4a documents + 31 Phase 4b party + 2 print).
+- **Both debug builds green, 2026-10-05.** `flutter build apk --debug` needs
+  `export JAVA_HOME="C:\Program Files\Android\Android Studio\jbr"` first →
+  `build/app/outputs/flutter-apk/app-debug.apk`. `flutter build windows --debug`
+  → `build/windows/x64/runner/Debug/apex_books.exe`. **Neither has been run on
+  the target hardware.** A build that compiles is not evidence the menu works.
+  - On Windows the `.exe` timestamp does **not** change when only Dart changes —
+    it is the native shell. The Dart is in
+    `data/flutter_assets/kernel_blob.bin`; check *that* timestamp, or you will
+    "verify" a stale build.
+- APK debug **and** release build (release APK is debug-key-signed,
+  `CN=Android Debug`, per `build.gradle.kts`'s deliberate fallback — 80.1 MB).
+
+## The Print button was not printing (`5323332`)
+
+`ReportPdfBuilder.print` called **`Printing.sharePdf`**, which opens a **share
+sheet** — a list of messaging apps and cloud drives — not the print dialog. A
+menu item labelled "Print" that hands the reader WhatsApp fails quietly, because
+a share sheet looks like progress.
+
+Now `Printing.layoutPdf`: the real spooler preview, with page range and copies.
+The document is rebuilt through `onLayout` so the reader's chosen paper is
+honoured — a document built for A4 laid out on an A5 page runs its right-hand
+columns off the edge. `build()` gained a `format` parameter for it; every other
+caller still gets the firm's template page.
+
+**The other two print paths were already correct** (`sale_detail_screen.dart:338`,
+`document_row_menu.dart:371`, both `layoutPdf`). This was the only wrong one —
+which is the argument for grepping rather than assuming.
+
+The test intercepts the `net.nfet.printing` channel and asserts `printPdf` was
+called and `sharePdf` was not. **Revert-proved:** reverted, it reports
+`Actual: ['sharePdf']`. Deliberately does not await the call — `layoutPdf` then
+waits on a platform completion port that never fires headless.
 - **No phone attached** (`adb devices` empty) — the sync fix is proven against a
   faithful fake server only, never on hardware.
 - **Not done: the manual pass.** The plan's Verification section ends "then
@@ -925,25 +960,88 @@ of it has nil income but definitely traded, and the statement must still print.
 - `flutter test test/sync_engine_test.dart` fails only under full-suite
   parallelism; alone it passes. Not a real failure — do not chase it.
 
+## Phase 4b — the Party reports (shipped `d96f550`)
+
+Six sources under `lib/core/reports/sources/party/`, plus the **filter bar they
+needed and the framework half that makes it possible**.
+`test/report_party_test.dart` (31), suite 946.
+
+### The blocker, and the shape of the fix
+
+A `ReportSpec` is a **`const` with no database handle**, so it cannot carry the
+firm's party list — that changes when somebody adds a customer, and a `const`
+cannot know. An inline `options:` closure also cannot compile: `Future.value` is
+a method call, and a call is not a constant expression.
+
+So: **the spec declares the filter, the source answers it.**
+`ReportSpec.filterWithId` + `ReportSource.optionsFor` + `CallbackReportSource.options`,
+with a **named top-level `partyOptions`** shared by all six. Both halves stay
+independently testable — a spec test checks the declaration, a source test checks
+the values against a real database.
+
+`reportFilterOptionsProvider` is deliberately **separate from
+`reportResultProvider`**: folding the party list into the result would re-run a
+5,000-row report on every keystroke in the picker.
+
+### Things not to re-learn (Phase 4b)
+
+- **A filter back at "All" removes its key, it does not null it.** The key goes
+  into `ReportQuery.cacheKey`; a nulled key makes an untouched filter and a reset
+  one differ, so the whole report re-runs to produce the same answer.
+- **A `ReportGroupBy` is a CELL NAME, not a concept.** `ReportGroupBy.category`
+  reads the `category` cell. A source that emits `group` puts every row in one
+  bucket named `?`, the report collapses to a single subtotal band, and it still
+  renders — no error anywhere. Either emit the cell or pass `groupKey`.
+- **A credit note stores its tax and discount columns POSITIVE.** The engine took
+  a positive discount off a line whose quantity was already reduced, so each
+  number is positive alone and only their combination carries the sign. Summing
+  either unsigned reports **180 + 72** for a ₹1,000 sale with a ₹400 return.
+  Both are now grouped by `docType` as well as party and signed in Dart,
+  because the `SUM` arrives with the document's identity detached and
+  `SUM(CASE WHEN…)` would put an accounting rule inside a SQL string that no
+  test can read.
+- **A comment asserting a rule is not evidence of one.** The discount helper
+  carried a long, confident comment saying it was unsigned and must not be
+  signed — and the code underneath did exactly what the comment said, which is
+  why it was wrong. Revert-proving is what caught it; reading the comment would
+  not have.
+- **Write a fixture that survives its own negation.** The sign-rule test's first
+  version used a credit note for the *full* invoice value, so the correct answer
+  and the "ignore the sign entirely" answer were both zero. Partial notes only.
+- **`Decimal` has no `toInt()`.** `toStringAsFixed(0)`, or compare to
+  `Decimal.fromInt(1)`.
+- **`db.select(t)` with a join takes a closure** (`..where((_) => expr)`);
+  `selectOnly` takes the expression directly.
+- **Never `.sum()` a sum.** `SUM(SUM(a) + SUM(b))` is rejected outright by SQLite
+  — the query fails rather than returning a wrong number, which is at least
+  honest, but it costs an afternoon. Add the aggregates.
+- **`Column.cess` on a header, `cessAmount` on a line.** Different tables, same
+  word.
+
 ## Exact next action
 
-**Phase 4b — the six Party reports.** Party Statement · Party wise P&L · All
-parties · Party Report By Item · Sale Purchase By Party · Sale Purchase By
-Party Group.
+**Phase 4c — the eleven Item/Stock reports.** Stock summary · Item Report By
+Party · Item Wise P&L · Item Category Wise P&L · Low Stock Summary · Stock
+Detail · Item Detail · Sale/Purchase Report By Item Category · Stock Summary
+Report By Item Category · Item Wise Discount · Stock Transfer Report.
 
-1. Six sources under `lib/core/reports/sources/party/`. `partyStatement` already
-   exists in `ReportRepository` and is reused, not re-derived.
-2. **Party grouping rides on schema v11** (`parties.categoryId` +
-   `Categories.kind == 'party'`), which is shipped — so 4b needs no migration.
-3. Every one of them is `ReportGroupBy.party`, so they exercise the group path
-   the Transaction reports only partly used.
-4. The CA trap: a party's statement and the party's P&L are two computations
-   over the same documents and must foot to each other; surface the delta
-   rather than throwing.
+1. **The heaviest category, and the only one where five reports are wrong
+   without v11.** `stock_movements.unitCost` is stamped by all three movement
+   writers; check it against a real invoice before building on it.
+2. Item grouping is `ReportGroupBy.item`, and `ReportGroupBy.category` reads the
+   **`category` cell** — the four Item-Category reports must either emit a cell
+   of that name or pass `groupKey` explicitly. Getting this wrong is silent: the
+   rows collapse into one bucket named `?` and still look like a report. The
+   Party group report shipped exactly that bug.
+3. WMA under negative stock never divides — carry the last positive average
+   forward and flag the row. A negative cost turns every downstream margin
+   upside down.
+4. `Stock Transfer Report` is the first consumer of `stock_movements.godownId`
+   and of the `godowns` table.
 
-Then 4c Item/Stock (11, five of them on the v11 costing), 4d GST (6),
-4e Business Status + Taxes (8), 4f Expense + Order + Loan (6), then Phase 5
-(retire the dashboard to the menu + Overview, and wire `ReportViewPage`).
+Then 4d GST (6), 4e Business Status + Taxes (8), 4f Expense + Order + Loan
+(6), then Phase 5 (retire the dashboard to the menu + Overview, and wire
+`ReportViewPage`).
 
 The plan's fifteen correctness rules (bounced cheques, cancelled *and* deleted,
 `taxableValue` never `grandTotal`, `Decimal` accumulation, HSN vs SAC, 27EQ

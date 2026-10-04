@@ -160,7 +160,13 @@ class PullApplier {
         // permanent-delete paths only: the recycle bin's purge, and a firm
         // erased from another device (whose local row dies with its
         // cascades).
-        await _hardDelete(change.entity, change.entityId);
+        //
+        // The firm scope is not optional here. The local database holds every
+        // firm's rows at once (repositories are per-firm over one database),
+        // so `WHERE id = ?` alone can match a row belonging to a *different*
+        // business. This branch returns before the payload guard below, which
+        // could not help anyway: a tombstone carries no payload to check.
+        await _hardDelete(change.entity, change.entityId, firmId: firmId);
         return true;
       }
 
@@ -322,12 +328,30 @@ class PullApplier {
     return await _fetchRow(entity, id) != null;
   }
 
-  Future<void> _hardDelete(String entity, String id) async {
+  /// Removes a row outright, scoped to [firmId].
+  ///
+  /// Every table except `firms` carries a `firm_id`, so a row whose firm does
+  /// not match is left alone. Without this predicate a tombstone journalled
+  /// under one business could delete an identically-numbered row in another —
+  /// ids are UUIDs today, but the guard must not depend on that.
+  Future<void> _hardDelete(
+    String entity,
+    String id, {
+    required String firmId,
+  }) async {
     final table = _tableNamed(entity);
     if (table == null) return;
+    // `firms` is the one table keyed by the id itself and has no firm_id of
+    // its own, so the id is its scope.
+    final hasFirm = table.columnsByName.containsKey('firm_id');
     await _db.customUpdate(
-      'DELETE FROM $entity WHERE id = ?',
-      variables: [Variable.withString(id)],
+      hasFirm
+          ? 'DELETE FROM $entity WHERE id = ? AND firm_id = ?'
+          : 'DELETE FROM $entity WHERE id = ?',
+      variables: [
+        Variable.withString(id),
+        if (hasFirm) Variable.withString(firmId),
+      ],
       updates: {table},
     );
   }

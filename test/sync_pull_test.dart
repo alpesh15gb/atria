@@ -329,6 +329,102 @@ void main() {
     expect(applied.skipped, 1);
   });
 
+  test('a pulled delete is scoped to the firm that journalled it', () async {
+    // One local database holds every firm's rows (repositories are per-firm
+    // over one database), so a tombstone is only safe if it names the firm it
+    // was journalled under. Before the fix `_hardDelete` ran
+    // `DELETE FROM <entity> WHERE id = ?` — the only write path in the
+    // applier without the cross-firm guard, and it returns before the
+    // payload check that guards every other path (a tombstone has no
+    // payload to check).
+    //
+    // Ids are the table's primary key, so two firms cannot hold the same one
+    // today; this pins the scope the write needs rather than the collision
+    // that motivated it, so the predicate cannot be quietly dropped.
+    final otherFirm = await db.firmRepository.create(
+      name: 'Unrelated Traders',
+      stateCode: '27',
+    );
+    await db.into(db.parties).insert(
+          PartiesCompanion.insert(
+            id: 'mine-row',
+            firmId: firmId,
+            name: 'My Customer',
+            type: 'customer',
+          ),
+        );
+    await db.into(db.parties).insert(
+          PartiesCompanion.insert(
+            id: 'their-row',
+            firmId: otherFirm.id,
+            name: 'Their Customer',
+            type: 'customer',
+          ),
+        );
+    expect(await db.select(db.parties).get(), hasLength(2));
+
+    final applied = await applier.applyPage(
+      firmId: firmId,
+      page: PullPage(
+        changes: [
+          JournaledChange(
+            seq: 1,
+            changeId: 'del-1',
+            entity: 'parties',
+            entityId: 'mine-row',
+            operation: 'delete',
+          ),
+        ],
+        hasMore: false,
+      ),
+    );
+
+    final left = await db.select(db.parties).get();
+    expect(left, hasLength(1));
+    expect(left.single.id, 'their-row',
+        reason: 'the other firm\'s row must be untouched');
+    expect(left.single.firmId, otherFirm.id);
+    expect(applied.skipped, 0,
+        reason: 'deleting our own row is a successful apply, not a skip');
+  });
+
+  test('a pulled delete does nothing when the row is another firm\'s',
+      () async {
+    final otherFirm = await db.firmRepository.create(
+      name: 'Unrelated Traders',
+      stateCode: '27',
+    );
+    await db.into(db.parties).insert(
+          PartiesCompanion.insert(
+            id: 'their-row',
+            firmId: otherFirm.id,
+            name: 'Their Customer',
+            type: 'customer',
+          ),
+        );
+
+    await applier.applyPage(
+      firmId: firmId,
+      page: PullPage(
+        changes: [
+          JournaledChange(
+            seq: 1,
+            changeId: 'del-2',
+            entity: 'parties',
+            entityId: 'their-row',
+            operation: 'delete',
+          ),
+        ],
+        hasMore: false,
+      ),
+    );
+
+    final leftAfter = await db.select(db.parties).get();
+    expect(leftAfter, hasLength(1),
+        reason: 'a tombstone from another firm must never delete this row');
+    expect(leftAfter.single.id, 'their-row');
+  });
+
   test('the cursor advances page by page and stops at the top', () async {
     for (var i = 1; i <= 5; i++) {
       journal.add({

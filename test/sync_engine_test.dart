@@ -38,10 +38,17 @@ void main() {
   late int pushStatus;
   late String pushBody;
 
+  /// Every `change_id` the fake server has accepted — a stand-in for the
+  /// server's `firm_changes.change_id` PRIMARY KEY. A repeat id is dropped,
+  /// as `ON CONFLICT DO NOTHING` does, so a test can prove a re-push really
+  /// was accepted rather than silently deduplicated.
+  final journalIds = <String>{};
+
   setUp(() async {
     requests.clear();
     bodies.clear();
     auths.clear();
+    journalIds.clear();
     pushStatus = 200;
     pushBody = jsonEncode({'received': 1, 'duplicates': 0});
 
@@ -76,6 +83,16 @@ void main() {
 
       // A firm create answers its own shape; the change push answers ours.
       final isFirmCreate = request.uri.path == '/v1/firms';
+      if (!isFirmCreate) {
+        // Model `ON CONFLICT (change_id) DO NOTHING`: the first change_id
+        // wins and a repeat is dropped, exactly as Postgres would. Tests
+        // that care about the journal fill this in.
+        for (final change in bodies.last) {
+          if (change is Map && change['id'] is String) {
+            journalIds.add(change['id'] as String);
+          }
+        }
+      }
       request.response
         ..statusCode = isFirmCreate ? 201 : pushStatus
         ..headers.contentType = ContentType.json
@@ -454,13 +471,130 @@ void main() {
     final first = await engine.rejournalEverything(firmId: firmId);
     final second = await engine.rejournalEverything(firmId: firmId);
 
-    expect(second, 0); // deterministic ids: the second run adds nothing.
+    // Still queued from the first run: suppressed, so the same row is not
+    // double-sent. The suppression is on entity+entityId, not the full id.
+    expect(second, 0);
     final entities = [for (final row in await db.select(db.syncQueue).get()) row.entity];
     expect(entities, contains('items'));
     // The invoice is soft-deleted, so neither it nor its line is re-sent.
     expect(entities, isNot(contains('sales_invoices')));
     expect(entities, isNot(contains('sales_invoice_items')));
     expect(first, entities.length);
+  });
+
+  test('a repair after pruning re-journals, instead of colliding with the '
+      'sent ids the server already holds', () async {
+    final items = db.itemRepositoryFor(firmId);
+    final item = await items.create(name: 'Copper Wire', salePrice: 240);
+    await db.salesRepositoryFor(firmId).save(SalesDraft(
+          id: 'inv-9',
+          number: 'INV-9',
+          docType: 'invoice',
+          invoiceDate: DateTime(2026, 9, 8),
+          status: 'confirmed',
+          lines: [
+            SalesLineDraft(
+              id: 'line-9',
+              itemId: item.id,
+              name: item.name,
+              quantity: Decimal.fromInt(3),
+              unit: 'pcs',
+              rate: Decimal.fromInt(240),
+              gstRate: 18,
+            ),
+          ],
+        ));
+
+    await db.delete(db.syncQueue).go();
+    final first = await engine.rejournalEverything(firmId: firmId);
+    final firstIds = [
+      for (final row in await db.select(db.syncQueue).get()) row.id
+    ];
+    expect(first, greaterThan(0));
+
+    // `pruneSent` drops the sent rows after keepSentFor (14 days). The
+    // repair exists for exactly the situation that follows — a new device, or
+    // a journal that went hollow again — so it has to work from a clean
+    // queue.
+    await db.delete(db.syncQueue).go();
+
+    final second = await engine.rejournalEverything(firmId: firmId);
+    final secondIds = [
+      for (final row in await db.select(db.syncQueue).get()) row.id
+    ];
+
+    expect(second, first,
+        reason: 'a repair from a pruned queue must re-journal every row');
+
+    // The outbox id is the server's `firm_changes.change_id` PRIMARY KEY,
+    // inserted ON CONFLICT DO NOTHING. Reusing the first run's ids would make
+    // the server drop every row as a duplicate while the client marked them
+    // sent — the repair reporting success having healed nothing.
+    expect(secondIds.toSet().intersection(firstIds.toSet()), isEmpty,
+        reason: 'ids must differ per run, or the server deduplicates them away');
+  });
+
+  test('re-journal ids differ between runs so the server does not '
+      'deduplicate a genuine repair', () async {
+    final items = db.itemRepositoryFor(firmId);
+    await items.create(name: 'Junction Box', salePrice: 60);
+    await db.delete(db.syncQueue).go();
+
+    await engine.rejournalEverything(firmId: firmId);
+    final firstIds = [
+      for (final row in await db.select(db.syncQueue).get()) row.id
+    ];
+
+    await db.delete(db.syncQueue).go();
+    await engine.rejournalEverything(firmId: firmId);
+    final secondIds = [
+      for (final row in await db.select(db.syncQueue).get()) row.id
+    ];
+
+    expect(secondIds, isNotEmpty);
+    expect(secondIds, isNot(equals(firstIds)));
+    expect(
+      secondIds.every((id) => id.startsWith('rejournal_')),
+      isTrue,
+      reason: 'the prefix is what identifies these as repair rows',
+    );
+  });
+
+  test('the repair survives the server deduplicating on change_id',
+      () async {
+    // The outbox id is the server's `firm_changes.change_id` PRIMARY KEY
+    // (server/db/migrations/0003_firm_changes.sql) and the push is an
+    // `INSERT ... ON CONFLICT (change_id) DO NOTHING`. So a repeated id is
+    // silently dropped and the client still marks the row sent. The fake
+    // server above collects `journalIds` on exactly that rule.
+
+    final items = db.itemRepositoryFor(firmId);
+    await items.create(name: 'Conduit Pipe', salePrice: 310);
+    await db.delete(db.syncQueue).go();
+
+    await engine.rejournalEverything(firmId: firmId);
+    final firstReport = await engine.push();
+
+    final firstPushed = journalIds.length;
+    expect(firstReport.error, isNull,
+        reason: 'the push must not be skipped — otherwise this test would '
+            'pass with an empty journal and prove nothing');
+    expect(firstPushed, greaterThan(0),
+        reason: 'the first repair must reach the journal');
+
+    // 14 days later pruneSent clears the sent rows, and the repair runs again
+    // for a new device — the scenario it exists for.
+    await db.delete(db.syncQueue).go();
+    final enqueuedAgain = await engine.rejournalEverything(firmId: firmId);
+    expect(enqueuedAgain, greaterThan(0),
+        reason: 'a repair from a pruned queue must enqueue work');
+    final secondReport = await engine.push();
+    expect(secondReport.error, isNull);
+
+    expect(journalIds.length, firstPushed * 2,
+        reason: 'a repair after pruning must add new journal entries; '
+            'reused ids would be deduplicated away while the client reported '
+            'success');
   });
 
   test('a repaired journal pushes children with full payloads', () async {

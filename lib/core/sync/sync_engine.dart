@@ -181,6 +181,18 @@ class SyncEngine {
   /// Returns how many outbox rows were newly enqueued.
   Future<int> rejournalEverything({required String firmId}) async {
     var enqueued = 0;
+    // The outbox id IS the server's `firm_changes.change_id` primary key,
+    // which is inserted `ON CONFLICT DO NOTHING`. So an id that repeats
+    // across runs is dropped by the server as a duplicate — the client marks
+    // it sent and the repair reports success having healed nothing. That is
+    // exactly what happened after `pruneSent` removed the first run's rows.
+    //
+    // The fix is to keep the id stable only for as long as the row can still
+    // be pending, and vary it per run otherwise: `runId` is folded in, so a
+    // second run against a still-queued row is suppressed locally (the
+    // original intent) while a run after pruning produces fresh ids the
+    // server will actually accept.
+    final runId = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
     for (final entity in journalOrder) {
       final table = _tableNamed(entity);
       if (table == null) continue;
@@ -211,9 +223,15 @@ class SyncEngine {
                 'WHERE p.firm_id = ? AND p.is_deleted = 0'
                 '${hasDeleted ? ' AND c.is_deleted = 0' : ''}';
           case 'journal_lines':
+            // `journal_lines` has no is_deleted of its own (only
+            // `journal_entries` does), so the `${hasDeleted ...}` template
+            // cannot add it — it must be spelled out here. Without this a
+            // voided voucher has its debit/credit lines re-journalled, and
+            // receiving devices insert them under a deleted entry, which
+            // corrupts the trial balance.
             sql = 'SELECT c.id FROM journal_lines c '
                 'JOIN journal_entries p ON p.id = c.entry_id '
-                'WHERE p.firm_id = ?';
+                'WHERE p.firm_id = ? AND p.is_deleted = 0';
           default:
             continue;
         }
@@ -225,16 +243,23 @@ class SyncEngine {
       for (final row in ids) {
         final entityId = row.data['id'] as String;
         final queueId = 'rejournal_${entity}_$entityId';
-        // Deterministic id, so a second run of the repair cannot double-send:
-        // anything already queued (from the first run, or a still-pending
-        // ordinary change for the same row) is left as it is.
+        // Matched on entity+entityId rather than the full id: the id now
+        // carries `runId`, so an id-equality check would never suppress
+        // anything. A row already queued for this entity — from the first run,
+        // or a still-pending ordinary change — is left as it is, which is
+        // what keeps a re-run from double-sending the same row.
         final already = await (_db.select(_db.syncQueue)
-              ..where((t) => t.id.equals(queueId)))
+              ..where((t) =>
+                  t.entity.equals(entity) & t.entityId.equals(entityId)))
             .getSingleOrNull();
         if (already != null) continue;
         await _db.into(_db.syncQueue).insert(
               SyncQueueCompanion.insert(
-                id: queueId,
+                // The run id is what makes this a *new* journal entry server
+                // side. Deterministic ids were silently deduplicated away,
+                // so a second repair run healed nothing while reporting that
+                // it had.
+                id: '${queueId}_$runId',
                 firmId: Value(firmId),
                 entity: entity,
                 entityId: entityId,
@@ -246,6 +271,13 @@ class SyncEngine {
     }
     return enqueued;
   }
+
+  /// How many times a row may fail to push before it is retired.
+  ///
+  /// High enough that a transient outage (offline, 5xx, a dropped connection)
+  /// retries many times, low enough that a permanently-rejected row stops
+  /// blocking the queue quickly. See the catch in the drain loop.
+  static const int maxAttempts = 8;
 
   /// How long a *sent* outbox row is kept before being pruned.
   ///
@@ -325,6 +357,23 @@ class SyncEngine {
           // The next attempt retries this same batch first — a hole in the
           // order is what would break a replay later.
           await _recordFailure(ids, '$failure');
+          // A row can fail for a reason retrying will never fix: the server
+          // caps a body at 256KB while `notes`/`terms` are unbounded TEXT, so
+          // one invoice with a long notes blob fails forever. Because the
+          // drain is head-of-queue, that single row blocked every payment,
+          // expense and later invoice behind it — silently, since nothing
+          // read `attempts` to notice. Retire it instead, so the rest of the
+          // book can leave the device.
+          final stuck = await _stuckIn(firmId, ids);
+          if (stuck.isNotEmpty) {
+            await _retireUnsendable(
+              stuck,
+              'Gave up after $maxAttempts attempts — this change was rejected '
+              'every time and has been skipped so it cannot block the rest of '
+              'the books. Last error: ${stuck.first.error ?? 'unknown'}. '
+              'Re-send all books, or shorten the note/terms on this document.',
+            );
+          }
           rethrow;
         }
         await _markSent(ids);
@@ -843,6 +892,23 @@ class SyncEngine {
   Future<void> _recordFailure(List<String> ids, String message) async {
     if (ids.isEmpty) return;
     await _bumpAttempts(ids, message, sent: false);
+  }
+
+  /// The rows from [ids] that have now failed [maxAttempts] times.
+  ///
+  /// Read after `_recordFailure` has bumped the count, so a row that has just
+  /// crossed the threshold is included.
+  Future<List<SyncQueueEntity>> _stuckIn(
+    String firmId,
+    List<String> ids,
+  ) async {
+    if (ids.isEmpty) return const [];
+    final query = _db.select(_db.syncQueue)
+      ..where((t) =>
+          t.firmId.equals(firmId) &
+          t.attempts.isBiggerOrEqualValue(maxAttempts) &
+          t.id.isIn(ids));
+    return query.get();
   }
 
   /// `attempts = attempts + 1`, plus the reason, in one statement.

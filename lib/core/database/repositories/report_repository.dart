@@ -14,6 +14,7 @@ class DashboardSummary {
   final Decimal totalIncome;
   final Decimal totalReceived;
   final Decimal totalPaid;
+
   /// Lifetime money in / money out. "Cash in hand" is a balance, not a
   /// period figure, so it must not be derived from the windowed totals.
   final Decimal cashIn;
@@ -48,23 +49,23 @@ class DashboardSummary {
 
   /// `Decimal.zero` is not a compile-time constant, so this cannot be `const`.
   static DashboardSummary empty() => DashboardSummary(
-        totalSales: Decimal.zero,
-        totalPurchases: Decimal.zero,
-        totalExpenses: Decimal.zero,
-        totalIncome: Decimal.zero,
-        totalReceived: Decimal.zero,
-        totalPaid: Decimal.zero,
-        cashIn: Decimal.zero,
-        cashOut: Decimal.zero,
-        receivable: Decimal.zero,
-        payable: Decimal.zero,
-        stockValue: Decimal.zero,
-        gstPayable: Decimal.zero,
-        grossProfit: Decimal.zero,
-        invoiceCount: 0,
-        lowStockCount: 0,
-        overdueCount: 0,
-      );
+    totalSales: Decimal.zero,
+    totalPurchases: Decimal.zero,
+    totalExpenses: Decimal.zero,
+    totalIncome: Decimal.zero,
+    totalReceived: Decimal.zero,
+    totalPaid: Decimal.zero,
+    cashIn: Decimal.zero,
+    cashOut: Decimal.zero,
+    receivable: Decimal.zero,
+    payable: Decimal.zero,
+    stockValue: Decimal.zero,
+    gstPayable: Decimal.zero,
+    grossProfit: Decimal.zero,
+    invoiceCount: 0,
+    lowStockCount: 0,
+    overdueCount: 0,
+  );
 }
 
 class MonthlyPoint {
@@ -136,17 +137,17 @@ class GstSummary {
   }
 
   factory GstSummary.empty() => GstSummary(
-        taxableValue: Decimal.zero,
-        outputCgst: Decimal.zero,
-        outputSgst: Decimal.zero,
-        outputIgst: Decimal.zero,
-        cess: Decimal.zero,
-        inputCgst: Decimal.zero,
-        inputSgst: Decimal.zero,
-        inputIgst: Decimal.zero,
-        inputFromExpenses: Decimal.zero,
-        outwardByRate: [],
-      );
+    taxableValue: Decimal.zero,
+    outputCgst: Decimal.zero,
+    outputSgst: Decimal.zero,
+    outputIgst: Decimal.zero,
+    cess: Decimal.zero,
+    inputCgst: Decimal.zero,
+    inputSgst: Decimal.zero,
+    inputIgst: Decimal.zero,
+    inputFromExpenses: Decimal.zero,
+    outwardByRate: [],
+  );
 }
 
 /// TDS and TCS for a period.
@@ -177,11 +178,11 @@ class TaxAtSourceSummary {
   /// const constructor call — same reason every other empty value in this file
   /// is built at runtime.
   factory TaxAtSourceSummary.empty() => TaxAtSourceSummary(
-        tdsDeducted: Decimal.zero,
-        tcsCollected: Decimal.zero,
-        billsWithTds: 0,
-        invoicesWithTcs: 0,
-      );
+    tdsDeducted: Decimal.zero,
+    tcsCollected: Decimal.zero,
+    billsWithTds: 0,
+    invoicesWithTcs: 0,
+  );
 }
 
 /// One row of the profit & loss statement.
@@ -232,12 +233,29 @@ class ProfitAndLoss {
     required this.openingStock,
     required this.closingStock,
     required this.costOfGoodsSold,
+    // Not defaulted for the same reason as the stock figures: a caller that
+    // forgot this would render an empty firm as though it had a nil statement.
+    required this.hasActivity,
   });
 
   /// True when the period's result was worked out through a stock adjustment
   /// rather than by treating every purchase as a cost.
   bool get hasStockAdjustment =>
       openingStock != Decimal.zero || closingStock != Decimal.zero;
+
+  /// True when at least one live document, expense or stock movement fell in
+  /// the period.
+  ///
+  /// **This is deliberately not "any total is non-zero".** A firm that sold
+  /// ₹1,000 and returned all of it has zero income, zero expenses and zero net
+  /// — but it certainly traded, and a P&L that refused to print would hide the
+  /// only thing that happened. The distinction is between *nothing happened* and
+  /// *things happened that cancelled out*.
+  ///
+  /// A caller that renders this statement needs it: printing a four-line sheet
+  /// of zeros for a firm that has never traded reads as a result — a nil P&L is
+  /// a statement, an empty one is not.
+  final bool hasActivity;
 }
 
 /// One line of a party ledger / statement of account.
@@ -321,27 +339,55 @@ class ReportRepository {
 
   // ---------------- Dashboard ----------------
 
-  Future<DashboardSummary> dashboard({
-    DateTime? from,
-    DateTime? to,
-  }) async {
+  Future<DashboardSummary> dashboard({DateTime? from, DateTime? to}) async {
     final range = DateRangeFilter(
       start: from ?? DateTime(DateTime.now().year, DateTime.now().month, 1),
       end: to ?? DateTime.now(),
     );
 
-    final sales = await db.salesRepositoryFor(firmId)
-        .list(docType: 'invoice', from: range.start, to: range.end, limit: 1000000);
-    final purchases = await db.purchaseRepositoryFor(firmId)
-        .list(docType: 'bill', from: range.start, to: range.end, limit: 1000000);
-    final expenses = await db.expenseRepositoryFor(firmId)
-        .list(type: 'expense', from: range.start, to: range.end, limit: 1000000);
-    final income = await db.expenseRepositoryFor(firmId)
+    final sales = await db
+        .salesRepositoryFor(firmId)
+        .list(
+          docType: 'invoice',
+          from: range.start,
+          to: range.end,
+          limit: 1000000,
+        );
+    final purchases = await db
+        .purchaseRepositoryFor(firmId)
+        .list(
+          docType: 'bill',
+          from: range.start,
+          to: range.end,
+          limit: 1000000,
+        );
+    final expenses = await db
+        .expenseRepositoryFor(firmId)
+        .list(
+          type: 'expense',
+          from: range.start,
+          to: range.end,
+          limit: 1000000,
+        );
+    final income = await db
+        .expenseRepositoryFor(firmId)
         .list(type: 'income', from: range.start, to: range.end, limit: 1000000);
-    final paymentsIn = await db.paymentRepositoryFor(firmId)
-        .list(type: 'payment_in', from: range.start, to: range.end, limit: 1000000);
-    final paymentsOut = await db.paymentRepositoryFor(firmId)
-        .list(type: 'payment_out', from: range.start, to: range.end, limit: 1000000);
+    final paymentsIn = await db
+        .paymentRepositoryFor(firmId)
+        .list(
+          type: 'payment_in',
+          from: range.start,
+          to: range.end,
+          limit: 1000000,
+        );
+    final paymentsOut = await db
+        .paymentRepositoryFor(firmId)
+        .list(
+          type: 'payment_out',
+          from: range.start,
+          to: range.end,
+          limit: 1000000,
+        );
     // Cash is a balance: the windowed receipts above answer "what came in this
     // month", not "what is in hand". Netted under the "Cash in hand" label
     // they read ₹0.00 for anyone who simply had not been paid this month.
@@ -367,7 +413,9 @@ class ReportRepository {
       if (s.status == 'cancelled') continue;
       salesTotal += s.grandTotal;
       taxableTotal += s.taxableValue;
-      if (s.balanceDue > 0.001 && s.dueDate != null && s.dueDate!.isBefore(DateTime.now())) {
+      if (s.balanceDue > 0.001 &&
+          s.dueDate != null &&
+          s.dueDate!.isBefore(DateTime.now())) {
         overdue++;
       }
     }
@@ -507,7 +555,8 @@ class ReportRepository {
       for (final s in [...sales, ...creditNotes])
         if (s.status != 'cancelled' && !s.isExport) s.id,
     ];
-    final linesByInvoice = await db.salesRepositoryFor(firmId)
+    final linesByInvoice = await db
+        .salesRepositoryFor(firmId)
         .itemsForMany(invoiceIds);
 
     double taxable = 0, ocgst = 0, osgst = 0, oigst = 0, cess = 0;
@@ -534,12 +583,13 @@ class ReportRepository {
         byRate[l.gstRate] = RateWiseTax(
           rate: l.gstRate,
           taxableValue: accumulate(
-              existing?.taxableValue ?? Decimal.zero, sign * l.taxableValue),
+            existing?.taxableValue ?? Decimal.zero,
+            sign * l.taxableValue,
+          ),
           cgst: accumulate(existing?.cgst ?? Decimal.zero, sign * l.cgst),
           sgst: accumulate(existing?.sgst ?? Decimal.zero, sign * l.sgst),
           igst: accumulate(existing?.igst ?? Decimal.zero, sign * l.igst),
-          cess:
-              accumulate(existing?.cess ?? Decimal.zero, sign * l.cessAmount),
+          cess: accumulate(existing?.cess ?? Decimal.zero, sign * l.cessAmount),
           // A note reverses a supply rather than adding one, so it is not
           // counted as a line of outward supply — only its amounts are netted.
           lineCount: (existing?.lineCount ?? 0) + (sign > 0 ? 1 : 0),
@@ -568,7 +618,8 @@ class ReportRepository {
     // software bill silently increased GST payable. The amount is a component
     // of the expense total, not an extra cost, which is why the P&L is
     // unaffected by claiming it.
-    final expenseCredit = await db.ledgerRepositoryFor(firmId)
+    final expenseCredit = await db
+        .ledgerRepositoryFor(firmId)
         .inputTaxFromExpenses(from: from, to: to);
 
     // Known, deliberate divergence from GSTR-3B: this summary counts
@@ -705,14 +756,12 @@ class ReportRepository {
     final closingStock = await stockAtCost(asOf: to);
     final costOfGoodsSold = purchaseTaxable + openingStock - closingStock;
     final grossProfit = salesTaxable - costOfGoodsSold;
-    final expenseRows = expenseByCat.entries
-        .map((e) => PnLRow(e.key, _d(e.value)))
-        .toList()
-      ..sort((a, b) => b.amount.compareTo(a.amount));
-    final incomeRows = incomeByCat.entries
-        .map((e) => PnLRow(e.key, _d(e.value)))
-        .toList()
-      ..sort((a, b) => b.amount.compareTo(a.amount));
+    final expenseRows =
+        expenseByCat.entries.map((e) => PnLRow(e.key, _d(e.value))).toList()
+          ..sort((a, b) => b.amount.compareTo(a.amount));
+    final incomeRows =
+        incomeByCat.entries.map((e) => PnLRow(e.key, _d(e.value))).toList()
+          ..sort((a, b) => b.amount.compareTo(a.amount));
 
     final totalExpenses = expenseByCat.values.fold<double>(0, (a, b) => a + b);
     final totalIncome = incomeByCat.values.fold<double>(0, (a, b) => a + b);
@@ -741,7 +790,23 @@ class ReportRepository {
       // `grossProfit + totalIncome − totalExpenses` expanded to
       // 2·sales − 2·purchases + income − expenses, overstating profit by
       // exactly the gross profit.
-      netProfit: _d(salesTaxable + totalIncome - costOfGoodsSold - totalExpenses),
+      netProfit: _d(
+        salesTaxable + totalIncome - costOfGoodsSold - totalExpenses,
+      ),
+      // Counted from the documents themselves, before they net off, so a sale
+      // and its matching return still read as activity. `list` has already
+      // dropped soft-deleted rows; cancelled ones are excluded here with the
+      // same check the arithmetic below uses, or a cancelled invoice would
+      // resurrect an otherwise empty firm.
+      hasActivity:
+          sales.any((s) => s.status != 'cancelled') ||
+          creditNotes.any((s) => s.status != 'cancelled') ||
+          purchases.any((p) => p.status != 'cancelled') ||
+          debitNotes.any((p) => p.status != 'cancelled') ||
+          expenses.isNotEmpty ||
+          income.isNotEmpty ||
+          openingStock != 0 ||
+          closingStock != 0,
     );
   }
 
@@ -754,11 +819,12 @@ class ReportRepository {
   /// at that date.
   Future<double> stockAtCost({required DateTime asOf}) async {
     final end = DateTime(asOf.year, asOf.month, asOf.day, 23, 59, 59);
-    final movements = await (db.select(db.stockMovements)
-          ..where((t) =>
-              t.firmId.equals(firmId) &
-              t.date.isSmallerOrEqualValue(end)))
-        .get();
+    final movements =
+        await (db.select(db.stockMovements)..where(
+              (t) =>
+                  t.firmId.equals(firmId) & t.date.isSmallerOrEqualValue(end),
+            ))
+            .get();
     if (movements.isEmpty) return 0;
     final items = await db.itemRepositoryFor(firmId).all();
     final costById = {for (final i in items) i.id: i.purchasePrice};
@@ -785,23 +851,53 @@ class ReportRepository {
     DateTime? from,
     DateTime? to,
   }) async {
-    final party = await (db.select(db.parties)
-          ..where((t) => t.id.equals(partyId) & t.firmId.equals(firmId)))
-        .getSingleOrNull();
+    final party =
+        await (db.select(db.parties)
+              ..where((t) => t.id.equals(partyId) & t.firmId.equals(firmId)))
+            .getSingleOrNull();
     final name = party?.name ?? 'Party';
 
-    final sales = await db.salesRepositoryFor(firmId).list(
-        docType: 'invoice', partyId: partyId, from: from, to: to, limit: 1000000);
-    final creditNotes = await db.salesRepositoryFor(firmId).list(
-        docType: 'credit_note', partyId: partyId, from: from, to: to, limit: 1000000);
-    final purchases = await db.purchaseRepositoryFor(firmId).list(
-        docType: 'bill', partyId: partyId, from: from, to: to, limit: 1000000);
-    final debitNotes = await db.purchaseRepositoryFor(firmId).list(
-        docType: 'debit_note', partyId: partyId, from: from, to: to, limit: 1000000);
+    final sales = await db
+        .salesRepositoryFor(firmId)
+        .list(
+          docType: 'invoice',
+          partyId: partyId,
+          from: from,
+          to: to,
+          limit: 1000000,
+        );
+    final creditNotes = await db
+        .salesRepositoryFor(firmId)
+        .list(
+          docType: 'credit_note',
+          partyId: partyId,
+          from: from,
+          to: to,
+          limit: 1000000,
+        );
+    final purchases = await db
+        .purchaseRepositoryFor(firmId)
+        .list(
+          docType: 'bill',
+          partyId: partyId,
+          from: from,
+          to: to,
+          limit: 1000000,
+        );
+    final debitNotes = await db
+        .purchaseRepositoryFor(firmId)
+        .list(
+          docType: 'debit_note',
+          partyId: partyId,
+          from: from,
+          to: to,
+          limit: 1000000,
+        );
     // The payments have to honour the same window as the documents; `forParty`
     // returns the whole history, so a "this month" statement listed payments
     // from every previous month too.
-    final payments = await db.paymentRepositoryFor(firmId)
+    final payments = await db
+        .paymentRepositoryFor(firmId)
         .list(partyId: partyId, from: from, to: to, limit: 1000000);
 
     // The opening balance is the party's opening plus everything that happened
@@ -813,30 +909,45 @@ class ReportRepository {
       opening = -opening;
     }
     if (from != null) {
-      final priorSales = await db.salesRepositoryFor(firmId).list(
-          docType: 'invoice',
-          partyId: partyId,
-          to: from.subtract(const Duration(microseconds: 1)),
-          limit: 1000000);
-      final priorCreditNotes = await db.salesRepositoryFor(firmId).list(
-          docType: 'credit_note',
-          partyId: partyId,
-          to: from.subtract(const Duration(microseconds: 1)),
-          limit: 1000000);
-      final priorPurchases = await db.purchaseRepositoryFor(firmId).list(
-          docType: 'bill',
-          partyId: partyId,
-          to: from.subtract(const Duration(microseconds: 1)),
-          limit: 1000000);
-      final priorDebitNotes = await db.purchaseRepositoryFor(firmId).list(
-          docType: 'debit_note',
-          partyId: partyId,
-          to: from.subtract(const Duration(microseconds: 1)),
-          limit: 1000000);
-      final priorPayments = await db.paymentRepositoryFor(firmId).list(
-          partyId: partyId,
-          to: from.subtract(const Duration(microseconds: 1)),
-          limit: 1000000);
+      final priorSales = await db
+          .salesRepositoryFor(firmId)
+          .list(
+            docType: 'invoice',
+            partyId: partyId,
+            to: from.subtract(const Duration(microseconds: 1)),
+            limit: 1000000,
+          );
+      final priorCreditNotes = await db
+          .salesRepositoryFor(firmId)
+          .list(
+            docType: 'credit_note',
+            partyId: partyId,
+            to: from.subtract(const Duration(microseconds: 1)),
+            limit: 1000000,
+          );
+      final priorPurchases = await db
+          .purchaseRepositoryFor(firmId)
+          .list(
+            docType: 'bill',
+            partyId: partyId,
+            to: from.subtract(const Duration(microseconds: 1)),
+            limit: 1000000,
+          );
+      final priorDebitNotes = await db
+          .purchaseRepositoryFor(firmId)
+          .list(
+            docType: 'debit_note',
+            partyId: partyId,
+            to: from.subtract(const Duration(microseconds: 1)),
+            limit: 1000000,
+          );
+      final priorPayments = await db
+          .paymentRepositoryFor(firmId)
+          .list(
+            partyId: partyId,
+            to: from.subtract(const Duration(microseconds: 1)),
+            limit: 1000000,
+          );
       for (final s in priorSales) {
         if (s.status == 'cancelled') continue;
         opening += s.grandTotal;
@@ -862,58 +973,93 @@ class ReportRepository {
     final events = <_LedgerEvent>[];
     for (final s in sales) {
       if (s.status == 'cancelled') continue;
-      events.add(_LedgerEvent(s.invoiceDate, 'Sales Invoice ${s.number}',
-          s.number, s.grandTotal, 0));
+      events.add(
+        _LedgerEvent(
+          s.invoiceDate,
+          'Sales Invoice ${s.number}',
+          s.number,
+          s.grandTotal,
+          0,
+        ),
+      );
     }
     for (final cn in creditNotes) {
       if (cn.status == 'cancelled') continue;
-      events.add(_LedgerEvent(cn.invoiceDate, 'Credit Note ${cn.number}',
-          cn.number, 0, cn.grandTotal));
+      events.add(
+        _LedgerEvent(
+          cn.invoiceDate,
+          'Credit Note ${cn.number}',
+          cn.number,
+          0,
+          cn.grandTotal,
+        ),
+      );
     }
     for (final p in purchases) {
       if (p.status == 'cancelled') continue;
-      events.add(_LedgerEvent(
-          p.billDate, 'Purchase Bill ${p.number}', p.number, 0, p.grandTotal));
+      events.add(
+        _LedgerEvent(
+          p.billDate,
+          'Purchase Bill ${p.number}',
+          p.number,
+          0,
+          p.grandTotal,
+        ),
+      );
     }
     for (final dn in debitNotes) {
       if (dn.status == 'cancelled') continue;
-      events.add(_LedgerEvent(
-          dn.billDate, 'Debit Note ${dn.number}', dn.number, dn.grandTotal, 0));
+      events.add(
+        _LedgerEvent(
+          dn.billDate,
+          'Debit Note ${dn.number}',
+          dn.number,
+          dn.grandTotal,
+          0,
+        ),
+      );
     }
     for (final p in payments) {
       if (p.chequeStatus == 'bounced') continue;
       final isIn = p.type == 'payment_in';
-      events.add(_LedgerEvent(
+      events.add(
+        _LedgerEvent(
           p.date,
           isIn ? 'Payment Received ${p.number}' : 'Payment Made ${p.number}',
           p.number,
           isIn ? 0 : p.amount,
-          isIn ? p.amount : 0));
+          isIn ? p.amount : 0,
+        ),
+      );
     }
     events.sort((a, b) => a.date.compareTo(b.date));
 
     var running = opening;
     final lines = <LedgerLine>[];
     if (opening.abs() > 0.001) {
-      lines.add(LedgerLine(
-        date: from ?? DateTime(2000),
-        particulars: 'Opening Balance',
-        reference: '',
-        debit: opening > 0 ? _d(opening) : Decimal.zero,
-        credit: opening < 0 ? _d(-opening) : Decimal.zero,
-        balance: _d(running),
-      ));
+      lines.add(
+        LedgerLine(
+          date: from ?? DateTime(2000),
+          particulars: 'Opening Balance',
+          reference: '',
+          debit: opening > 0 ? _d(opening) : Decimal.zero,
+          credit: opening < 0 ? _d(-opening) : Decimal.zero,
+          balance: _d(running),
+        ),
+      );
     }
     for (final e in events) {
       running += e.debit - e.credit;
-      lines.add(LedgerLine(
-        date: e.date,
-        particulars: e.particulars,
-        reference: e.reference,
-        debit: _d(e.debit),
-        credit: _d(e.credit),
-        balance: _d(running),
-      ));
+      lines.add(
+        LedgerLine(
+          date: e.date,
+          particulars: e.particulars,
+          reference: e.reference,
+          debit: _d(e.debit),
+          credit: _d(e.credit),
+          balance: _d(running),
+        ),
+      );
     }
 
     return PartyStatement(
@@ -927,70 +1073,82 @@ class ReportRepository {
 
   // ---------------- Day book ----------------
 
-  Future<List<DayBookLine>> dayBook({
-    required DateTime day,
-  }) async {
+  Future<List<DayBookLine>> dayBook({required DateTime day}) async {
     final start = DateTime(day.year, day.month, day.day);
     final end = DateTime(day.year, day.month, day.day, 23, 59, 59);
-    final sales = await db.salesRepositoryFor(firmId)
+    final sales = await db
+        .salesRepositoryFor(firmId)
         .list(docType: 'invoice', from: start, to: end, limit: 1000000);
-    final purchases = await db.purchaseRepositoryFor(firmId)
+    final purchases = await db
+        .purchaseRepositoryFor(firmId)
         .list(docType: 'bill', from: start, to: end, limit: 1000000);
     final expenses = await db
         .expenseRepositoryFor(firmId)
         .list(type: 'expense', from: start, to: end, limit: 1000000);
-    final paymentsIn = await db.paymentRepositoryFor(firmId)
+    final paymentsIn = await db
+        .paymentRepositoryFor(firmId)
         .list(type: 'payment_in', from: start, to: end, limit: 1000000);
-    final paymentsOut = await db.paymentRepositoryFor(firmId)
+    final paymentsOut = await db
+        .paymentRepositoryFor(firmId)
         .list(type: 'payment_out', from: start, to: end, limit: 1000000);
 
     final rows = <DayBookLine>[];
     for (final s in sales) {
       if (s.status == 'cancelled') continue;
-      rows.add(DayBookLine(
-        date: s.invoiceDate,
-        type: 'Sales',
-        number: s.number,
-        party: s.partyName ?? '-',
-        amount: _d(s.grandTotal),
-      ));
+      rows.add(
+        DayBookLine(
+          date: s.invoiceDate,
+          type: 'Sales',
+          number: s.number,
+          party: s.partyName ?? '-',
+          amount: _d(s.grandTotal),
+        ),
+      );
     }
     for (final p in purchases) {
       if (p.status == 'cancelled') continue;
-      rows.add(DayBookLine(
-        date: p.billDate,
-        type: 'Purchase',
-        number: p.number,
-        party: p.partyName ?? '-',
-        amount: _d(p.grandTotal),
-      ));
+      rows.add(
+        DayBookLine(
+          date: p.billDate,
+          type: 'Purchase',
+          number: p.number,
+          party: p.partyName ?? '-',
+          amount: _d(p.grandTotal),
+        ),
+      );
     }
     for (final e in expenses) {
-      rows.add(DayBookLine(
-        date: e.date,
-        type: 'Expense',
-        number: e.number,
-        party: e.vendorName ?? e.category,
-        amount: _d(e.amount),
-      ));
+      rows.add(
+        DayBookLine(
+          date: e.date,
+          type: 'Expense',
+          number: e.number,
+          party: e.vendorName ?? e.category,
+          amount: _d(e.amount),
+        ),
+      );
     }
     for (final p in paymentsIn) {
-      rows.add(DayBookLine(
-        date: p.date,
-        type: 'Receipt',
-        number: p.number,
-        party: p.partyName ?? '-',
-        amount: _d(p.amount),
-      ));
+      rows.add(
+        DayBookLine(
+          date: p.date,
+          type: 'Receipt',
+          number: p.number,
+          party: p.partyName ?? '-',
+          amount: _d(p.amount),
+        ),
+      );
     }
     for (final p in paymentsOut) {
-      rows.add(DayBookLine(
-        date: p.date,
-        type: 'Payment',
-        number: p.number,
-        party: p.partyName ?? '-',
-        amount: _d(p.amount),
-      ));
+      rows.add(
+        DayBookLine(
+          date: p.date,
+          type: 'Payment',
+          number: p.number,
+          party: p.partyName ?? '-',
+          amount: _d(p.amount),
+        ),
+      );
     }
     rows.sort((a, b) => b.date.compareTo(a.date));
     return rows;
@@ -1004,17 +1162,19 @@ class ReportRepository {
     for (final i in items) {
       // Services aren't counted in stock — see ItemRepository.stockValue.
       if (i.isService || i.stockType != 'tracked') continue;
-      rows.add(StockSummaryRow(
-        itemId: i.id,
-        name: i.name,
-        hsn: i.hsn,
-        unit: i.unit,
-        gstRate: i.gstRate,
-        stock: i.currentStock,
-        saleValue: _d(i.currentStock * i.salePrice),
-        purchaseValue: _d(i.currentStock * i.purchasePrice),
-        lowStockAlert: i.lowStockAlert,
-      ));
+      rows.add(
+        StockSummaryRow(
+          itemId: i.id,
+          name: i.name,
+          hsn: i.hsn,
+          unit: i.unit,
+          gstRate: i.gstRate,
+          stock: i.currentStock,
+          saleValue: _d(i.currentStock * i.salePrice),
+          purchaseValue: _d(i.currentStock * i.purchasePrice),
+          lowStockAlert: i.lowStockAlert,
+        ),
+      );
     }
     rows.sort((a, b) => a.name.compareTo(b.name));
     return rows;
@@ -1054,5 +1214,11 @@ class _LedgerEvent {
   final double debit;
   final double credit;
 
-  const _LedgerEvent(this.date, this.particulars, this.reference, this.debit, this.credit);
+  const _LedgerEvent(
+    this.date,
+    this.particulars,
+    this.reference,
+    this.debit,
+    this.credit,
+  );
 }

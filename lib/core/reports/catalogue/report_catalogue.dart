@@ -4,6 +4,14 @@ import '../../database/app_database.dart';
 import '../engine/report_result.dart';
 import '../engine/report_runner.dart';
 import '../engine/report_source.dart';
+import '../sources/transaction/all_transactions.dart';
+import '../sources/transaction/balance_sheet.dart';
+import '../sources/transaction/bill_wise_profit.dart';
+import '../sources/transaction/cash_flow.dart';
+import '../sources/transaction/profit_and_loss.dart';
+import '../sources/transaction/purchase_register.dart';
+import '../sources/transaction/sale_register.dart';
+import '../sources/transaction/trial_balance.dart';
 import '../spec/report_spec.dart';
 import '../window/report_window.dart';
 
@@ -47,13 +55,25 @@ class ReportDefinition {
   }) async {
     final rows = await source.build(db, firmId, window, filters);
     final groupKey = source.groupKeyFor(spec);
-    return const ReportRunner().fold(
+    final folded = const ReportRunner().fold(
       spec: spec,
       window: window,
       rows: rows,
       groupKeyOf: groupKey == null ? null : (row) => groupKey(row),
       groupLabelOf: _labelFn(source.groupLabelFor(spec)),
       sortKeyOf: source.sortKeyFor(spec),
+    );
+    // Notes come last and see the folded result, because what a source has to
+    // say is usually a disagreement the fold exposed.
+    final notes = source.notesFor(spec);
+    if (notes == null) return folded;
+    return ReportResult(
+      spec: folded.spec,
+      window: folded.window,
+      groups: folded.groups,
+      grandTotals: folded.grandTotals,
+      count: folded.count,
+      notes: notes(folded),
     );
   }
 
@@ -131,44 +151,20 @@ class ReportCatalogue {
   }
 
   // ---- Transaction (9) ----
+  //
+  // The first category to be built for real. Four of the nine are
+  // `layout: document` and register a bespoke body under `features/reports/
+  // documents/`; the other five come off the shared table.
   static final List<ReportDefinition> _transaction = [
-    _placeholder('sale', 'Sale', ReportCategory.transaction),
-    _placeholder('purchase', 'Purchase', ReportCategory.transaction),
-    _placeholder('day_book', 'Day Book', ReportCategory.transaction),
-    _placeholder(
-      'all_transactions',
-      'All Transactions',
-      ReportCategory.transaction,
-    ),
-    _placeholder(
-      'profit_and_loss',
-      'Profit And Loss',
-      ReportCategory.transaction,
-      layout: ReportLayout.document,
-    ),
-    _placeholder(
-      'bill_wise_profit',
-      'Bill Wise Profit',
-      ReportCategory.transaction,
-    ),
-    _placeholder(
-      'cash_flow',
-      'Cash flow',
-      ReportCategory.transaction,
-      layout: ReportLayout.document,
-    ),
-    _placeholder(
-      'trial_balance',
-      'Trial Balance Report',
-      ReportCategory.transaction,
-      layout: ReportLayout.document,
-    ),
-    _placeholder(
-      'balance_sheet',
-      'Balance Sheet',
-      ReportCategory.transaction,
-      layout: ReportLayout.document,
-    ),
+    allTransactions,
+    balanceSheet,
+    billWiseProfit,
+    cashFlow,
+    dayBook,
+    profitAndLoss,
+    purchaseRegister,
+    saleRegister,
+    trialBalance,
   ];
 
   // ---- Party (6) ----

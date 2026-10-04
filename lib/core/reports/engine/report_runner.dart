@@ -65,9 +65,23 @@ class ReportRunner {
             final c = _compareText(sortKeyOf(a), sortKeyOf(b));
             return sort.descending ? -c : c;
           });
-        } else if (column == null ||
-            column.kind == ReportValueKind.text ||
-            column.kind == ReportValueKind.date) {
+        } else if (column != null && column.kind == ReportValueKind.date) {
+          // A date column sorts **chronologically**. `text()` renders it as
+          // `dd-mm-yyyy`, and sorting that as text puts 02 May before 10
+          // April — a sale register with April's invoice printed under May.
+          // The cell is a DateTime, so it compares as one; anything else in
+          // the cell falls back to its text so a source that pre-formatted its
+          // dates still orders rather than throwing.
+          final target = column;
+          bucket.sort((a, b) {
+            final av = a.cells[target.key];
+            final bv = b.cells[target.key];
+            final c = (av is DateTime && bv is DateTime)
+                ? av.compareTo(bv)
+                : _compareText(a.text(target), b.text(target));
+            return sort.descending ? -c : c;
+          });
+        } else if (column == null || column.kind == ReportValueKind.text) {
           final target = column;
           bucket.sort((a, b) {
             final c = target == null

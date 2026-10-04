@@ -98,20 +98,36 @@ so nothing ships as a stub.
       - **The export button is unconditional** — it is the single line that
         makes "every report has an export affordance" true rather than
         aspirational.
-      - [ ] **Still open inside Phase 3's remit:** the nine bespoke
-            `ReportDocumentView` bodies lifted out of `reports_screen.dart`'s
-            private `_Card` classes. The registry (`registerDocumentBuilder`)
-            exists and is empty; `ReportDocumentView` falls back to the declared
-            columns, and **that fallback is tested**. Each body lands with its
-            own report in Phase 4a–4d.
+      - [x] **The bespoke `ReportDocumentView` bodies** landed with Phase 4a.
+            Four of the nine are done — P&L, Trial Balance, Balance Sheet, Cash
+            flow, in `lib/features/reports/documents/`, behind a plain map in
+            `document_registry.dart`. Dart has no top-level statements, so a
+            document file **cannot self-register on import**; a lazy static would
+            mean a builder is missing until something touches it, which is a
+            blank screen on one report and no error. The map is exhaustive at
+            compile time. The other five land with their categories.
       - [ ] **Still open:** the route wiring for `ReportViewPage(reportId:)` into
             `/reports` is Phase 5.
-- [ ] **Phase 4 — the 47 reports**, one commit per category: 4a Transaction (9),
-      4b Party (6), 4c Item/Stock (11), 4d GST (6), 4e Business Status + Taxes
-      (8), 4f Expense + Order + Loan (6).
-      **Next: 4a Transaction.** Cash flow is genuinely new (derived from
-      `_book`); P&L / Trial Balance / Balance Sheet register the first four
-      bespoke document bodies.
+- [ ] **Phase 4 — the 47 reports**, one commit per category.
+      - [x] **4a Transaction (9).** All nine shipped. Sale · Purchase · Day book ·
+            All Transactions · P&L · Bill Wise Profit · Cash flow · Trial Balance
+            · Balance Sheet, plus four bespoke documents.
+            `test/report_transaction_test.dart` (54) + `report_document_test.dart`
+            (10). Suite **915 / 0 failed**, analyzer clean. **Seven real product
+            defects found and fixed**, each proven by reverting it and observing
+            the failure — the worst being that month grouping never worked at all
+            (every month-grouped report collapsed into one `?` heading), that
+            All Transactions silently dropped every hand-keyed voucher, and that
+            `CallbackReportSource` never overrode `build` so *every*
+            callback-sourced report threw. Details in `.claude/STATE.md`.
+      - [ ] **4b Party (6).** **Next.** Party Statement · Party wise P&L · All
+            parties · Party Report By Item · Sale Purchase By Party · Sale
+            Purchase By Party Group. Needs no migration — party grouping rides
+            on shipped schema v11 (`parties.categoryId`).
+      - [ ] **4c Item/Stock (11)** — five of them on the v11 costing.
+      - [ ] **4d GST (6).** GSTR-1/3B reuse `GstReturnBuilder`; GSTR-9 is new.
+      - [ ] **4e Business Status + Taxes (8)** — 27EQ needs v12.
+      - [ ] **4f Expense + Order + Loan (6)**.
 - [ ] **Phase 5 — retire the dashboard** to the menu + Overview entry.
       `gst_reports_screen.dart` **stays**; `/gst-reports` keeps a `redirect`.
 

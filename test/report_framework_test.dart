@@ -111,10 +111,21 @@ void main() {
       expect(ReportCatalogue.byId('gstr2a_reconciliation'), isNotNull);
     });
 
-    test('nothing is implemented yet, and that is visible rather than guessed', () {
-      expect(ReportCatalogue.implemented, isEmpty);
+    test('every report is registered, and what is built is counted honestly', () {
       // Registered-but-empty is honest; absent is a feature nobody asks twice.
       expect(ReportCatalogue.all, hasLength(46));
+
+      // `implemented` is the number that has to be right. It grew from zero
+      // when Transaction landed, and it must be exactly the set of categories
+      // that are finished — so this asserts the Transaction set by name rather
+      // than by count, and would catch a report quietly claiming to be built.
+      expect(
+        ReportCatalogue.implemented.map((d) => d.spec.id).toSet(),
+        ReportCatalogue.inCategory(ReportCategory.transaction)
+            .map((d) => d.spec.id)
+            .toSet(),
+      );
+      expect(ReportCatalogue.implemented, hasLength(9));
     });
   });
 

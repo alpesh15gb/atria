@@ -1,7 +1,7 @@
 # Project State
 
-_Last updated: 2026-10-05 (**reporting build, Phase 3 built, tested and committing**;
-Phases 0–2 shipped; the earlier six-phase build is complete)_
+_Last updated: 2026-10-05 (**reporting build, Phase 4a Transaction shipped and
+committing**; Phases 0–3 shipped; the earlier six-phase build is complete)_
 
 ## Current objective
 
@@ -18,8 +18,8 @@ Six phases, full plan in
 | 0 | one date window | **shipped** (`3bfbe36`) |
 | 1 | schema v11: costing, godown, party groups | **shipped** (`7da4eea`, `9931129`) |
 | 2 | schema v12: bank accounts, loans, TDS metadata | **shipped** (`ce845e1`) |
-| 3 | the framework (spec / engine / view / export / catalogue) | **built + tested, committing** |
-| 4 | the 47 reports, one commit per category | next (4a Transaction) |
+| 3 | the framework (spec / engine / view / export / catalogue) | **shipped** (`2b483a4`) |
+| 4 | the 47 reports, one commit per category | **4a shipped**; next 4b Party (6) |
 | 5 | retire the dashboard to the menu + Overview | — |
 
 ### The earlier six-phase build — complete
@@ -38,8 +38,9 @@ Six phases, full plan in
 ## Current implementation state
 
 - `flutter analyze lib/ test/` → clean.
-- `flutter test` → **851 passed / 0 failed** (723 + 30 Phase 0 + 25 Phase 1 +
-  1 backup-integrity + 3 Phase 2 + 69 Phase 3).
+- `flutter test` → **915 passed / 0 failed** (723 + 30 Phase 0 + 25 Phase 1 +
+  1 backup-integrity + 3 Phase 2 + 69 Phase 3 + 54 Phase 4a transaction +
+  10 Phase 4a documents).
 - Windows debug builds; APK debug **and** release build (release APK is
   debug-key-signed, `CN=Android Debug`, per `build.gradle.kts`'s deliberate
   fallback — 80.1 MB).
@@ -861,31 +862,88 @@ Tests: `test/report_framework_test.dart` (25), `test/report_export_test.dart` (2
   the second restored from a backup. Use `Edit`.
 - **`dart format` reformats ~200 unrelated files.** Named files only.
 
+## Phase 4a — the Transaction reports (shipped)
+
+Nine sources under `lib/core/reports/sources/transaction/`, all pushing the
+window into SQL, plus the four bespoke document bodies in
+`lib/features/reports/documents/` behind `document_registry.dart`.
+`test/report_transaction_test.dart` (54) and `test/report_document_test.dart`
+(10). Every fix below was **reverted and the failure observed** before it was
+kept — that list is the reason the count is trustworthy.
+
+### Product defects the tests found, not test bugs
+
+Seven real ones, each of which shipped a wrong number silently:
+
+1. **`CallbackReportSource` never overrode `build`** — *every* callback-sourced
+   report threw `UnimplementedError`. 48 test failures, one line.
+2. **Date columns sorted as text.** `text()` renders `dd-mm-yyyy`, so 02 May
+   sorted before 10 April and the Sale register printed a credit note before
+   its invoice. Now sorted as `DateTime` ahead of the text branch.
+3. **`_cashNetByVoucher` summed the whole journal entry**, and a double-entry
+   voucher always sums to zero — so All Transactions silently dropped every
+   hand-keyed voucher. Fixed by restricting to cash accounts… and then
+   *again*: even restricted, a till→bank deposit nets to zero across them, and
+   a deposit is exactly what a bank statement shows. The final shape keeps
+   debit and credit as **separate magnitudes** on the cash accounts, so a
+   deposit prints ₹2,000 received *and* ₹2,000 paid and foots to nil.
+4. **Month grouping never worked.** `_groupKeyReaders` names a cell `month`;
+   `row.cells` is a literal lookup and no source duplicates its `DateTime` into
+   one, so **every month-grouped report fell into a single `?` heading** — one
+   subtotal for April and June merged, no error anywhere.
+5. **Balance Sheet signed its liabilities and equity negative.** The repository
+   signs positive-is-debit, so a creditor printed as a negative figure and the
+   section totals came out the wrong way round. Also gated the profit row: an
+   empty firm printed "Profit to date 0.00" as though it were a result.
+6. **Cash flow read accounts the chart does not have.** `LedgerRepository.byCode`
+   does not call `ensureChart()` (every other entry point does), so a firm that
+   never opened the ledger screen showed an empty cash flow.
+7. **Purchase register netted TDS twice.** `grandTotal` is *already* net of TDS;
+   printing it under a heading called "Total" disagreed with the supplier's own
+   invoice by exactly the TDS. Prints the face value now.
+
+Plus a fourth empty-firm case: the P&L printed four zero lines for a firm that
+never traded. `ProfitAndLoss` now carries `hasActivity`, counted from the
+**documents** rather than the totals — a firm that sold ₹1,000 and returned all
+of it has nil income but definitely traded, and the statement must still print.
+
+### Things not to re-learn (Phase 4a)
+
+- **A journal voucher has no single amount.** It has two legs. Anything that
+  reduces one to a net loses deposits, and a deposit is a bank-statement line.
+- **`ensureChart()` is not idempotent-by-default.** `byCode` alone silently
+  returns null for an unseeded chart. Any report resolving accounts by code
+  must seed first.
+- **Dart has no top-level statements**, so a document file cannot self-register
+  on import. The registry is a plain map — and that is better anyway: a lazy
+  static would mean a builder is missing until something touches it, which is a
+  blank screen on one report and no error.
+- **`ConstrainedBox(minWidth:)` inside a horizontal scroll view** leaves
+  `maxWidth` infinite and throws on a stretched `Column`. Use `SizedBox`.
+- **`MoneyText(shrinkToFit: true)` puts the figure behind a `FittedBox`**, so a
+  `find.textContaining` does not reach it. Assert on the `MoneyText.amount`.
+- `flutter test test/sync_engine_test.dart` fails only under full-suite
+  parallelism; alone it passes. Not a real failure — do not chase it.
+
 ## Exact next action
 
-**Phase 4a — the nine Transaction reports.** Sale · Purchase · Day book · All
-Transactions · Profit And Loss · Bill Wise Profit · Cash flow · Trial Balance
-Report · Balance Sheet.
+**Phase 4b — the six Party reports.** Party Statement · Party wise P&L · All
+parties · Party Report By Item · Sale Purchase By Party · Sale Purchase By
+Party Group.
 
-1. Nine `CallbackReportSource`s under `lib/core/reports/sources/transaction/`,
-   each pushing the window into SQL (plan rule 11 — never
-   `.list(limit: 1000000)`).
-2. **Cash flow is new** — derived from `_book`, not from any existing
-   repository. Nothing today produces one.
-3. **Register the four bespoke bodies** (P&L, Trial Balance, Balance Sheet, Cash
-   flow) via `registerDocumentBuilder`, lifting each out of
-   `reports_screen.dart`'s private `_Card` class into
-   `lib/features/reports/documents/`.
-4. Obey the shared helpers, not fresh predicates: `ReportFilters.notBounced`,
-   `notDeleted`, `notCancelled`, `isLive`; report `taxableValue` not
-   `grandTotal`; accumulate in `Decimal` via `Money`; exclude quotations, orders
-   and delivery notes; Trial Balance must agree with the P&L and surface the
-   delta as a banner rather than throwing (plan rule 13).
-5. Revert-proof each source, then commit.
+1. Six sources under `lib/core/reports/sources/party/`. `partyStatement` already
+   exists in `ReportRepository` and is reused, not re-derived.
+2. **Party grouping rides on schema v11** (`parties.categoryId` +
+   `Categories.kind == 'party'`), which is shipped — so 4b needs no migration.
+3. Every one of them is `ReportGroupBy.party`, so they exercise the group path
+   the Transaction reports only partly used.
+4. The CA trap: a party's statement and the party's P&L are two computations
+   over the same documents and must foot to each other; surface the delta
+   rather than throwing.
 
-Then 4b Party (6), 4c Item/Stock (11, five of them on the v11 costing),
-4d GST (6), 4e Business Status + Taxes (8), 4f Expense + Order + Loan (6),
-then Phase 5 (retire the dashboard to the menu).
+Then 4c Item/Stock (11, five of them on the v11 costing), 4d GST (6),
+4e Business Status + Taxes (8), 4f Expense + Order + Loan (6), then Phase 5
+(retire the dashboard to the menu + Overview, and wire `ReportViewPage`).
 
 The plan's fifteen correctness rules (bounced cheques, cancelled *and* deleted,
 `taxableValue` never `grandTotal`, `Decimal` accumulation, HSN vs SAC, 27EQ

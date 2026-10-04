@@ -15,6 +15,7 @@ import '../../shared/widgets/atria_list_page.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/report_data_table.dart';
 import '../../shared/widgets/report_period_toolbar.dart';
+import 'document_registry.dart';
 import 'report_document_view.dart';
 
 /// One screen for every report in the catalogue.
@@ -50,9 +51,7 @@ class ReportViewPage extends ConsumerWidget {
       subtitle: window.spanLabel,
       // Unconditional. The single line that makes "every report has an export
       // affordance" true rather than aspirational.
-      actions: [
-        _ExportButton(query: query),
-      ],
+      actions: [_ExportButton(query: query)],
       toolbar: [
         ReportPeriodToolbar(
           window: window,
@@ -102,8 +101,8 @@ class _ReportBody extends ConsumerWidget {
         // separating the body from the screen.
         ? ReportDocumentView(
             result: result,
-            builder: (context, r) => documentBuilderFor(r.spec.id)
-                ?.call(context, r),
+            builder: (context, r) =>
+                documentBuilderFor(r.spec.id)?.call(context, r),
           )
         : LayoutBuilder(
             builder: (context, constraints) {
@@ -138,8 +137,8 @@ class _ReportBody extends ConsumerWidget {
             child: Text(
               spec.footnote!,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
       ],
@@ -149,28 +148,10 @@ class _ReportBody extends ConsumerWidget {
 
 /// The bespoke body for a document-layout report, by catalogue id.
 ///
-/// Null for a document whose bespoke builder has not been lifted out of
-/// `reports_screen.dart` yet, and [ReportDocumentView] falls back to the
-/// generic column table in that case — so a document report is never a blank
-/// screen. The registry rather than a `switch` because each of the nine is a
-/// separate file under `documents/`, added one commit at a time.
-Widget? Function(BuildContext, ReportResult)? documentBuilderFor(String id) =>
-    _documentBuilders[id];
-
-final Map<String, Widget? Function(BuildContext, ReportResult)>
-    _documentBuilders = <String, Widget? Function(BuildContext, ReportResult)>{};
-
-/// Registers a bespoke body for a document-layout report.
-///
-/// Called from each `documents/` file's own registration, so adding the tenth
-/// document does not mean editing the screen.
-void registerDocumentBuilder(
-  String reportId,
-  Widget? Function(BuildContext, ReportResult) builder,
-) {
-  _documentBuilders[reportId] = builder;
-}
-
+/// Lives in `document_registry.dart` so the registry has no dependency on the
+/// screen — a document file registers itself without importing this file, and
+/// the screen does not have to know which of the forty-six reports have bespoke
+/// bodies.
 class _IntegrityBanner extends StatelessWidget {
   const _IntegrityBanner({required this.integrity});
 
@@ -214,9 +195,7 @@ class _IntegrityBanner extends StatelessWidget {
                 for (final problem in integrity.problems)
                   Text(
                     problem,
-                    style: Theme.of(context)
-                        .textTheme
-                        .labelSmall
+                    style: Theme.of(context).textTheme.labelSmall
                         ?.copyWith(color: scheme.onSurface),
                   ),
               ],
@@ -265,8 +244,10 @@ class _NotesStrip extends StatelessWidget {
                   ),
                   const SizedBox(width: AppSpace.xs),
                   Expanded(
-                    child: Text(note,
-                        style: Theme.of(context).textTheme.labelSmall),
+                    child: Text(
+                      note,
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
                   ),
                 ],
               ),
@@ -314,7 +295,10 @@ class _ExportButton extends ConsumerWidget {
       onSelected: (format) => _run(context, ref, format),
       itemBuilder: (context) => const [
         PopupMenuItem(value: _ExportFormat.csv, child: Text('Export as CSV')),
-        PopupMenuItem(value: _ExportFormat.excel, child: Text('Export as Excel')),
+        PopupMenuItem(
+          value: _ExportFormat.excel,
+          child: Text('Export as Excel'),
+        ),
         PopupMenuItem(value: _ExportFormat.pdf, child: Text('Export as PDF')),
         PopupMenuItem(value: _ExportFormat.print, child: Text('Print')),
       ],
@@ -342,12 +326,15 @@ class _ExportButton extends ConsumerWidget {
     try {
       final dir = await exportRootDirectory();
       final file = switch (format) {
-        _ExportFormat.csv =>
-          await const ReportExportService().writeCsv(result, dir),
-        _ExportFormat.excel =>
-          await const ReportExportService().writeExcel(result, dir),
-        _ExportFormat.pdf =>
-          await const ReportPdfBuilder().write(result, dir),
+        _ExportFormat.csv => await const ReportExportService().writeCsv(
+          result,
+          dir,
+        ),
+        _ExportFormat.excel => await const ReportExportService().writeExcel(
+          result,
+          dir,
+        ),
+        _ExportFormat.pdf => await const ReportPdfBuilder().write(result, dir),
         // Print goes through the spool, not the filesystem — it has no file to
         // open afterwards, so the snackbar is the whole interaction.
         _ExportFormat.print => null,

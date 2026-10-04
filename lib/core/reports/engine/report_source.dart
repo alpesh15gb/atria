@@ -1,4 +1,4 @@
-﻿import 'package:decimal/decimal.dart';
+import 'package:decimal/decimal.dart';
 // Not `show Value`: every predicate here is built from drift's expression
 // operators (`|`, `&`, `notEquals`, `isBiggerOrEqualValue`) and those live on
 // extension types that a narrowed import silently drops.
@@ -43,10 +43,13 @@ abstract class ReportSource {
 
   /// What groups this source's rows, or null for a flat table.
   ///
-  /// Defaults to the spec's group-by when the source has nothing special to
-  /// say. A source whose grouping the spec does not declare is a spec bug, and
-  /// the header would show a subtotal the reader cannot explain.
-  String Function(ReportRow row)? groupKeyFor(ReportSpec spec) => null;
+  /// Defaults to the spec's group-by: a spec that declares
+  /// [ReportGroupBy.month] groups by month without the source having to say so,
+  /// and the value it reads is the row's `month` cell. A source whose grouping
+  /// the spec does not declare is a spec bug, and the header would show a
+  /// subtotal the reader cannot explain.
+  String Function(ReportRow row)? groupKeyFor(ReportSpec spec) =>
+      spec.isGrouped ? _groupKeyReaders[spec.groupBy] : null;
 
   /// The extra detail beside a group's name, where there is one.
   String Function(ReportRow row)? groupLabelFor(ReportSpec spec) => null;
@@ -54,6 +57,16 @@ abstract class ReportSource {
   /// Sort key for a text column, where the source's raw order is the useful
   /// one (an HSN code sorts as text, not as a number).
   String Function(ReportRow row)? sortKeyFor(ReportSpec spec) => null;
+
+  /// Anything the source wants to say above the table.
+  ///
+  /// Takes the **folded** result, not the raw rows, because the thing worth
+  /// reporting is usually a disagreement the fold exposed — a Trial Balance that
+  /// does not balance, a P&L whose two independent implementations differ. That
+  /// is a number the reader must see, and it is the one case where throwing
+  /// would be wrong: a CA looking at an unbalanced book needs the book, not an
+  /// error page.
+  List<String> Function(ReportResult result)? notesFor(ReportSpec spec) => null;
 }
 
 /// A source built from a closure, for the reports that are one query and no
@@ -68,6 +81,7 @@ class CallbackReportSource extends ReportSource {
     this.groupKey,
     this.groupLabel,
     this.sortKey,
+    this.notes,
   });
 
   @override
@@ -84,16 +98,120 @@ class CallbackReportSource extends ReportSource {
   final String Function(ReportRow row)? groupKey;
   final String Function(ReportRow row)? groupLabel;
   final String Function(ReportRow row)? sortKey;
+  final List<String> Function(ReportResult result)? notes;
 
   @override
-  String Function(ReportRow row)? groupKeyFor(ReportSpec spec) => groupKey;
+  Future<List<ReportRow>> build(
+    AppDatabase db,
+    String firmId,
+    ReportWindow window,
+    Map<String, Object?> filters,
+  ) => query(db, firmId, window, filters);
+
+  @override
+  String Function(ReportRow row)? groupKeyFor(ReportSpec spec) =>
+      groupKey ?? super.groupKeyFor(spec);
 
   @override
   String Function(ReportRow row)? groupLabelFor(ReportSpec spec) => groupLabel;
 
   @override
   String Function(ReportRow row)? sortKeyFor(ReportSpec spec) => sortKey;
+
+  @override
+  List<String> Function(ReportResult result)? notesFor(ReportSpec spec) =>
+      notes;
 }
+
+/// The cell each [ReportGroupBy] reads its group name from.
+///
+/// A convention rather than a parameter because the alternative is nine sources
+/// each naming the same cell differently, and a group-by that silently groups
+/// everything under "" renders one subtotal labelled with nothing. A report that
+/// groups by something not listed here overrides [ReportSource.groupKeyFor].
+final Map<ReportGroupBy, String Function(ReportRow)> _groupKeyReaders = {
+  ReportGroupBy.none: _never,
+  ReportGroupBy.category: _read('category'),
+  ReportGroupBy.party: _read('party'),
+  ReportGroupBy.item: _read('item'),
+  ReportGroupBy.date: _readDate('date'),
+  ReportGroupBy.month: _readMonth('month'),
+  ReportGroupBy.hsn: _read('hsn'),
+  ReportGroupBy.state: _read('state'),
+  ReportGroupBy.account: _read('account'),
+};
+
+String _never(ReportRow row) => '';
+
+/// Reads [key] off a row as text.
+///
+/// A missing cell groups under `"?"` rather than `""`, because an empty group
+/// heading and a row that is genuinely blank look identical on screen and the
+/// reader cannot tell which they are looking at.
+String Function(ReportRow) _read(String key) => (ReportRow row) {
+  final value = row.cells[key];
+  return value == null ? '?' : '$value';
+};
+
+/// Groups by whole day, so a source can hand over its `DateTime` column and
+/// still get `30-04-2026` as the heading rather than `Apr 2026`.
+String Function(ReportRow) _readDate(String key) => (ReportRow row) {
+  final value = row.cells[key];
+  if (value is DateTime) return dayKey(value);
+  if (value == null && key != 'date') {
+    final fallback = row.cells['date'];
+    if (fallback is DateTime) return dayKey(fallback);
+  }
+  return _read(key)(row);
+};
+
+/// Groups by month. A source may pre-compute the label into [key], hand over a
+/// `DateTime` under [key], or simply have the usual `date` column — and all
+/// three give the same heading.
+///
+/// The fallback to `date` is not a convenience. The map above names a
+/// *convention*, but `row.cells` is a literal lookup, and no source bothers to
+/// duplicate a `DateTime` into a second `month` cell just to be groupable. So
+/// `_readMonth('month')` against a report whose date lives in `date` found
+/// nothing, fell through to the missing-cell marker, and grouped **every month
+/// of the period under a single `?` heading** — one subtotal for April and one
+/// for June, merged, and no error anywhere.
+String Function(ReportRow) _readMonth(String key) => (ReportRow row) {
+  final value = row.cells[key] ?? row.cells['date'];
+  if (value is DateTime) return monthKey(value);
+  if (value == null) return '?';
+  return '$value';
+};
+
+/// `30-04-2026`.
+String dayKey(DateTime when) =>
+    '${when.day.toString().padLeft(2, '0')}-'
+    '${when.month.toString().padLeft(2, '0')}-${when.year}';
+
+/// "Apr 2026" — a month group name that reads as a month.
+///
+/// Not `DateTime.toString()`, which prints `2026-04-01 00:00:00.000`, and not
+/// `yyyy-MM`, which sorts correctly but reads as a sort key to anyone who has
+/// not internalised that months are words. It does **not** sort correctly,
+/// though, which is why a report that groups by month also declares
+/// [ReportSort] on its date column: the runner sorts *within* groups, so the
+/// source's own order is what keeps April ahead of May.
+String monthKey(DateTime when) => '${monthLabels[when.month - 1]} ${when.year}';
+
+const List<String> monthLabels = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
 
 /// The shared predicates every report source must apply.
 ///

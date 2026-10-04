@@ -37,33 +37,29 @@ final reportFiltersProvider =
 /// report list that scrolls and one that gets killed by the OS on a 4GB phone.
 /// Nothing survives navigation that way — see the `reportWindowProvider` note
 /// for what *does* survive.
-final reportResultProvider =
-    FutureProvider.autoDispose.family<ReportResult, ReportQuery>((ref, query) async {
-  final db = ref.watch(appDatabaseProvider);
-  final firmId = ref.watch(activeFirmIdProvider);
-  if (firmId == null) {
-    // No firm means no report. Returning an empty result rather than throwing
-    // means the screen shows its own empty state instead of a red error box for
-    // something that is not an error.
-    return ReportResult(
-      spec: ReportCatalogue.byId(query.reportId)?.spec ??
-          _unknownSpec(query.reportId),
-      window: query.window,
-      groups: const [],
-      grandTotals: const {},
-    );
-  }
-  final definition = ReportCatalogue.byId(query.reportId);
-  if (definition == null) {
-    throw StateError('No report is registered under "${query.reportId}".');
-  }
-  return definition.run(
-    db,
-    firmId,
-    query.window,
-    filters: query.filters,
-  );
-});
+final reportResultProvider = FutureProvider.autoDispose
+    .family<ReportResult, ReportQuery>((ref, query) async {
+      final db = ref.watch(appDatabaseProvider);
+      final firmId = ref.watch(activeFirmIdProvider);
+      if (firmId == null) {
+        // No firm means no report. Returning an empty result rather than throwing
+        // means the screen shows its own empty state instead of a red error box for
+        // something that is not an error.
+        return ReportResult(
+          spec:
+              ReportCatalogue.byId(query.reportId)?.spec ??
+              _unknownSpec(query.reportId),
+          window: query.window,
+          groups: const [],
+          grandTotals: const {},
+        );
+      }
+      final definition = ReportCatalogue.byId(query.reportId);
+      if (definition == null) {
+        throw StateError('No report is registered under "${query.reportId}".');
+      }
+      return definition.run(db, firmId, query.window, filters: query.filters);
+    });
 
 /// Everything that identifies one run of one report.
 ///
@@ -99,10 +95,7 @@ class ReportQuery {
     return parts.join('|');
   }
 
-  ReportQuery copyWith({
-    ReportWindow? window,
-    Map<String, Object?>? filters,
-  }) {
+  ReportQuery copyWith({ReportWindow? window, Map<String, Object?>? filters}) {
     return ReportQuery(
       reportId: reportId,
       window: window ?? this.window,
@@ -130,9 +123,5 @@ class ReportQuery {
 /// Only reachable when [reportWindowProvider] has no firm yet, which means there
 /// is nothing to report *on*. It still needs a title, because the screen prints
 /// one before it prints the empty state.
-ReportSpec _unknownSpec(String id) => ReportSpec(
-      id: id,
-      title: id,
-      category: 'Party',
-      columns: const [],
-    );
+ReportSpec _unknownSpec(String id) =>
+    ReportSpec(id: id, title: id, category: 'Party', columns: const []);

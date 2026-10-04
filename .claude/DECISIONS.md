@@ -1109,3 +1109,41 @@ such that nothing in the write path can tell the difference.
 **What this is not:** security. A 4-digit PIN with a local salt stops a
 casual passer-by at an unattended counter. It does not stop anyone with the
 database file, and the Settings copy does not claim otherwise.
+
+## Reports: one window type, and why it is day-granular
+
+`ReportWindow` (`lib/core/reports/window/report_window.dart`) replaces three
+separate date-range implementations — the six list screens' `PeriodRange`, the
+reports screen's private `_Period`/`_DateRange`, and the ledger reports' raw
+`DateTimeRange?`. Three enums for one idea is three places the same bug can
+hide, and one of them already had it.
+
+- **A named window closes at its own fixed end, never at `now`.** The reports
+  screen once ended an in-progress quarter at `DateTime.now()`. Because the
+  value had `==` on its bounds, every rebuild produced a "different" window and
+  every dependent card re-issued its queries — changing the day-book date
+  re-ran the whole books. `resolve` is now the only place a window is ever
+  built, and only `thisMonth` ends at the wall clock, and only at day
+  granularity (23:59:59). Verified: reverting the quarter end to `now` fails
+  six tests.
+- **Windows are day-granular, deliberately.** `cacheKey` and `==` both ignore
+  the time of day inside a day, so a cache key that moved with the clock would
+  be the same defect as a moving `to`. A window's end is always 23:59:59 of its
+  last day, whatever time the user passed to pick it.
+- **`from`/`to` are nullable and stay that way.** "All Time" is `from == null &&
+  to == null`; the list screens' named windows are open at the top. Collapsing
+  nullability would force every open-ended query through a sentinel date that
+  is never in the data, and the ledger passes an optional `from` straight
+  through to `trialBalance`.
+- **The asymmetry between list and report windows is load-bearing.** The list
+  screens must not hide a row saved ten seconds ago, so their named windows
+  have no upper bound. The reports screen closes at 23:59:59. `toWindow()`
+  preserves the list behaviour; "unifying" the two would break every list.
+- **Two labels, on purpose.** `label` is the preset's name ("This Quarter"),
+  for chips and empty-state sentences. `spanLabel` is always the days, for
+  report subtitles — a number captioned "This Quarter" tells the reader nothing
+  about which three months it covers.
+- **`PeriodRange.fromWindow` maps a quarter to `Period.custom`,** not to the
+  nearest named period. The list screens have never offered a quarter, and
+  mapping it onto `thisMonth` would silently show them different days than the
+  report computed. Preserving the days matters more than preserving the chip.

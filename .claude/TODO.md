@@ -1,5 +1,60 @@
 # TODO
 
+## The reporting build (2026-10-04)
+
+Plan: `C:\Users\Administrator\.claude\plans\woolly-pondering-gray.md`.
+**47 reports across 9 categories**, one shared export path (CSV + Excel + PDF
++ print), `/reports` becoming a categorized menu with today's card dashboard
+kept as an "Overview" entry. Costing is **weighted moving average**; the schema
+gaps (party groups, bank accounts, loans, godowns, TDS detail) get real tables
+so nothing ships as a stub.
+
+- [x] **Phase 0 — one date window.** Shipped. `ReportWindow` +
+      `ReportWindowPreset` in `lib/core/reports/window/report_window.dart`;
+      `ReportPeriodToolbar` and `AtriaDatePill` in `lib/shared/widgets/`;
+      `PeriodRange.toWindow()`/`fromWindow()`. The three duplicate date-range
+      implementations are gone (private `_Period`/`_DateRange` in
+      `reports_screen.dart`, `_DatePill` in `period_selector.dart`,
+      `DateTimeRange?` in `ledger_reports_screen.dart`).
+      `test/report_window_test.dart` (30), six proven to fail against reverted
+      code. Suite **754 / 0 failed**. **No behaviour change**, deliberately.
+      - The quarter-end regression is now a *property of the type*, not of one
+        call site — `resolve` is the only place a window is ever built, and a
+        named window closes at its own fixed end. Only `thisMonth` ends at the
+        wall clock, and only at day granularity.
+      - **The asymmetry is load-bearing and easy to "fix" wrongly:** the six
+        list screens' named windows stay open at the top (`to == null`) so a row
+        saved ten seconds ago is not filtered out by its own period. The
+        reports screen's close at 23:59:59. `toWindow()` preserves the list
+        behaviour; do not unify the two.
+      - `ReportWindow` deliberately has **two** labels. `label` is the preset's
+        name; `spanLabel` is always the days. Report subtitles print
+        `spanLabel` — "This Quarter" beside a number tells the reader nothing
+        about which three months it covers.
+- [ ] **Phase 1 — schema v11: costing, godown, party groups.**
+      `stock_movements.unitCost`/`sourceLineId`/`godownId`,
+      `items.costingMethod`/`defaultGodownId`, `parties.categoryId`,
+      `godowns` table, WMA costing in `_recordMovement`
+      (`item_repository.dart:262`), one-shot replay backfill. New tables made in
+      a migration need explicit `m.createIndex` per `@TableIndex` — drift does
+      not retro-fit them (the v4 block at `app_database.dart:131` is the
+      template).
+- [ ] **Phase 2 — schema v12: bank accounts, loans, TDS metadata.**
+      `bank_accounts`, `loans` + `loan_transactions`,
+      `purchase_bills.deducteePan`/`tdsSection`, `expenses.itemId`,
+      `gstr9_adjustments`. **Every new table must also be added to
+      `settings_repository.export`/`_clearAll`/`import`** — a table missing from
+      the backup list loses its data on restore silently.
+- [ ] **Phase 3 — the framework.** Spec layer, engine with `assertIntegrity`,
+      `ReportViewPage` + `ReportDataTable`, `ReportExportService` +
+      `ReportPdfBuilder`, `ReportCatalogue` with all 47 registered from day one
+      so "which reports are done" is a `grep`.
+- [ ] **Phase 4 — the 47 reports**, one commit per category: 4a Transaction (9),
+      4b Party (6), 4c Item/Stock (11), 4d GST (6), 4e Business Status + Taxes
+      (8), 4f Expense + Order + Loan (6).
+- [ ] **Phase 5 — retire the dashboard** to the menu + Overview entry.
+      `gst_reports_screen.dart` **stays**; `/gst-reports` keeps a `redirect`.
+
 ## The agreed six-phase build (2026-10-04)
 
 Plan: `C:\Users\Administrator\.claude\plans\woolly-pondering-gray.md`.

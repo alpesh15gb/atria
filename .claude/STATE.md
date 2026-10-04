@@ -1,29 +1,44 @@
 # Project State
 
-_Last updated: 2026-10-04 (**all six phases shipped**; the build is complete)_
+_Last updated: 2026-10-04 (**reporting build, Phase 0 shipped**; the earlier
+six-phase build is complete)_
 
 ## Current objective
 
-Six-phase build agreed with the user: **PDF templates → purchase PDFs → paid/
-balance/PAID stamp + UPI QR fix → bulk actions → quotation lifecycle → optional
-local PIN roles.** Ship one piece per commit. Full plan:
+**The 47-report library.** The user supplied three Vyapar-style reference
+screenshots of a categorized report menu and asked for all of it, built
+completely. `/reports` becomes that menu; today's card dashboard is kept as an
+"Overview" entry. One shared export path: CSV + Excel + PDF + print. Costing is
+weighted moving average; missing tables get created so nothing ships as a stub.
+Six phases, full plan in
 `C:\Users\Administrator\.claude\plans\woolly-pondering-gray.md`.
 
-| Phase | Piece | Commit | State |
-|---|---|---|---|
-| 0 | PDF templates, per firm | `e92fb8f` | **shipped** |
-| — | `PdfSections` extraction | `954cb09` | **shipped** |
-| 1 | purchase-side PDFs | `7bf9a6b` | **shipped** |
-| 2 | paid / balance / stamp + UPI QR fix | `bd860de` | **shipped** |
-| — | rename to Apex Books | `9afe494` | **shipped** |
-| 3 | bulk actions | `8f9f1fc` | **shipped** |
-| 4 | quotation lifecycle | `daddc02` | **shipped** |
-| 5 | optional PIN roles | `50bae8a` | **shipped** |
+| Phase | Piece | State |
+|---|---|---|
+| 0 | one date window | **shipped** |
+| 1 | schema v11: costing, godown, party groups | next |
+| 2 | schema v12: bank accounts, loans, TDS metadata | — |
+| 3 | the framework (spec / engine / view / export / catalogue) | — |
+| 4 | the 47 reports, one commit per category | — |
+| 5 | retire the dashboard to the menu + Overview | — |
+
+### The earlier six-phase build — complete
+
+| Phase | Piece | Commit |
+|---|---|---|
+| 0 | PDF templates, per firm | `e92fb8f` |
+| — | `PdfSections` extraction | `954cb09` |
+| 1 | purchase-side PDFs | `7bf9a6b` |
+| 2 | paid / balance / stamp + UPI QR fix | `bd860de` |
+| — | rename to Apex Books | `9afe494` |
+| 3 | bulk actions | `8f9f1fc` |
+| 4 | quotation lifecycle | `daddc02` |
+| 5 | optional PIN roles | `50bae8a` |
 
 ## Current implementation state
 
 - `flutter analyze lib/ test/` → clean.
-- `flutter test` → **723 passed / 1 skipped / 0 failed** (after Phase 5).
+- `flutter test` → **754 passed / 0 failed** (723 + 30 new in Phase 0).
 - Windows debug builds; APK debug **and** release build (release APK is
   debug-key-signed, `CN=Android Debug`, per `build.gradle.kts`'s deliberate
   fallback — 80.1 MB).
@@ -632,18 +647,47 @@ Also fixed this day (earlier audit pass, tests in place):
 
 ## Exact next action
 
-**The six-phase build is complete.** Every phase is shipped, the suite is green
-at 723/1 skipped, analyzer is clean, and Windows + debug APK + release APK all
-build. Nothing in the plan is outstanding.
+**Start the reporting build's Phase 1 — schema v11.** Phase 0 (one date window)
+is shipped and the plan's own ordering puts everything else behind it.
 
-What is left is the work that needs a person, not a compiler:
+Concretely, next:
 
-1. **Exercise every new feature by hand on Windows and Android.** This is the
-   one item in the plan's Verification section that was never performed — no
-   one has signed in through a PIN gate, moved a quotation to `accepted`,
-   printed a purchase bill, or taken a bulk delete. Watch specifically for:
-   - the gate appearing when it should not (it is the highest-risk regression —
-     it would affect every existing install);
+1. `schemaVersion` 10 → 11 in `app_database.dart`, one `if (from < 11)` block.
+2. Add `stock_movements.unitCost REAL DEFAULT 0 NOT NULL`,
+   `sourceLineId TEXT NULL`, `godownId TEXT NULL`; `items.costingMethod TEXT
+   DEFAULT 'moving_average'`, `defaultGodownId TEXT NULL`; `parties.categoryId
+   TEXT NULL`; and the `godowns` table (new file).
+3. **Create the new tables' indexes explicitly** — drift does not retro-fit
+   `@TableIndex` for a table made in a migration. The v4 block at
+   `app_database.dart:131` is the template.
+4. Stamp `unitCost` in `_recordMovement` (`item_repository.dart:262`): inbound =
+   the line's **taxable** unit cost (use `GstEngine`'s taxable value, never
+   `total`); outbound = the moving average at that moment; opening = the item's
+   `purchasePrice`, documented as an estimate.
+5. Negative stock under WMA: **never divide** — carry the last positive average
+   forward and flag the row. A negative average is a negative cost, which turns
+   every downstream margin upside down.
+6. A one-shot replay backfill computes `unitCost` for existing rows by walking
+   the movement log in `date, rowid` order and joining each inbound back through
+   `sourceId` → `purchase_bill_items`. `sourceLineId` is what makes that
+   backfill *provably* correct rather than accidentally correct.
+7. Migration test that builds a real v10 file, rolls it back, reopens, and
+   asserts rows survive with the new defaults — the only honest way to test a
+   migration.
+
+Then Phase 2 (schema v12), Phase 3 (the framework), Phase 4 (the 47 reports in
+six commits), Phase 5 (retire the dashboard to the menu).
+
+---
+
+### Also outstanding (unchanged)
+
+1. **Exercise every feature from the six-phase build by hand on Windows and
+   Android.** No one has signed in through a PIN gate, moved a quotation to
+   `accepted`, printed a purchase bill, or taken a bulk delete. Watch
+   specifically for:
+   - the gate appearing when it should not (highest-risk regression — it would
+     affect every existing install);
    - a purchase PDF's tax split, which inverts relative to a sales invoice;
    - the bulk-delete count matching the rows that actually changed.
 2. **Rebuild + install the app and re-import the real `.vyb`** to confirm the

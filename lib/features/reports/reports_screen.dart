@@ -7,8 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/database/repositories/report_repository.dart';
-import '../../core/engine/document_numbering.dart';
 import '../../core/responsive/breakpoints.dart';
+import '../../core/reports/window/report_window.dart';
 import '../../core/state/providers.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_theme.dart';
@@ -16,29 +16,7 @@ import '../../core/utils/formatters.dart';
 import '../../shared/widgets/atria_nav_row.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/money_text.dart';
-
-// ---------------------------------------------------------------------------
-// Reporting period
-// ---------------------------------------------------------------------------
-
-enum _Period { thisMonth, thisQuarter, thisFY, custom }
-
-class _DateRange {
-  const _DateRange(this.from, this.to);
-
-  final DateTime from;
-  final DateTime to;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is _DateRange && other.from == from && other.to == to;
-
-  @override
-  int get hashCode => Object.hash(from, to);
-
-  String get label => '${Formatters.date(from)}  –  ${Formatters.date(to)}';
-}
+import '../../shared/widgets/report_period_toolbar.dart';
 
 /// Picks a "nice" axis step (1, 2 or 5 × 10ⁿ) so the chart's horizontal grid
 /// lines land on round numbers of rupees.
@@ -67,58 +45,14 @@ class ReportsScreen extends ConsumerStatefulWidget {
 }
 
 class _ReportsScreenState extends ConsumerState<ReportsScreen> {
-  _Period _period = _Period.thisMonth;
-  DateTime _customFrom = DateTime(DateTime.now().year, DateTime.now().month, 1);
-  DateTime _customTo = DateTime.now();
-  DateTime _dayBookDay = DateTime.now();
-
   /// The window every period-scoped report is computed over.
-  _DateRange get _range {
-    final now = DateTime.now();
-    switch (_period) {
-      case _Period.thisMonth:
-        return _DateRange(
-          DateTime(now.year, now.month, 1),
-          DateTime(now.year, now.month, now.day, 23, 59, 59),
-        );
-      case _Period.thisQuarter:
-        // Quarters follow the Indian financial year: Apr–Jun, Jul–Sep, …
-        final fy = FinancialYear.current();
-        final elapsed =
-            (now.year - fy.start.year) * 12 + now.month - fy.start.month;
-        final quarter = elapsed.clamp(0, 11) ~/ 3;
-        final start = DateTime(fy.start.year, fy.start.month + quarter * 3, 1);
-        // The end is the quarter's ACTUAL last day at 23:59:59, never
-        // `DateTime.now()`. For the ~three quarters of the year that are
-        // still in progress, `now` advanced a few milliseconds on every
-        // rebuild, so `_DateRange` — which has value equality on from/to —
-        // compared unequal each time and every card's `didUpdateWidget`
-        // re-issued its queries: changing the day-book date, resizing the
-        // window or any ancestor rebuild re-ran the whole books from scratch.
-        // A quarter that has not ended yet cannot contain rows dated after its
-        // last day, so querying to the quarter end returns exactly the same
-        // rows while comparing equal every time.
-        final end = DateTime(
-          fy.start.year,
-          fy.start.month + quarter * 3 + 3,
-          0,
-          23,
-          59,
-          59,
-        );
-        return _DateRange(start, end);
-      case _Period.thisFY:
-        final fy = FinancialYear.current();
-        return _DateRange(fy.start, fy.end);
-      case _Period.custom:
-        final from = _customFrom.isBefore(_customTo) ? _customFrom : _customTo;
-        final later = _customFrom.isBefore(_customTo) ? _customTo : _customFrom;
-        return _DateRange(
-          from,
-          DateTime(later.year, later.month, later.day, 23, 59, 59),
-        );
-    }
-  }
+  ///
+  /// Held as a resolved value rather than a preset enum so the quarter-end bug
+  /// (documented at [ReportWindow.resolve]) cannot be reintroduced here: there
+  /// is no `DateTime.now()` in this file any more, and nothing to reintroduce
+  /// one with.
+  ReportWindow _range = ReportWindow.resolve(ReportWindowPreset.thisMonth);
+  DateTime _dayBookDay = DateTime.now();
 
   @override
   Widget build(BuildContext context) {
@@ -143,14 +77,19 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             return CustomScrollView(
               slivers: [
                 SliverToBoxAdapter(child: _reportLibrary()),
-                SliverToBoxAdapter(child: _periodSelector(range)),
+                SliverToBoxAdapter(
+                  child: ReportPeriodToolbar(
+                    window: range,
+                    onChanged: (next) => setState(() => _range = next),
+                  ),
+                ),
                 SliverToBoxAdapter(
                   child: _pad(
                     SectionHeader(
                       title: 'Goods & Services Tax',
                       subtitle:
                           'Output tax, input credit and rate-wise '
-                          'outward supplies · ${range.label}',
+                          'outward supplies · ${range.spanLabel}',
                       padding: const EdgeInsets.fromLTRB(4, 14, 4, 10),
                     ),
                   ),
@@ -164,7 +103,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                       title: 'Tax at source',
                       subtitle:
                           'Deducted on purchases and collected on sales '
-                          '· ${range.label}',
+                          '· ${range.spanLabel}',
                       padding: const EdgeInsets.fromLTRB(4, 14, 4, 10),
                     ),
                   ),
@@ -259,158 +198,12 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     );
   }
 
-  // ---- Period selector ---------------------------------------------------
-
-  static const _periodLabels = {
-    _Period.thisMonth: 'This Month',
-    _Period.thisQuarter: 'This Quarter',
-    _Period.thisFY: 'This FY',
-    _Period.custom: 'Custom',
-  };
-
-  Widget _periodSelector(_DateRange range) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            height: 38,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              shrinkWrap: true,
-              itemCount: _Period.values.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 8),
-              itemBuilder: (context, index) {
-                final period = _Period.values[index];
-                final selected = _period == period;
-                return ChoiceChip(
-                  label: Text(
-                    _periodLabels[period]!,
-                    style: text.labelMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: selected
-                          ? scheme.primary
-                          : scheme.onSurfaceVariant,
-                    ),
-                  ),
-                  selected: selected,
-                  showCheckmark: false,
-                  onSelected: (_) => setState(() {
-                    _period = period;
-                    if (period == _Period.custom) {
-                      _customFrom = DateTime(
-                        DateTime.now().year,
-                        DateTime.now().month,
-                        1,
-                      );
-                      _customTo = DateTime.now();
-                    }
-                  }),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Icon(
-                Icons.event_available_rounded,
-                size: 16,
-                color: scheme.onSurfaceVariant,
-              ),
-              const SizedBox(width: 6),
-              if (_period == _Period.custom) ...[
-                _datePill('From', _customFrom, (picked) {
-                  setState(() => _customFrom = picked);
-                }),
-                const SizedBox(width: 8),
-                _datePill('To', _customTo, (picked) {
-                  setState(() => _customTo = picked);
-                }),
-              ] else
-                Flexible(
-                  child: Text(
-                    range.label,
-                    style: text.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w600,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Outlined date pill used by the "Custom" period.
-  Widget _datePill(
-    String label,
-    DateTime value,
-    ValueChanged<DateTime> onPicked,
-  ) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: () async {
-          final picked = await showDatePicker(
-            context: context,
-            initialDate: value,
-            firstDate: DateTime(2020),
-            lastDate: DateTime.now(),
-            helpText: label == 'From' ? 'Report starts on' : 'Report ends on',
-          );
-          if (picked != null) onPicked(picked);
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: scheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-            border: Border.all(color: scheme.outline, width: 0.9),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                label,
-                style: text.labelSmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                Formatters.date(value),
-                style: text.labelSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   // ---- Statement grid ----------------------------------------------------
 
   List<Widget> _statementGrid(
     ReportRepository repo,
     BoxConstraints constraints,
-    _DateRange range,
+    ReportWindow range,
   ) {
     final perRow = constraints.isLarge
         ? 4
@@ -531,7 +324,7 @@ class _SectionBuilder<T> extends StatelessWidget {
             message: onRetry == null
                 ? 'Close and reopen the app, or try the report again.'
                 : 'This report could not be read from your books. '
-                    'Nothing has been changed — try again.',
+                      'Nothing has been changed — try again.',
             actionLabel: onRetry == null ? null : 'Try again',
             onAction: onRetry,
           );
@@ -559,7 +352,7 @@ class _TaxAtSourceCard extends StatefulWidget {
   const _TaxAtSourceCard({required this.repo, required this.range});
 
   final ReportRepository repo;
-  final _DateRange range;
+  final ReportWindow range;
 
   @override
   State<_TaxAtSourceCard> createState() => _TaxAtSourceCardState();
@@ -567,14 +360,14 @@ class _TaxAtSourceCard extends StatefulWidget {
 
 class _TaxAtSourceCardState extends State<_TaxAtSourceCard> {
   late Future<TaxAtSourceSummary> _future = widget.repo.taxAtSource(
-    from: widget.range.from,
-    to: widget.range.to,
+    from: widget.range.queryFrom,
+    to: widget.range.queryTo,
   );
 
   void _reload() {
     _future = widget.repo.taxAtSource(
-      from: widget.range.from,
-      to: widget.range.to,
+      from: widget.range.queryFrom,
+      to: widget.range.queryTo,
     );
   }
 
@@ -855,7 +648,7 @@ class _GstCard extends StatefulWidget {
   const _GstCard({required this.repo, required this.range});
 
   final ReportRepository repo;
-  final _DateRange range;
+  final ReportWindow range;
 
   @override
   State<_GstCard> createState() => _GstCardState();
@@ -863,14 +656,14 @@ class _GstCard extends StatefulWidget {
 
 class _GstCardState extends State<_GstCard> {
   late Future<GstSummary> _future = widget.repo.gstSummary(
-    from: widget.range.from,
-    to: widget.range.to,
+    from: widget.range.queryFrom,
+    to: widget.range.queryTo,
   );
 
   void _reload() {
     _future = widget.repo.gstSummary(
-      from: widget.range.from,
-      to: widget.range.to,
+      from: widget.range.queryFrom,
+      to: widget.range.queryTo,
     );
   }
 
@@ -936,7 +729,7 @@ class _GstCardState extends State<_GstCard> {
                         ),
                       ),
                       Text(
-                        widget.range.label,
+                        widget.range.spanLabel,
                         style: text.bodySmall?.copyWith(
                           color: Colors.white.withValues(alpha: 0.86),
                           fontFeatures: const [FontFeature.tabularFigures()],
@@ -1531,7 +1324,7 @@ class _PnlCard extends StatefulWidget {
   const _PnlCard({required this.repo, required this.range});
 
   final ReportRepository repo;
-  final _DateRange range;
+  final ReportWindow range;
 
   @override
   State<_PnlCard> createState() => _PnlCardState();
@@ -1541,14 +1334,14 @@ class _PnlCardState extends State<_PnlCard> {
   static const _maxRows = 4;
 
   late Future<ProfitAndLoss> _future = widget.repo.profitAndLoss(
-    from: widget.range.from,
-    to: widget.range.to,
+    from: widget.range.queryFrom,
+    to: widget.range.queryTo,
   );
 
   void _reload() {
     _future = widget.repo.profitAndLoss(
-      from: widget.range.from,
-      to: widget.range.to,
+      from: widget.range.queryFrom,
+      to: widget.range.queryTo,
     );
   }
 
@@ -1569,7 +1362,7 @@ class _PnlCardState extends State<_PnlCard> {
           _cardTitle(
             context,
             'Profit & Loss',
-            'Net result for ${widget.range.label}',
+            'Net result for ${widget.range.spanLabel}',
           ),
           const SizedBox(height: 10),
           _SectionBuilder<ProfitAndLoss>(
@@ -1762,7 +1555,7 @@ class _ReceivablesCard extends StatefulWidget {
   const _ReceivablesCard({required this.repo, required this.range});
 
   final ReportRepository repo;
-  final _DateRange range;
+  final ReportWindow range;
 
   @override
   State<_ReceivablesCard> createState() => _ReceivablesCardState();
@@ -1770,14 +1563,14 @@ class _ReceivablesCard extends StatefulWidget {
 
 class _ReceivablesCardState extends State<_ReceivablesCard> {
   late Future<DashboardSummary> _future = widget.repo.dashboard(
-    from: widget.range.from,
-    to: widget.range.to,
+    from: widget.range.queryFrom,
+    to: widget.range.queryTo,
   );
 
   void _reload() {
     _future = widget.repo.dashboard(
-      from: widget.range.from,
-      to: widget.range.to,
+      from: widget.range.queryFrom,
+      to: widget.range.queryTo,
     );
   }
 

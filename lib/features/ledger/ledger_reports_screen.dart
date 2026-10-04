@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../core/database/repositories/ledger_repository.dart';
-import '../../core/engine/document_numbering.dart';
+import '../../core/reports/window/report_window.dart';
 import '../../core/state/providers.dart';
 import '../../core/theme/app_sizes.dart';
 import '../../core/theme/app_theme.dart';
@@ -19,13 +19,21 @@ import '../../shared/widgets/common_widgets.dart';
 /// A `StateProvider` rather than a widget's own state so the trial balance and
 /// the balance sheet agree while the user moves between them: two reports that
 /// quietly covered different periods would be worse than no report at all.
-final ledgerPeriodProvider = StateProvider<DateTimeRange?>(
-  (ref) => null,
-); // null = all of time
+///
+/// All Time by default — a `DateTimeRange?` used to stand in for it, with null
+/// meaning "no bounds", which is now what [ReportWindow.allTime] says
+/// explicitly.
+final ledgerPeriodProvider = StateProvider<ReportWindow>(
+  (ref) => const ReportWindow(
+    preset: ReportWindowPreset.allTime,
+    from: null,
+    to: null,
+  ),
+);
 
-DateTime ledgerFrom(DateTimeRange? range) => range?.start ?? DateTime(2000);
+DateTime ledgerFrom(ReportWindow window) => window.queryFrom;
 
-DateTime ledgerAsOf(DateTimeRange? range) => range?.end ?? DateTime.now();
+DateTime ledgerAsOf(ReportWindow window) => window.queryTo;
 
 /// Trial balance: every account with its opening, movements and closing
 /// balance, and the two column totals that have to agree.
@@ -40,7 +48,7 @@ class TrialBalanceScreen extends ConsumerWidget {
     // has none; the screen does not write anything on build.
     final repo = ref.watch(ledgerRepositoryProvider);
     final range = ref.watch(ledgerPeriodProvider);
-    final from = range?.start;
+    final from = range.from;
     final asOf = ledgerAsOf(range);
 
     return AtriaListPage(
@@ -57,7 +65,7 @@ class TrialBalanceScreen extends ConsumerWidget {
       ],
       toolbar: [
         LedgerPeriodSelector(
-          range: range,
+          window: range,
           onChanged: (value) =>
               ref.read(ledgerPeriodProvider.notifier).state = value,
         ),
@@ -75,7 +83,10 @@ class TrialBalanceScreen extends ConsumerWidget {
                   return EmptyState(
                     icon: PhosphorIconsRegular.warningCircle,
                     title: 'Could not build the trial balance',
-                    message: atriaErrorMessage(snapshot.error, retry: 'Try again.'),
+                    message: atriaErrorMessage(
+                      snapshot.error,
+                      retry: 'Try again.',
+                    ),
                   );
                 }
                 final tb = snapshot.data;
@@ -142,7 +153,7 @@ class BalanceSheetScreen extends ConsumerWidget {
       ],
       toolbar: [
         LedgerPeriodSelector(
-          range: range,
+          window: range,
           onChanged: (value) =>
               ref.read(ledgerPeriodProvider.notifier).state = value,
         ),
@@ -160,7 +171,10 @@ class BalanceSheetScreen extends ConsumerWidget {
                   return EmptyState(
                     icon: PhosphorIconsRegular.warningCircle,
                     title: 'Could not build the balance sheet',
-                    message: atriaErrorMessage(snapshot.error, retry: 'Try again.'),
+                    message: atriaErrorMessage(
+                      snapshot.error,
+                      retry: 'Try again.',
+                    ),
                   );
                 }
                 final sheet = snapshot.data;
@@ -238,7 +252,7 @@ class AccountLedgerScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final repo = ref.watch(ledgerRepositoryProvider);
     final range = ref.watch(ledgerPeriodProvider);
-    final from = range?.start;
+    final from = range.from;
     final asOf = ledgerAsOf(range);
 
     return AtriaListPage(
@@ -246,7 +260,7 @@ class AccountLedgerScreen extends ConsumerWidget {
       subtitle: 'Movements and the running balance',
       toolbar: [
         LedgerPeriodSelector(
-          range: range,
+          window: range,
           onChanged: (value) =>
               ref.read(ledgerPeriodProvider.notifier).state = value,
         ),
@@ -264,7 +278,10 @@ class AccountLedgerScreen extends ConsumerWidget {
                   return EmptyState(
                     icon: PhosphorIconsRegular.warningCircle,
                     title: 'Could not open the ledger',
-                    message: atriaErrorMessage(snapshot.error, retry: 'Try again.'),
+                    message: atriaErrorMessage(
+                      snapshot.error,
+                      retry: 'Try again.',
+                    ),
                   );
                 }
                 final ledger = snapshot.data;
@@ -328,8 +345,7 @@ class AccountLedgerScreen extends ConsumerWidget {
                           style: text.bodyMedium?.copyWith(color: muted),
                         ),
                       ),
-                    for (final row in ledger.rows)
-                      _LedgerMovementRow(row: row),
+                    for (final row in ledger.rows) _LedgerMovementRow(row: row),
                     _LedgerPlainRow(
                       label: 'Closing balance',
                       amount: ledger.closing,
@@ -344,69 +360,104 @@ class AccountLedgerScreen extends ConsumerWidget {
 }
 
 /// Period control shared by the three ledger reports.
+///
+/// Speaks [ReportWindow] like every other report screen, but keeps its own
+/// three-button shape (All of time / This financial year / pick) rather than
+/// the chip row — the ledger reports live in an [AtriaListPage] toolbar, where
+/// a scrolling chip strip would cost more room than the three words it saves.
 class LedgerPeriodSelector extends StatelessWidget {
   const LedgerPeriodSelector({
     super.key,
-    required this.range,
+    required this.window,
     required this.onChanged,
   });
 
-  final DateTimeRange? range;
-  final ValueChanged<DateTimeRange?> onChanged;
+  final ReportWindow window;
+  final ValueChanged<ReportWindow> onChanged;
+
+  /// The window the "This financial year" button and the picker's default
+  /// selection both offer.
+  ///
+  /// The Indian financial year, not the calendar year. `DateTime(now.year, 4, 1)`
+  /// was the range before: on 15 Feb 2026 that is start 2026-04-01 / end
+  /// 2026-02-15 — start AFTER end, so every movement failed
+  /// `m.date.isBefore(from)`, both column totals printed ₹0.00 and only the
+  /// carried-forward balances appeared, labelled as the period's activity.
+  ReportWindow get _thisFy => ReportWindow.resolve(ReportWindowPreset.thisFY);
+
+  static const ReportWindow _allTime = ReportWindow(
+    preset: ReportWindowPreset.allTime,
+    from: null,
+    to: null,
+  );
 
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
     final muted = Theme.of(context).colorScheme.onSurfaceVariant;
-    // The Indian financial year, not the calendar year. `DateTime(now.year, 4, 1)`
-    // was the range before: on 15 Feb 2026 that is start 2026-04-01 / end
-    // 2026-02-15 — start AFTER end, so every movement failed
-    // `m.date.isBefore(from)`, both column totals printed ₹0.00 and only the
-    // carried-forward balances appeared, labelled as the period's activity.
-    final now = DateTime.now();
-    final thisFy = DateTimeRange(
-      start: FinancialYear.forDate(now).start,
-      end: now,
-    );
+    final allTime = window.isAllTime;
+
     return Row(
       children: [
         Expanded(
           child: Text(
-            range == null
-                ? 'All of time'
-                : '${Formatters.date(range!.start)} to '
-                      '${Formatters.date(range!.end)}',
+            allTime ? 'All of time' : window.spanLabel,
             style: text.bodyMedium,
           ),
         ),
-        if (range != null)
+        if (!allTime)
           TextButton(
-            onPressed: () => onChanged(null),
+            onPressed: () => onChanged(_allTime),
             child: const Text('All of time'),
           ),
         TextButton(
-          onPressed: () => onChanged(thisFy),
+          onPressed: () => onChanged(_thisFy),
           child: const Text('This financial year'),
         ),
         IconButton(
           tooltip: 'Pick a period',
           onPressed: () async {
+            final fy = _thisFy;
             final picked = await showDateRangePicker(
               context: context,
               firstDate: DateTime(2000),
               lastDate: DateTime(2100),
               // Never a start after the end: the dialog refuses to confirm an
               // inverted range, so a stale `initialDateRange` left the user
-              // unable to close it at all.
-              initialDateRange: range != null && !range!.start.isAfter(range!.end)
-                  ? range
-                  : thisFy,
+              // unable to close it at all. The bounds here are day-stamped —
+              // `ReportWindow.to` closes at 23:59:59 — so an end of "today at
+              // 23:59" must not be handed to a picker that compares days.
+              initialDateRange:
+                  !allTime &&
+                      window.from != null &&
+                      window.to != null &&
+                      !window.from!.isAfter(window.to!)
+                  ? DateTimeRange(
+                      start: window.from!,
+                      end: DateTime(
+                        window.to!.year,
+                        window.to!.month,
+                        window.to!.day,
+                      ),
+                    )
+                  : DateTimeRange(
+                      start: fy.from!,
+                      end: DateTime(fy.to!.year, fy.to!.month, fy.to!.day),
+                    ),
             );
-            if (picked != null) onChanged(picked);
+            if (picked != null) {
+              onChanged(
+                ReportWindow.resolve(
+                  ReportWindowPreset.custom,
+                  customFrom: picked.start,
+                  customTo: picked.end,
+                ),
+              );
+            }
           },
           icon: const Icon(PhosphorIconsRegular.calendarBlank),
         ),
-        if (range == null)
+        if (allTime)
           Tooltip(
             message: 'Showing every period',
             child: Icon(PhosphorIconsRegular.info, size: 16, color: muted),

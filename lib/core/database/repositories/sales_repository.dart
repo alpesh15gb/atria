@@ -39,25 +39,28 @@ class SalesLineDraft {
   });
 
   TaxLine toTaxLine() => TaxLine(
-        id: id,
-        itemId: itemId,
-        name: name,
-        hsn: hsn,
-        quantity: quantity,
-        unit: unit,
-        rate: rate,
-        discountPercent: discountPercent ?? Money.zero,
-        discountAmount: discountAmount ?? Money.zero,
-        gstRate: gstRate,
-        cessRate: cessRate,
-        taxMode: taxMode,
-      );
+    id: id,
+    itemId: itemId,
+    name: name,
+    hsn: hsn,
+    quantity: quantity,
+    unit: unit,
+    rate: rate,
+    discountPercent: discountPercent ?? Money.zero,
+    discountAmount: discountAmount ?? Money.zero,
+    gstRate: gstRate,
+    cessRate: cessRate,
+    taxMode: taxMode,
+  );
 
   /// Writes the resolved per-line tax figures. These columns back the detail
   /// screen's line table and the PDF's item grid, so leaving them out makes
   /// every line read ₹0.00 taxable / ₹0.00 total on a saved document.
   SalesInvoiceItemsCompanion toCompanion(
-      String invoiceId, int order, ComputedLine? computed) {
+    String invoiceId,
+    int order,
+    ComputedLine? computed,
+  ) {
     return SalesInvoiceItemsCompanion.insert(
       id: id,
       invoiceId: invoiceId,
@@ -86,7 +89,8 @@ class SalesLineDraft {
 class SalesDraft {
   final String id;
   final String number;
-  final String docType; // invoice | quotation | sales_order | delivery_note | credit_note
+  final String
+  docType; // invoice | quotation | sales_order | delivery_note | credit_note
   final String? partyId;
   final DateTime invoiceDate;
   final DateTime? dueDate;
@@ -106,6 +110,7 @@ class SalesDraft {
   final Decimal? invoiceDiscountPercent;
   final Decimal? invoiceDiscountAmount;
   final Decimal? shippingCharge;
+
   /// TCS percentage, as entered on the invoice (or the firm's default rate).
   /// Null/zero means no tax was collected at source.
   final Decimal? tcsRate;
@@ -118,8 +123,7 @@ class SalesDraft {
   /// are nullable and default to zero here for readers that need a [Decimal].
   Decimal get invoiceDiscountPercentValue =>
       invoiceDiscountPercent ?? Money.zero;
-  Decimal get invoiceDiscountAmountValue =>
-      invoiceDiscountAmount ?? Money.zero;
+  Decimal get invoiceDiscountAmountValue => invoiceDiscountAmount ?? Money.zero;
   Decimal get shippingChargeValue => shippingCharge ?? Money.zero;
 
   const SalesDraft({
@@ -255,8 +259,11 @@ class DocumentSettlement {
   /// These used to store a ₹0 balance beside a status derived from the
   /// unclamped difference, so a debit note permanently read "Unpaid" next to
   /// nothing owed.
-  static const settled =
-      DocumentSettlement(balance: 0, status: 'paid', overpaid: false);
+  static const settled = DocumentSettlement(
+    balance: 0,
+    status: 'paid',
+    overpaid: false,
+  );
 
   /// Derives both figures from what the document is worth and what has
   /// already been settled against it. [Tolerance] keeps a sub-paisa residue
@@ -287,11 +294,16 @@ class SalesRepository with SyncQueueMixin {
   final String firmId;
 
   /// Writes a document and its lines atomically, applying stock effects.
-  Future<SalesInvoiceEntity> save(SalesDraft draft,
-      {bool affectStock = true, String? createdBy}) async {
+  Future<SalesInvoiceEntity> save(
+    SalesDraft draft, {
+    bool affectStock = true,
+    String? createdBy,
+  }) async {
     // The caller resolves the split from the firm's state vs the place of
     // supply; [isInterState] is the stored denormalized flag.
-    final split = draft.isInterState ? GstSplit.interState : GstSplit.intraState;
+    final split = draft.isInterState
+        ? GstSplit.interState
+        : GstSplit.intraState;
     final result = GstEngine.computeDocument(
       lines: draft.lines.map((l) => l.toTaxLine()).toList(),
       split: split,
@@ -307,9 +319,7 @@ class SalesRepository with SyncQueueMixin {
       taxableValue: result.taxableValue,
       rate: draft.tcsRate,
     );
-    final grandTotal = result.grandTotal +
-        draft.shippingChargeValue +
-        tcs;
+    final grandTotal = result.grandTotal + draft.shippingChargeValue + tcs;
     final now = DateTime.now();
 
     await db.transaction(() async {
@@ -332,9 +342,9 @@ class SalesRepository with SyncQueueMixin {
 
       if (isEdit) {
         await db.reverseStockForSource(firmId, draft.id);
-        await (db.delete(db.salesInvoiceItems)
-              ..where((t) => t.invoiceId.equals(draft.id)))
-            .go();
+        await (db.delete(
+          db.salesInvoiceItems,
+        )..where((t) => t.invoiceId.equals(draft.id))).go();
       }
 
       // Payments already recorded against this id must survive the re-save;
@@ -375,10 +385,12 @@ class SalesRepository with SyncQueueMixin {
         exportType: Value(draft.exportType),
         subTotal: Value(result.subTotal.toDouble()),
         itemDiscount: Value(result.itemDiscountTotal.toDouble()),
-        invoiceDiscountPercent:
-            Value(draft.invoiceDiscountPercentValue.toDouble()),
-        invoiceDiscountAmount:
-            Value(draft.invoiceDiscountAmountValue.toDouble()),
+        invoiceDiscountPercent: Value(
+          draft.invoiceDiscountPercentValue.toDouble(),
+        ),
+        invoiceDiscountAmount: Value(
+          draft.invoiceDiscountAmountValue.toDouble(),
+        ),
         shippingCharge: Value(draft.shippingChargeValue.toDouble()),
         taxableValue: Value(result.taxableValue.toDouble()),
         cgst: Value(result.cgstTotal.toDouble()),
@@ -404,8 +416,15 @@ class SalesRepository with SyncQueueMixin {
       }
 
       for (var i = 0; i < draft.lines.length; i++) {
-        await db.into(db.salesInvoiceItems).insert(draft.lines[i]
-            .toCompanion(draft.id, i, result.lineFor(draft.lines[i].id)));
+        await db
+            .into(db.salesInvoiceItems)
+            .insert(
+              draft.lines[i].toCompanion(
+                draft.id,
+                i,
+                result.lineFor(draft.lines[i].id),
+              ),
+            );
       }
 
       // Journal the line rows themselves. The document's payload is what a
@@ -428,11 +447,7 @@ class SalesRepository with SyncQueueMixin {
       // ledger. The Vyapar importer relies on it too: it passes
       // affectStock: false for orders/estimates, but this guard is what
       // keeps a direct save from deducting.
-      const stocklessDocTypes = {
-        'quotation',
-        'sales_order',
-        'delivery_note',
-      };
+      const stocklessDocTypes = {'quotation', 'sales_order', 'delivery_note'};
       if (affectStock && !stocklessDocTypes.contains(draft.docType)) {
         for (final line in draft.lines) {
           if (line.itemId == null || line.quantity == Money.zero) continue;
@@ -476,8 +491,12 @@ class SalesRepository with SyncQueueMixin {
   /// re-post its stock — the editor must load through this.
   Future<SalesInvoiceEntity?> getLiveById(String id) async {
     final query = db.select(db.salesInvoices)
-      ..where((t) =>
-          t.id.equals(id) & t.firmId.equals(firmId) & t.isDeleted.equals(false));
+      ..where(
+        (t) =>
+            t.id.equals(id) &
+            t.firmId.equals(firmId) &
+            t.isDeleted.equals(false),
+      );
     return query.getSingleOrNull();
   }
 
@@ -532,22 +551,24 @@ class SalesRepository with SyncQueueMixin {
       dueDate: doc.dueDate,
       status: doc.status,
       lines: lines
-          .map((l) => SalesLineDraft(
-                id: l.id,
-                itemId: l.itemId,
-                name: l.name,
-                hsn: l.hsn,
-                quantity: Decimal.parse(l.quantity.toString()),
-                unit: l.unit,
-                rate: Decimal.parse(l.rate.toString()),
-                discountPercent: Decimal.parse(l.discountPercent.toString()),
-                discountAmount: Decimal.parse(l.discountAmount.toString()),
-                gstRate: l.gstRate,
-                cessRate: l.cessRate,
-                taxMode: l.taxMode == 'inclusive'
-                    ? TaxMode.inclusive
-                    : TaxMode.exclusive,
-              ))
+          .map(
+            (l) => SalesLineDraft(
+              id: l.id,
+              itemId: l.itemId,
+              name: l.name,
+              hsn: l.hsn,
+              quantity: Decimal.parse(l.quantity.toString()),
+              unit: l.unit,
+              rate: Decimal.parse(l.rate.toString()),
+              discountPercent: Decimal.parse(l.discountPercent.toString()),
+              discountAmount: Decimal.parse(l.discountAmount.toString()),
+              gstRate: l.gstRate,
+              cessRate: l.cessRate,
+              taxMode: l.taxMode == 'inclusive'
+                  ? TaxMode.inclusive
+                  : TaxMode.exclusive,
+            ),
+          )
           .toList(),
       partyName: doc.partyName,
       partyGstin: doc.partyGstin,
@@ -560,12 +581,15 @@ class SalesRepository with SyncQueueMixin {
       reverseCharge: doc.reverseCharge,
       isExport: doc.isExport,
       exportType: doc.exportType,
-      invoiceDiscountPercent:
-          Decimal.parse(doc.invoiceDiscountPercent.toString()),
-      invoiceDiscountAmount:
-          Decimal.parse(doc.invoiceDiscountAmount.toString()),
+      invoiceDiscountPercent: Decimal.parse(
+        doc.invoiceDiscountPercent.toString(),
+      ),
+      invoiceDiscountAmount: Decimal.parse(
+        doc.invoiceDiscountAmount.toString(),
+      ),
       shippingCharge: Decimal.parse(doc.shippingCharge.toString()),
-      applyRoundOff: doc.roundOff.abs() > 0.000001 ||
+      applyRoundOff:
+          doc.roundOff.abs() > 0.000001 ||
           (doc.grandTotal - doc.grandTotal.round()).abs() < 0.001,
       notes: doc.notes,
       terms: doc.terms,
@@ -584,13 +608,15 @@ class SalesRepository with SyncQueueMixin {
     int limit = 500,
   }) async {
     final query = db.select(db.salesInvoices)
-      ..where((t) =>
-          t.firmId.equals(firmId) &
-          t.docType.equals(docType) &
-          t.isDeleted.equals(false))
+      ..where(
+        (t) =>
+            t.firmId.equals(firmId) &
+            t.docType.equals(docType) &
+            t.isDeleted.equals(false),
+      )
       ..orderBy([
         (t) => OrderingTerm.desc(t.invoiceDate),
-        (t) => OrderingTerm(expression: t.number)
+        (t) => OrderingTerm(expression: t.number),
       ]);
     if (partyId != null) {
       query.where((t) => t.partyId.equals(partyId));
@@ -606,8 +632,9 @@ class SalesRepository with SyncQueueMixin {
     }
     if (search.trim().isNotEmpty) {
       final s = '%${search.trim().toLowerCase()}%';
-      query.where((t) =>
-          t.number.lower().like(s) | t.partyName.lower().like(s));
+      query.where(
+        (t) => t.number.lower().like(s) | t.partyName.lower().like(s),
+      );
     }
     query.limit(limit);
     return query.get();
@@ -618,14 +645,16 @@ class SalesRepository with SyncQueueMixin {
   /// counts (a 'delivered' invoice is just as overdue as a 'confirmed' one).
   Stream<List<SalesInvoiceEntity>> watchOverdue({int limit = 500}) {
     final query = db.select(db.salesInvoices)
-      ..where((t) =>
-          t.firmId.equals(firmId) &
-          t.docType.equals('invoice') &
-          t.isDeleted.equals(false) &
-          t.status.equals('cancelled').not() &
-          t.status.equals('converted').not() &
-          t.balanceDue.isBiggerThanValue(0.001) &
-          t.dueDate.isNotNull())
+      ..where(
+        (t) =>
+            t.firmId.equals(firmId) &
+            t.docType.equals('invoice') &
+            t.isDeleted.equals(false) &
+            t.status.equals('cancelled').not() &
+            t.status.equals('converted').not() &
+            t.balanceDue.isBiggerThanValue(0.001) &
+            t.dueDate.isNotNull(),
+      )
       ..orderBy([(t) => OrderingTerm.asc(t.dueDate)])
       ..limit(limit);
     return query.watch();
@@ -640,13 +669,15 @@ class SalesRepository with SyncQueueMixin {
     int limit = 100,
   }) {
     final query = db.select(db.salesInvoices)
-      ..where((t) =>
-          t.firmId.equals(firmId) &
-          t.docType.equals(docType) &
-          t.isDeleted.equals(false))
+      ..where(
+        (t) =>
+            t.firmId.equals(firmId) &
+            t.docType.equals(docType) &
+            t.isDeleted.equals(false),
+      )
       ..orderBy([
         (t) => OrderingTerm.desc(t.invoiceDate),
-        (t) => OrderingTerm(expression: t.number)
+        (t) => OrderingTerm(expression: t.number),
       ]);
     if (partyId != null) {
       query.where((t) => t.partyId.equals(partyId));
@@ -659,31 +690,34 @@ class SalesRepository with SyncQueueMixin {
     }
     if (search.trim().isNotEmpty) {
       final s = '%${search.trim().toLowerCase()}%';
-      query.where((t) =>
-          t.number.lower().like(s) | t.partyName.lower().like(s));
-    }    query.limit(limit);
+      query.where(
+        (t) => t.number.lower().like(s) | t.partyName.lower().like(s),
+      );
+    }
+    query.limit(limit);
     return query.watch();
   }
 
   /// Every non-deleted sales document (invoices, quotations, orders, notes)
   /// for one party, newest first — the Parties master-detail's right pane.
-  Stream<List<SalesInvoiceEntity>> watchForParty(String partyId,
-      {int limit = 500}) {
+  Stream<List<SalesInvoiceEntity>> watchForParty(
+    String partyId, {
+    int limit = 500,
+  }) {
     final query = db.select(db.salesInvoices)
-      ..where((t) =>
-          t.firmId.equals(firmId) &
-          t.partyId.equals(partyId) &
-          t.isDeleted.equals(false))
+      ..where(
+        (t) =>
+            t.firmId.equals(firmId) &
+            t.partyId.equals(partyId) &
+            t.isDeleted.equals(false),
+      )
       ..orderBy([
         (t) => OrderingTerm.desc(t.invoiceDate),
-        (t) => OrderingTerm(expression: t.number)
+        (t) => OrderingTerm(expression: t.number),
       ])
       ..limit(limit);
     return query.watch();
   }
-
-
-
 
   Future<void> markCancelled(String id, {String? actor}) async {
     await db.transaction(() async {
@@ -694,13 +728,17 @@ class SalesRepository with SyncQueueMixin {
       // out so outstanding/ageing never count it (H3 parity at the row level).
       // The status comes from the same derivation as everywhere else, so the
       // row cannot end up reading "Unpaid" beside a zero balance.
-      await db.update(db.salesInvoices).replace(doc.copyWith(
-            status: 'cancelled',
-            balanceDue: DocumentSettlement.settled.balance,
-            paidAmount: doc.paidAmount,
-            paymentStatus: DocumentSettlement.settled.status,
-            updatedAt: DateTime.now(),
-          ));
+      await db
+          .update(db.salesInvoices)
+          .replace(
+            doc.copyWith(
+              status: 'cancelled',
+              balanceDue: DocumentSettlement.settled.balance,
+              paidAmount: doc.paidAmount,
+              paymentStatus: DocumentSettlement.settled.status,
+              updatedAt: DateTime.now(),
+            ),
+          );
       await enqueue(
         firmId: firmId,
         entity: 'sales_invoices',
@@ -722,13 +760,19 @@ class SalesRepository with SyncQueueMixin {
   /// invoice deducted. Audited; refused when the document date is inside a
   /// locked period, and refused when the document is already in the bin —
   /// reversing an already-reversed document silently doubled its stock back.
-  Future<void> softDelete(String id, {String? actor}) async {
+  ///
+  /// Returns whether it actually did anything, and **false** for an id that is
+  /// not in the books. That used to be a bare `return`, which was correct for a
+  /// single delete (nothing to do) and silently wrong for a bulk one: the
+  /// caller was told it had deleted a document that was never there, and would
+  /// then offer an undo covering it. Statement call sites are unaffected.
+  Future<bool> softDelete(String id, {String? actor}) async {
+    var deleted = false;
     await db.transaction(() async {
       final doc = await getById(id);
       if (doc == null) return;
       if (doc.isDeleted) {
-        throw StateError(
-            '${_docLabel(doc)} is already in the recycle bin.');
+        throw StateError('${_docLabel(doc)} is already in the recycle bin.');
       }
       await db.assertDateEditable(firmId, doc.invoiceDate);
       await db.reverseStockForSource(firmId, id);
@@ -740,32 +784,40 @@ class SalesRepository with SyncQueueMixin {
         ),
       );
       await enqueue(
-          firmId: firmId, entity: 'sales_invoices', entityId: id,
-          operation: 'delete');
+        firmId: firmId,
+        entity: 'sales_invoices',
+        entityId: id,
+        operation: 'delete',
+      );
       await db.auditRepository.log(
         action: 'delete',
         entity: 'sales_invoices',
         firmId: firmId,
         actor: actor,
         entityId: id,
-        summary: 'Deleted ${doc.docType} ${doc.number}'
+        summary:
+            'Deleted ${doc.docType} ${doc.number}'
             ' for ${doc.partyName ?? "walk-in"}',
       );
+      deleted = true;
     });
+    return deleted;
   }
 
   /// Restores a soft-deleted document and re-applies its stock effect. Refused
   /// for a document that is not in the bin — re-posting a live document's
   /// stock deducted it a second time, and the guard used to live only in the
   /// UI that hides the action.
-  Future<void> restore(String id, {String? actor}) async {
+  Future<bool> restore(String id, {String? actor}) async {
+    var restored = false;
     await db.transaction(() async {
       final doc = await getById(id);
       if (doc == null) return;
       if (!doc.isDeleted) {
         throw StateError(
-            '${_docLabel(doc)} is not in the recycle bin — there is nothing '
-            'to restore.');
+          '${_docLabel(doc)} is not in the recycle bin — there is nothing '
+          'to restore.',
+        );
       }
       await db.assertDateEditable(firmId, doc.invoiceDate);
       await (db.update(db.salesInvoices)..where((t) => t.id.equals(id))).write(
@@ -802,8 +854,11 @@ class SalesRepository with SyncQueueMixin {
         }
       }
       await enqueue(
-          firmId: firmId, entity: 'sales_invoices', entityId: id,
-          operation: 'update');
+        firmId: firmId,
+        entity: 'sales_invoices',
+        entityId: id,
+        operation: 'update',
+      );
       await db.auditRepository.log(
         action: 'restore',
         entity: 'sales_invoices',
@@ -812,7 +867,9 @@ class SalesRepository with SyncQueueMixin {
         entityId: id,
         summary: 'Restored ${doc.docType} ${doc.number}',
       );
+      restored = true;
     });
+    return restored;
   }
 
   /// Rows sitting in the document recycle bin, newest deletion first.
@@ -833,16 +890,17 @@ class SalesRepository with SyncQueueMixin {
       if (doc == null) return;
       if (!doc.isDeleted) {
         throw StateError(
-            'Move this document to the recycle bin before deleting it '
-            'permanently.');
+          'Move this document to the recycle bin before deleting it '
+          'permanently.',
+        );
       }
       await db.assertDateEditable(firmId, doc.invoiceDate);
-      await (db.delete(db.salesInvoiceItems)
-            ..where((t) => t.invoiceId.equals(id)))
-          .go();
-      await (db.delete(db.salesInvoices)
-            ..where((t) => t.id.equals(id) & t.firmId.equals(firmId)))
-          .go();
+      await (db.delete(
+        db.salesInvoiceItems,
+      )..where((t) => t.invoiceId.equals(id))).go();
+      await (db.delete(
+        db.salesInvoices,
+      )..where((t) => t.id.equals(id) & t.firmId.equals(firmId))).go();
       await db.auditRepository.log(
         action: 'purge',
         entity: 'sales_invoices',
@@ -860,8 +918,11 @@ class SalesRepository with SyncQueueMixin {
       final doc = await getById(id);
       if (doc == null) return;
       await db.assertDateEditable(firmId, doc.invoiceDate);
-      await db.update(db.salesInvoices)
-          .replace(doc.copyWith(status: 'converted', updatedAt: DateTime.now()));
+      await db
+          .update(db.salesInvoices)
+          .replace(
+            doc.copyWith(status: 'converted', updatedAt: DateTime.now()),
+          );
       await enqueue(
         firmId: firmId,
         entity: 'sales_invoices',
@@ -893,8 +954,9 @@ class SalesRepository with SyncQueueMixin {
       if (doc == null) return;
       if (doc.isDeleted || doc.status == 'cancelled') {
         throw StateError(
-            'Cannot record a payment against a cancelled or deleted '
-            'document.');
+          'Cannot record a payment against a cancelled or deleted '
+          'document.',
+        );
       }
       await db.assertDateEditable(firmId, date ?? doc.invoiceDate);
       if (amount > doc.balanceDue + 0.001) {
@@ -906,12 +968,16 @@ class SalesRepository with SyncQueueMixin {
         grandTotal: doc.grandTotal,
         paidAmount: paid,
       );
-      await db.update(db.salesInvoices).replace(doc.copyWith(
-            paidAmount: paid,
-            balanceDue: settlement.balance,
-            paymentStatus: settlement.status,
-            updatedAt: DateTime.now(),
-          ));
+      await db
+          .update(db.salesInvoices)
+          .replace(
+            doc.copyWith(
+              paidAmount: paid,
+              balanceDue: settlement.balance,
+              paymentStatus: settlement.status,
+              updatedAt: DateTime.now(),
+            ),
+          );
       await enqueue(
         firmId: firmId,
         entity: 'sales_invoices',
@@ -926,7 +992,12 @@ class SalesRepository with SyncQueueMixin {
     DateTime? to,
     bool paidOnly = false,
   }) async {
-    final docs = await list(docType: 'invoice', from: from, to: to, limit: 100000);
+    final docs = await list(
+      docType: 'invoice',
+      from: from,
+      to: to,
+      limit: 100000,
+    );
     var total = 0.0;
     for (final d in docs) {
       if (d.status == 'cancelled') continue;
@@ -959,9 +1030,10 @@ extension StockMovementsInsert on AppDatabase {
     String sourceNumber,
     DateTime date,
   ) async {
-    final item = await (select(items)
-          ..where((t) => t.id.equals(itemId) & t.firmId.equals(firmId)))
-        .getSingleOrNull();
+    final item =
+        await (select(items)
+              ..where((t) => t.id.equals(itemId) & t.firmId.equals(firmId)))
+            .getSingleOrNull();
     if (item == null) {
       throw StateError('Stock movement for unknown item $itemId.');
     }
@@ -976,20 +1048,23 @@ extension StockMovementsInsert on AppDatabase {
     // stock screen's low-stock view makes it visible.
     final newBalance = item.currentStock + quantity;
     await update(items).replace(
-        item.copyWith(currentStock: newBalance, updatedAt: DateTime.now()));
+      item.copyWith(currentStock: newBalance, updatedAt: DateTime.now()),
+    );
     final movementId = newStockMovementId();
-    await into(stockMovements).insert(StockMovementsCompanion.insert(
-      id: movementId,
-      firmId: firmId,
-      itemId: itemId,
-      kind: kind,
-      quantity: quantity,
-      balanceAfter: Value(newBalance),
-      source: source,
-      sourceId: Value(sourceId),
-      sourceNumber: Value(sourceNumber),
-      date: date,
-    ));
+    await into(stockMovements).insert(
+      StockMovementsCompanion.insert(
+        id: movementId,
+        firmId: firmId,
+        itemId: itemId,
+        kind: kind,
+        quantity: quantity,
+        balanceAfter: Value(newBalance),
+        source: source,
+        sourceId: Value(sourceId),
+        sourceNumber: Value(sourceNumber),
+        date: date,
+      ),
+    );
 
     // Movements are the stock ledger of record (current_stock is derived from
     // them), so a restore has to carry them. Journaled here because this
@@ -1027,46 +1102,52 @@ extension StockMovementsInsert on AppDatabase {
   /// and only stop multiplying. A firm that wants a clean ledger purges the
   /// affected documents, which is the one operation that rewrites it.
   Future<void> reverseStockForSource(String firmId, String sourceId) async {
-    final movements = await (select(stockMovements)
-          ..where((t) =>
-              t.firmId.equals(firmId) &
-              t.sourceId.equals(sourceId) &
-              // `IS NOT` rather than `<>`: SQL three-valued logic would make
-              // `notes <> 'reversal'` FALSE for every row whose notes are NULL,
-              // which is most of them.
-              t.notes.isNotValue(_kStockReversalNote)))
-        .get();
+    final movements =
+        await (select(stockMovements)..where(
+              (t) =>
+                  t.firmId.equals(firmId) &
+                  t.sourceId.equals(sourceId) &
+                  // `IS NOT` rather than `<>`: SQL three-valued logic would make
+                  // `notes <> 'reversal'` FALSE for every row whose notes are NULL,
+                  // which is most of them.
+                  t.notes.isNotValue(_kStockReversalNote),
+            ))
+            .get();
     for (final m in movements) {
       // Already undone — see rule 2 above.
       final reversalId = _stockReversalId(m.id);
-      final posted = await (select(stockMovements)
-            ..where((t) => t.id.equals(reversalId)))
-          .getSingleOrNull();
+      final posted = await (select(
+        stockMovements,
+      )..where((t) => t.id.equals(reversalId))).getSingleOrNull();
       if (posted != null) continue;
 
-      final item = await (select(items)
-            ..where((t) => t.id.equals(m.itemId) & t.firmId.equals(firmId)))
-          .getSingleOrNull();
+      final item =
+          await (select(items)
+                ..where((t) => t.id.equals(m.itemId) & t.firmId.equals(firmId)))
+              .getSingleOrNull();
       if (item == null) continue;
       final newBalance = item.currentStock - m.quantity;
       await update(items).replace(
-          item.copyWith(currentStock: newBalance, updatedAt: DateTime.now()));
-      await into(stockMovements).insert(StockMovementsCompanion.insert(
-        id: reversalId,
-        firmId: firmId,
-        itemId: m.itemId,
-        kind: m.kind,
-        quantity: -m.quantity,
-        balanceAfter: Value(newBalance),
-        source: m.source,
-        sourceId: Value(sourceId),
-        sourceNumber: Value(m.sourceNumber),
-        // Reversals are bookkeeping events, not transactions: date them at
-        // the original movement's date so the ledger stays chronologically
-        // consistent with the document that produced it.
-        date: m.date,
-        notes: const Value(_kStockReversalNote),
-      ));
+        item.copyWith(currentStock: newBalance, updatedAt: DateTime.now()),
+      );
+      await into(stockMovements).insert(
+        StockMovementsCompanion.insert(
+          id: reversalId,
+          firmId: firmId,
+          itemId: m.itemId,
+          kind: m.kind,
+          quantity: -m.quantity,
+          balanceAfter: Value(newBalance),
+          source: m.source,
+          sourceId: Value(sourceId),
+          sourceNumber: Value(m.sourceNumber),
+          // Reversals are bookkeeping events, not transactions: date them at
+          // the original movement's date so the ledger stays chronologically
+          // consistent with the document that produced it.
+          date: m.date,
+          notes: const Value(_kStockReversalNote),
+        ),
+      );
       await _MovementOutbox(this).enqueue(
         firmId: firmId,
         entity: 'stock_movements',

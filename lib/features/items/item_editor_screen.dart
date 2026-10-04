@@ -29,6 +29,7 @@ import '../../core/utils/validators.dart';
 import '../../shared/widgets/atria_field_icon.dart';
 import '../../shared/widgets/atria_form_section.dart';
 import '../../shared/widgets/common_widgets.dart';
+import '../../shared/widgets/confirm_destructive.dart';
 import '../../shared/widgets/editor_shell.dart';
 import '../../shared/widgets/save_shortcut.dart';
 import '../../shared/widgets/tax_mode_toggle.dart';
@@ -337,11 +338,14 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
       // catch it. Blank codes are exempt, and the comparison is case-insensitive
       // because SKUs are read off a label, not memorised.
       if (sku.isNotEmpty) {
-        final clashSku = await (db.select(db.items)              ..where((t) =>
-                  t.firmId.equals(repo.firmId) &
-                  t.sku.lower().equals(sku.toLowerCase()) &
-                  t.isDeleted.equals(false)))
-            .get();
+        final clashSku =
+            await (db.select(db.items)..where(
+                  (t) =>
+                      t.firmId.equals(repo.firmId) &
+                      t.sku.lower().equals(sku.toLowerCase()) &
+                      t.isDeleted.equals(false),
+                ))
+                .get();
         final otherSku = clashSku
             .where((r) => r.id != (_existing?.id ?? ''))
             .toList();
@@ -452,15 +456,10 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
             enabled: repo != null,
             onSave: _save,
             onExit: () => context.pop(),
-            actions: [
-              if (_isEditing) _printMenu(),
-            ],
+            actions: [if (_isEditing) _printMenu()],
           ),
           // On a phone the app bar hands Save down here, where a thumb is.
-          bottomNavigationBar: EditorBottomBar(
-            onSave: _save,
-            saving: _saving,
-          ),
+          bottomNavigationBar: EditorBottomBar(onSave: _save, saving: _saving),
           body: _body(repo),
         ),
       ),
@@ -522,10 +521,7 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
         return;
       }
       await ThermalPrinterService.print(printer, [
-        ThermalPrinterService.labelForItem(
-          existing,
-          copies: printer.copies,
-        ),
+        ThermalPrinterService.labelForItem(existing, copies: printer.copies),
       ]);
       messenger?.showSnackBar(
         SnackBar(content: Text('Label sent to ${printer.name}.')),
@@ -644,29 +640,13 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
     // looked up afterwards can belong to a dead element.
     final messenger = ScaffoldMessenger.maybeOf(context);
     final navigator = Navigator.of(context);
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Delete ${existing.name}?'),
-        content: const Text(
-          'This moves the item out of your catalogue and into the recycle '
-          'bin. Documents that already use it are not changed, and you can '
-          'restore the item from the recycle bin at any time.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton.tonal(
-            style: FilledButton.styleFrom(
-              foregroundColor: Theme.of(dialogContext).colorScheme.error,
-            ),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+    final confirmed = await confirmDestructive(
+      context,
+      title: 'Delete ${existing.name}?',
+      message:
+          'This moves the item out of your catalogue and into the '
+          'recycle bin. Documents that already use it are not changed, and '
+          'you can restore the item from the recycle bin at any time.',
     );
     if (confirmed != true) return;
     // No try/catch: `delete` is a two-column UPDATE inside a transaction, so
@@ -816,8 +796,10 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
   /// form rebuild — the same technique the preview card below already uses.
   Widget _salePriceCell() {
     return ListenableBuilder(
-      listenable:
-          Listenable.merge([_salePriceController, _purchasePriceController]),
+      listenable: Listenable.merge([
+        _salePriceController,
+        _purchasePriceController,
+      ]),
       builder: (context, _) {
         final warning = _belowCostWarning(
           _salePriceController.text,
@@ -851,9 +833,9 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
                       child: Text(
                         warning,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: atriaColors(context).warning,
-                              fontWeight: FontWeight.w600,
-                            ),
+                          color: atriaColors(context).warning,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ],
@@ -1176,8 +1158,8 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
                   child: Text(
                     'A service isn\'t counted in stock.',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
             ],
@@ -1260,8 +1242,7 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
 
   Widget _previewCard() {
     return ListenableBuilder(
-      listenable:
-          Listenable.merge([_salePriceController, _cessRateController]),
+      listenable: Listenable.merge([_salePriceController, _cessRateController]),
       builder: (context, _) {
         final scheme = Theme.of(context).colorScheme;
         final text = Theme.of(context).textTheme;

@@ -13,6 +13,7 @@ import '../../shared/widgets/atria_list_page.dart';
 import '../../shared/widgets/atria_list_toolbar.dart';
 import '../../shared/widgets/atria_page_header.dart';
 import '../../shared/widgets/common_widgets.dart';
+import '../../shared/widgets/confirm_destructive.dart';
 import '../../shared/widgets/status_chip.dart';
 
 /// The chart of accounts: every account the books post into.
@@ -214,25 +215,12 @@ class _ChartOfAccountsScreenState extends ConsumerState<ChartOfAccountsScreen> {
   Future<void> _delete(AccountEntity account) async {
     final repo = ref.read(ledgerRepositoryProvider);
     if (repo == null) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Delete ${account.name}?'),
-        content: const Text(
-          'The account disappears from the chart. Journal vouchers that use '
-          'it keep working, so if it has any, archive it instead.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+    final confirmed = await confirmDestructive(
+      context,
+      title: 'Delete ${account.name}?',
+      message:
+          'The account disappears from the chart. Journal vouchers that '
+          'use it keep working, so if it has any, archive it instead.',
     );
     if (confirmed != true) return;
     try {

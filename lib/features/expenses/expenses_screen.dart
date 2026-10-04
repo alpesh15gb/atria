@@ -15,6 +15,7 @@ import '../../shared/widgets/atria_list_page.dart';
 import '../../shared/widgets/atria_list_toolbar.dart';
 import '../../shared/widgets/atria_page_header.dart';
 import '../../shared/widgets/common_widgets.dart';
+import '../../shared/widgets/confirm_destructive.dart';
 import '../../shared/widgets/period_selector.dart';
 import '../../shared/widgets/status_chip.dart';
 import '../../shared/widgets/transaction_list.dart';
@@ -80,7 +81,8 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen>
     super.dispose();
   }
 
-  bool get _isExpenseTab => _tabController.index == 0;  @override
+  bool get _isExpenseTab => _tabController.index == 0;
+  @override
   Widget build(BuildContext context) {
     final repo = ref.watch(expenseRepositoryProvider);
     final range = ref.watch(_rangeProvider);
@@ -133,15 +135,13 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen>
             // Re-picking the current option must not re-run the query and
             // flash the loader.
             if (period == range.period) return;
-            ref.read(_rangeProvider.notifier).state =
-                range.withPeriod(period);
+            ref.read(_rangeProvider.notifier).state = range.withPeriod(period);
           },
         ),
         if (range.isCustom)
           PeriodCustomRange(
             range: range,
-            onChanged: (next) =>
-                ref.read(_rangeProvider.notifier).state = next,
+            onChanged: (next) => ref.read(_rangeProvider.notifier).state = next,
           ),
       ],
       toolbar: repo == null ? const [] : [_summaryCard],
@@ -149,15 +149,13 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen>
           ? const EmptyState(
               icon: Icons.storefront_outlined,
               title: 'No business open',
-              message: 'Set up a firm in Settings to start recording '
+              message:
+                  'Set up a firm in Settings to start recording '
                   'expenses.',
             )
           : TabBarView(
               controller: _tabController,
-              children: [
-                _list(isExpense: true),
-                _list(isExpense: false),
-              ],
+              children: [_list(isExpense: true), _list(isExpense: false)],
             ),
     );
   }
@@ -194,8 +192,10 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen>
 
   bool _matches(ExpenseEntity row, String q) {
     if (q.isEmpty) return true;
-    final categoryLabel =
-        _categoryLabel(row.category, isExpense: _isExpenseTab);
+    final categoryLabel = _categoryLabel(
+      row.category,
+      isExpense: _isExpenseTab,
+    );
     // Also match the raw amount and a digit-stripped variant, so searching
     // "1,000" (grouped) and "1000" both find ₹1,000 entries.
     //
@@ -205,14 +205,15 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen>
     final amount = Money.of(row.amount);
     final rawAmount = row.amount.toStringAsFixed(2);
     final bareQuery = q.replaceAll(RegExp(r'[^\d.]'), '');
-    final numericMatch = bareQuery.isNotEmpty &&
+    final numericMatch =
+        bareQuery.isNotEmpty &&
         (rawAmount.contains(bareQuery) ||
             Formatters.indianGroup(rawAmount).contains(bareQuery));
     return (row.vendorName ?? '').toLowerCase().contains(q) ||
         categoryLabel.toLowerCase().contains(q) ||
-        (PaymentMode.byId(row.mode)?.label ?? row.mode)
-            .toLowerCase()
-            .contains(q) ||
+        (PaymentMode.byId(row.mode)?.label ?? row.mode).toLowerCase().contains(
+          q,
+        ) ||
         Formatters.money(amount).contains(q) ||
         numericMatch;
   }
@@ -225,8 +226,7 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen>
       builder: (context, constraints) => SingleChildScrollView(
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            minHeight:
-                constraints.hasBoundedHeight ? constraints.maxHeight : 0,
+            minHeight: constraints.hasBoundedHeight ? constraints.maxHeight : 0,
           ),
           child: Center(child: child),
         ),
@@ -235,52 +235,58 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen>
   }
 
   Widget _list({required bool isExpense}) {
-    final value =
-        ref.watch(isExpense ? _expenseRowsProvider : _incomeRowsProvider);
+    final value = ref.watch(
+      isExpense ? _expenseRowsProvider : _incomeRowsProvider,
+    );
     return value.when(
       data: (rows) {
         final q = _search.toLowerCase();
-        final filtered =
-            rows.where((row) => _matches(row, q)).toList(growable: false);
+        final filtered = rows
+            .where((row) => _matches(row, q))
+            .toList(growable: false);
         if (filtered.isEmpty) {
           // Like the other lists: "nothing recorded" and "nothing inside this
           // window" are different facts, and the Date filter is the usual
           // reason a record the user knows exists is missing.
           final range = ref.watch(_rangeProvider);
-          return _centeredScrollable(EmptyState(
-            icon: q.isNotEmpty
-                ? Icons.search_off_rounded
-                : isExpense
-                    ? Icons.payments_outlined
-                    : Icons.savings_outlined,
-            title: q.isNotEmpty
-                ? 'No matches'
-                : range.isAllTime
-                    ? (isExpense
+          return _centeredScrollable(
+            EmptyState(
+              icon: q.isNotEmpty
+                  ? Icons.search_off_rounded
+                  : isExpense
+                  ? Icons.payments_outlined
+                  : Icons.savings_outlined,
+              title: q.isNotEmpty
+                  ? 'No matches'
+                  : range.isAllTime
+                  ? (isExpense
                         ? 'No expenses recorded'
                         : 'No other income recorded')
-                    : 'Nothing in ${range.label}',
-            message: q.isNotEmpty
-                ? 'Nothing matches “$_search”. Try a vendor, category or '
-                    'amount.'
-                : range.isAllTime
-                    ? (isExpense
+                  : 'Nothing in ${range.label}',
+              message: q.isNotEmpty
+                  ? 'Nothing matches “$_search”. Try a vendor, category or '
+                        'amount.'
+                  : range.isAllTime
+                  ? (isExpense
                         ? 'Log rent, salaries, bills and day-to-day spending '
-                            'to keep your profit and loss honest.'
+                              'to keep your profit and loss honest.'
                         : 'Log interest, discounts received and other '
-                            'non-sales earnings here.')
-                    : range.emptyWindowMessage(
-                        isExpense ? 'expenses' : 'income entries'),
-            actionLabel: q.isNotEmpty || !range.isAllTime
-                ? null
-                : isExpense
-                    ? 'Add Expense'
-                    : 'Add Income',
-            onAction: q.isEmpty && range.isAllTime
-                ? () => context.push(
-                    '/expenses/new?type=${isExpense ? 'expense' : 'income'}')
-                : null,
-          ));
+                              'non-sales earnings here.')
+                  : range.emptyWindowMessage(
+                      isExpense ? 'expenses' : 'income entries',
+                    ),
+              actionLabel: q.isNotEmpty || !range.isAllTime
+                  ? null
+                  : isExpense
+                  ? 'Add Expense'
+                  : 'Add Income',
+              onAction: q.isEmpty && range.isAllTime
+                  ? () => context.push(
+                      '/expenses/new?type=${isExpense ? 'expense' : 'income'}',
+                    )
+                  : null,
+            ),
+          );
         }
         return Scrollbar(
           child: ListView.separated(
@@ -296,11 +302,13 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen>
       },
       loading: () =>
           const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-      error: (error, stackTrace) => _centeredScrollable(EmptyState(
-        icon: Icons.error_outline_rounded,
-        title: 'Could not load records',
-        message: error.toString(),
-      )),
+      error: (error, stackTrace) => _centeredScrollable(
+        EmptyState(
+          icon: Icons.error_outline_rounded,
+          title: 'Could not load records',
+          message: error.toString(),
+        ),
+      ),
     );
   }
 }
@@ -314,12 +322,15 @@ class _ExpenseRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final repo = ref.watch(expenseRepositoryProvider);
-    final categoryLabel =
-        _categoryLabel(expense.category, isExpense: treatAsOutflow);
+    final categoryLabel = _categoryLabel(
+      expense.category,
+      isExpense: treatAsOutflow,
+    );
     final mode = PaymentMode.byId(expense.mode);
     // Expenses are shown as outflows so they render in the app's debit colour.
-    final amount =
-        treatAsOutflow ? -Money.of(expense.amount) : Money.of(expense.amount);
+    final amount = treatAsOutflow
+        ? -Money.of(expense.amount)
+        : Money.of(expense.amount);
 
     return Dismissible(
       key: ValueKey<String>('${expense.type}-${expense.id}'),
@@ -331,8 +342,10 @@ class _ExpenseRow extends ConsumerWidget {
           color: Theme.of(context).colorScheme.error,
           borderRadius: BorderRadius.circular(AppRadius.lg),
         ),
-        child:
-            Icon(Icons.delete_outline_rounded, color: Theme.of(context).colorScheme.onError),
+        child: Icon(
+          Icons.delete_outline_rounded,
+          color: Theme.of(context).colorScheme.onError,
+        ),
       ),
       // The write happens HERE, not in `onDismissed`.
       //
@@ -360,15 +373,15 @@ class _ExpenseRow extends ConsumerWidget {
         amount: amount,
         amountColorize: true,
         statusLabel: treatAsOutflow ? 'Expense' : 'Income',
-        statusKind:
-            treatAsOutflow ? ChipKind.danger : ChipKind.success,
+        statusKind: treatAsOutflow ? ChipKind.danger : ChipKind.success,
         trailing: RowActionsButton(
           actions: [
             RowAction(
               label: 'Edit',
               icon: Icons.edit_outlined,
               onSelected: () => context.push(
-                  '/expenses/edit/${expense.id}?type=${expense.type}'),
+                '/expenses/edit/${expense.id}?type=${expense.type}',
+              ),
             ),
             RowAction(
               label: 'Delete',
@@ -420,30 +433,13 @@ class _ExpenseRow extends ConsumerWidget {
   }
 
   Future<bool?> _confirmDelete(BuildContext context, ExpenseRepository? repo) {
-    return showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete this record?'),
-        content: Text(
+    return confirmDestructive(
+      context,
+      title: 'Delete this record?',
+      message:
           '${Formatters.money(Money.of(expense.amount))} on '
           '${Formatters.date(expense.date)} moves to the recycle bin and '
           'can be restored from Settings.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(dialogContext).colorScheme.error,
-              foregroundColor: Theme.of(dialogContext).colorScheme.onError,
-            ),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -456,25 +452,25 @@ String _categoryLabel(String id, {required bool isExpense}) {
 }
 
 IconData _categoryIcon(String id) => switch (id) {
-      'rent' => Icons.home_work_outlined,
-      'salary' => Icons.group_outlined,
-      'electricity' => Icons.bolt_outlined,
-      'water' => Icons.water_drop_outlined,
-      'internet' => Icons.wifi_outlined,
-      'transport' => Icons.local_shipping_outlined,
-      'marketing' => Icons.campaign_outlined,
-      'office' => Icons.inventory_outlined,
-      'maintenance' => Icons.build_outlined,
-      'bank_charges' => Icons.account_balance_outlined,
-      'professional' => Icons.gavel_outlined,
-      'tax' => Icons.receipt_long_outlined,
-      'insurance' => Icons.shield_outlined,
-      'interest' => Icons.savings_outlined,
-      'discount' => Icons.local_offer_outlined,
-      'commission' => Icons.handshake_outlined,
-      'asset_sale' => Icons.domain_outlined,
-      'refund' => Icons.undo_rounded,
-      'misc' => Icons.category_outlined,
-      'other' => Icons.receipt_outlined,
-      _ => Icons.receipt_outlined,
-    };
+  'rent' => Icons.home_work_outlined,
+  'salary' => Icons.group_outlined,
+  'electricity' => Icons.bolt_outlined,
+  'water' => Icons.water_drop_outlined,
+  'internet' => Icons.wifi_outlined,
+  'transport' => Icons.local_shipping_outlined,
+  'marketing' => Icons.campaign_outlined,
+  'office' => Icons.inventory_outlined,
+  'maintenance' => Icons.build_outlined,
+  'bank_charges' => Icons.account_balance_outlined,
+  'professional' => Icons.gavel_outlined,
+  'tax' => Icons.receipt_long_outlined,
+  'insurance' => Icons.shield_outlined,
+  'interest' => Icons.savings_outlined,
+  'discount' => Icons.local_offer_outlined,
+  'commission' => Icons.handshake_outlined,
+  'asset_sale' => Icons.domain_outlined,
+  'refund' => Icons.undo_rounded,
+  'misc' => Icons.category_outlined,
+  'other' => Icons.receipt_outlined,
+  _ => Icons.receipt_outlined,
+};

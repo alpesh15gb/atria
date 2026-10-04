@@ -10,6 +10,8 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:printing/printing.dart';
 
+import 'confirm_destructive.dart';
+
 import '../../core/database/app_database.dart';
 import '../../core/database/repositories/firm_repository.dart';
 import '../../core/database/repositories/payment_repository.dart';
@@ -71,18 +73,15 @@ class DocumentRowMenu extends ConsumerWidget {
   final void Function(BuildContext context, WidgetRef ref)? onEdit;
 
   bool get _isSalesDoc => const [
-        'invoice',
-        'quotation',
-        'sales_order',
-        'delivery_note',
-        'credit_note',
-      ].contains(docType);
+    'invoice',
+    'quotation',
+    'sales_order',
+    'delivery_note',
+    'credit_note',
+  ].contains(docType);
 
-  bool get _isPurchaseDoc => const [
-        'bill',
-        'purchase_order',
-        'debit_note',
-      ].contains(docType);
+  bool get _isPurchaseDoc =>
+      const ['bill', 'purchase_order', 'debit_note'].contains(docType);
 
   bool get _isPayment => docType == 'payment_in' || docType == 'payment_out';
 
@@ -338,9 +337,7 @@ class DocumentRowMenu extends ConsumerWidget {
       );
       if (!outDir.existsSync()) outDir.createSync(recursive: true);
       final stem = await _pdfFileStem(ref);
-      final file = File(
-        p.join(outDir.path, '${sanitizeFileName(stem)}.pdf'),
-      );
+      final file = File(p.join(outDir.path, '${sanitizeFileName(stem)}.pdf'));
       await file.writeAsBytes(bytes, flush: true);
       await OpenFilex.open(file.path);
     } catch (error) {
@@ -359,9 +356,8 @@ class DocumentRowMenu extends ConsumerWidget {
       await Printing.layoutPdf(onLayout: (_) async => bytes);
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(content: Text('Could not print: $error')),
-        );
+        ScaffoldMessenger.maybeOf(context)
+            ?.showSnackBar(SnackBar(content: Text('Could not print: $error')));
       }
     }
   }
@@ -374,20 +370,16 @@ class DocumentRowMenu extends ConsumerWidget {
       if (sales == null) return null;
       final doc = await sales.getById(docId);
       if (doc == null) return null;
-      return InvoicePdf.forFirm(firm).build(
-        invoice: doc,
-        items: await sales.itemsFor(docId),
-      );
+      return InvoicePdf.forFirm(firm)
+          .build(invoice: doc, items: await sales.itemsFor(docId));
     }
     if (_isPurchaseDoc) {
       final purchases = ref.read(purchaseRepositoryProvider);
       if (purchases == null) return null;
       final bill = await purchases.getById(docId);
       if (bill == null) return null;
-      return PurchasePdf.forFirm(firm).build(
-        bill: bill,
-        items: await purchases.itemsFor(docId),
-      );
+      return PurchasePdf.forFirm(firm)
+          .build(bill: bill, items: await purchases.itemsFor(docId));
     }
     final payments = ref.read(paymentRepositoryProvider);
     final payment = await payments?.getById(docId);
@@ -412,43 +404,27 @@ class DocumentRowMenu extends ConsumerWidget {
   }
 
   Future<void> _cancel(BuildContext context, WidgetRef ref) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Cancel $number?'),
-        content: const Text(
+    final confirmed = await confirmDestructive(
+      context,
+      title: 'Cancel $number?',
+      message:
           'A cancelled invoice stops chasing money and is excluded from '
           'the outstanding lists and GST returns. It stays in the books '
           'and can still be viewed.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Keep it'),
-          ),
-          FilledButton.tonal(
-            style: FilledButton.styleFrom(
-              foregroundColor: Theme.of(dialogContext).colorScheme.error,
-            ),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Cancel invoice'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Cancel invoice',
+      cancelLabel: 'Keep it',
     );
     if (confirmed != true) return;
     try {
       await ref.read(salesRepositoryProvider)?.markCancelled(docId);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$number cancelled')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$number cancelled')));
       }
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(content: Text('Could not cancel: $error')),
-        );
+        ScaffoldMessenger.maybeOf(context)
+            ?.showSnackBar(SnackBar(content: Text('Could not cancel: $error')));
       }
     }
   }
@@ -461,9 +437,9 @@ class DocumentRowMenu extends ConsumerWidget {
         content: Text(
           _isPayment
               ? 'It moves to the recycle bin and can be restored from '
-                  'Settings. The document it settled is updated.'
+                    'Settings. The document it settled is updated.'
               : 'Stock and balances are reversed. It moves to the recycle '
-                  'bin and can be restored from Settings.',
+                    'bin and can be restored from Settings.',
         ),
         actions: [
           TextButton(
@@ -496,9 +472,8 @@ class DocumentRowMenu extends ConsumerWidget {
       }
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(content: Text('Could not delete: $error')),
-        );
+        ScaffoldMessenger.maybeOf(context)
+            ?.showSnackBar(SnackBar(content: Text('Could not delete: $error')));
       }
     }
   }
@@ -510,8 +485,8 @@ class DocumentRowMenu extends ConsumerWidget {
     final entity = _isPayment
         ? 'payments'
         : _isPurchaseDoc
-            ? 'purchase_bills'
-            : 'sales_invoices';
+        ? 'purchase_bills'
+        : 'sales_invoices';
     final messenger = ScaffoldMessenger.maybeOf(context);
     try {
       final firmId = ref.read(activeFirmIdProvider);
@@ -722,8 +697,8 @@ class _ReceivePaymentDialogState extends ConsumerState<_ReceivePaymentDialog> {
           Text(
             widget.partyName ?? 'Walk-in customer',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
           const SizedBox(height: 12),
           TextField(

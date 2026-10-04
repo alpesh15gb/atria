@@ -17,6 +17,7 @@ import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../shared/widgets/common_widgets.dart';
+import '../../shared/widgets/confirm_destructive.dart';
 
 /// Local JSON backup export and restore. Backups live on the device itself,
 /// so the app keeps working fully offline.
@@ -48,8 +49,7 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
         .get(SettingsRepository.kLastBackupAt);
     if (!mounted) return;
     setState(() {
-      _lastBackup =
-          stamp == null ? null : DateTime.tryParse(stamp)?.toLocal();
+      _lastBackup = stamp == null ? null : DateTime.tryParse(stamp)?.toLocal();
     });
   }
 
@@ -85,15 +85,17 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
         if (written) _lastBackup = stamp;
       });
       if (!written) {
-        messenger?.showSnackBar(SnackBar(
-          content: Text('The backup file could not be read back from '
-              '${Formatters.ellipsis(path, 40)} — try exporting again.'),
-        ));
+        messenger?.showSnackBar(
+          SnackBar(
+            content: Text(
+              'The backup file could not be read back from '
+              '${Formatters.ellipsis(path, 40)} — try exporting again.',
+            ),
+          ),
+        );
         return;
       }
-      messenger?.showSnackBar(
-        const SnackBar(content: Text('Backup created')),
-      );
+      messenger?.showSnackBar(const SnackBar(content: Text('Backup created')));
     } catch (error) {
       if (!mounted) return;
       setState(() => _state = _State.idle);
@@ -142,9 +144,8 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
       BackupRepository.validateBackupJson(payload);
     } on FormatException catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.message)));
       return;
     }
 
@@ -174,37 +175,23 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
   }
 
   Future<bool> _confirmRestore(BuildContext context) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        icon: Icon(
+    final result = await confirmDestructive(
+      context,
+      title: 'Replace all data?',
+      message:
+          'Restoring replaces every firm, party, invoice and '
+          'transaction currently on this device with the contents of the '
+          'backup file. This cannot be undone.',
+      confirmLabel: 'Restore',
+      icon: Builder(
+        builder: (dialogContext) => Icon(
           Icons.warning_amber_rounded,
           color: atriaColors(dialogContext).warning,
           size: 32,
         ),
-        title: const Text('Replace all data?'),
-        content: const Text(
-          'Restoring replaces every firm, party, invoice and transaction '
-          'currently on this device with the contents of the backup file. '
-          'This cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(dialogContext).colorScheme.error,
-              foregroundColor: Theme.of(dialogContext).colorScheme.onError,
-            ),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Restore'),
-          ),
-        ],
       ),
     );
-    return result ?? false;
+    return result;
   }
 
   Future<String> _readFile(String path) {
@@ -265,9 +252,9 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
               'Backups are stored locally on this device or computer — nothing '
               'leaves it. Export regularly and keep a copy somewhere safe.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: scheme.onPrimaryContainer.withValues(alpha: 0.9),
-                    height: 1.5,
-                  ),
+                color: scheme.onPrimaryContainer.withValues(alpha: 0.9),
+                height: 1.5,
+              ),
             ),
           ),
         ],
@@ -282,7 +269,8 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
       icon: PhosphorIconsRegular.uploadSimple,
       iconBackground: colors.brandGradientStart,
       title: 'Export backup',
-      subtitle: 'Save every firm, party, item, invoice and payment into a '
+      subtitle:
+          'Save every firm, party, item, invoice and payment into a '
           'single JSON file you can share or keep.',
       action: exporting
           ? const _ProgressButton(label: 'Exporting…')
@@ -293,10 +281,7 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
             ),
       trailing: _exportPath == null
           ? null
-          : _ExportResult(
-              path: _exportPath!,
-              busy: _state != _State.idle,
-            ),
+          : _ExportResult(path: _exportPath!, busy: _state != _State.idle),
     );
   }
 
@@ -307,7 +292,8 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
       icon: PhosphorIconsRegular.downloadSimple,
       iconBackground: colors.saffronGradientStart,
       title: 'Restore backup',
-      subtitle: 'Replace the books on this device with the contents of a '
+      subtitle:
+          'Replace the books on this device with the contents of a '
           'previously exported Apex Books JSON file.',
       action: importing
           ? const _ProgressButton(label: 'Restoring…')
@@ -334,9 +320,9 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
           Text(
             'Last backup ${Formatters.dateTime(_lastBackup)}',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
+              color: scheme.onSurfaceVariant,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
           ),
         ],
       ),
@@ -384,12 +370,14 @@ class _BigCard extends StatelessWidget {
                       iconBackground.withValues(alpha: 0.72),
                     ],
                   ),
-                  borderRadius:
-                      const BorderRadius.all(Radius.circular(AppRadius.md)),
+                  borderRadius: const BorderRadius.all(
+                    Radius.circular(AppRadius.md),
+                  ),
                   boxShadow: [
                     BoxShadow(
-                      color: iconBackground
-                          .withValues(alpha: isDark ? 0.36 : 0.24),
+                      color: iconBackground.withValues(
+                        alpha: isDark ? 0.36 : 0.24,
+                      ),
                       blurRadius: 14,
                       offset: const Offset(0, 6),
                     ),
@@ -405,19 +393,16 @@ class _BigCard extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
+                      style: Theme.of(context).textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       subtitle,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurfaceVariant,
-                            height: 1.5,
-                          ),
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        height: 1.5,
+                      ),
                     ),
                   ],
                 ),
@@ -426,10 +411,7 @@ class _BigCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           SizedBox(width: double.infinity, child: action),
-          if (trailing != null) ...[
-            const SizedBox(height: 16),
-            trailing!,
-          ],
+          if (trailing != null) ...[const SizedBox(height: 16), trailing!],
         ],
       ),
     );
@@ -467,9 +449,9 @@ class _ExportResult extends StatelessWidget {
                 child: Text(
                   'Backup saved',
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: colors.positive,
-                      ),
+                    fontWeight: FontWeight.w700,
+                    color: colors.positive,
+                  ),
                 ),
               ),
             ],
@@ -478,9 +460,9 @@ class _ExportResult extends StatelessWidget {
           Text(
             Formatters.ellipsis(path, 64),
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
+              color: scheme.onSurfaceVariant,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
           ),
           const SizedBox(height: 10),
           Wrap(
@@ -488,9 +470,7 @@ class _ExportResult extends StatelessWidget {
             runSpacing: 8,
             children: [
               OutlinedButton.icon(
-                onPressed: busy
-                    ? null
-                    : () => Share.shareXFiles([XFile(path)]),
+                onPressed: busy ? null : () => Share.shareXFiles([XFile(path)]),
                 icon: const Icon(Icons.share_rounded, size: 18),
                 label: const Text('Share'),
               ),
@@ -499,8 +479,7 @@ class _ExportResult extends StatelessWidget {
                     ? null
                     : () async {
                         final result = await OpenFilex.open(path);
-                        if (result.type != ResultType.done &&
-                            context.mounted) {
+                        if (result.type != ResultType.done && context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text(

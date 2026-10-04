@@ -1,6 +1,6 @@
 # Project State
 
-_Last updated: 2026-10-04 (renamed to Apex Books; Phase 3 bulk actions is next)_
+_Last updated: 2026-10-04 (Phase 3 bulk actions in progress; Phase 4 next)_
 
 ## Current objective
 
@@ -15,19 +15,68 @@ local PIN roles.** Ship one piece per commit. Full plan:
 | — | `PdfSections` extraction | `954cb09` | **shipped** |
 | 1 | purchase-side PDFs | `7bf9a6b` | **shipped** |
 | 2 | paid / balance / stamp + UPI QR fix | `bd860de` | **shipped** |
-| — | rename to Apex Books | this commit | **shipped** |
-| 3 | bulk actions | — | **next** |
+| — | rename to Apex Books | `9afe494` | **shipped** |
+| 3 | bulk actions | — | **in progress** |
 | 4 | quotation lifecycle | — | not started |
 | 5 | optional PIN roles | — | not started |
 
 ## Current implementation state
 
 - `flutter analyze lib/ test/` → clean.
-- `flutter test` → **612 passed / 1 skipped / 0 failed.**
+- `flutter test` → **612 passed / 1 skipped / 0 failed** before Phase 3; the
+  three new Phase 3 files add 43 tests, and the widget test adds 5 more.
 - Windows debug builds; APK debug/release build (release APK is debug-key-signed,
   `CN=Android Debug`, per `build.gradle.kts`'s deliberate fallback).
 - **No phone attached** (`adb devices` empty) — the sync fix is proven against a
   faithful fake server only, never on hardware.
+
+## Phase 3 — bulk actions (in progress)
+
+- **One confirmation helper.** `lib/shared/widgets/confirm_destructive.dart` —
+  `confirmDestructive(context, title:, message:, confirmLabel:)` returns a
+  `Future<bool>`. Collapsed **11** hand-rolled `showDialog` → `AlertDialog`
+  blocks onto it. It is a function, not a widget: no `ScaffoldMessenger` of its
+  own, so the caller controls where the result is reported.
+- **`lib/core/bulk/bulk_actions.dart`** — `BulkSelection` (immutable; `pruned`
+  returns *the same instance* when there is nothing to prune, so the screen can
+  skip `setState`), plus `bulkSoftDelete` / `bulkRestore` and `BulkDeleteOutcome`.
+- **The design decision worth keeping:** `SalesRepository.softDelete`/`restore`
+  changed from `Future<void>` to **`Future<bool>`**. A repository that quietly
+  returns for an id it cannot find is correct for one delete and a lie for two
+  hundred — the operator would be told "12 invoices deleted" for 11 rows that
+  changed, and offered an undo covering a document never touched. The count
+  shown is the count that happened.
+- **`lib/core/bulk/bulk_sales_actions.dart`** — `BulkSalesActions` (delete /
+  undoDelete / csv / pdfs) and `BulkPdfShare` with an injected `shareFiles` seam.
+  `pdfs` returns files **keyed by document id**, so a document deleted from
+  under the selection cannot shift every later filename.
+- **CSV is now filterable.** All five `CsvExport` methods take `{Set<String>? ids}`.
+  Verified by experiment that drift's `isIn(<empty set>)` already emits a
+  never-true clause — an explicit guard changed nothing, so the doc comment
+  records what was measured rather than what was assumed.
+- **`SelectionBar`** (`lib/shared/widgets/selection_bar.dart`) — hidden
+  (`SizedBox.shrink`) when empty, so the row collapses instead of leaving a band
+  of dead controls; says "all 200 loaded" rather than implying more.
+- **Wired into the Sales list** — `sales_list_screen.dart`. The selection is
+  reconciled into a **local** inside `build` (`build` must not mutate state);
+  the three actions (`_bulkPdf`, `_bulkCsv`, `_bulkDelete`) live there.
+  `_SelectionBox` pins the tick to the table's fixed `SizedBox(width: 50)` leading
+  slot, which is why the **card** list keeps its document glyph beside the
+  checkbox and the **table** list drops the glyph instead. Pushing a stock
+  `Checkbox` into that slot widens it and drifts every flexed column.
+
+### Things not to re-learn
+
+- **`tearDown` gets no `WidgetTester`.** A widget test over a live drift
+  database hangs at `db.close()` unless the fake-async queue is drained first,
+  and the only thing that can pump is the tester. Register the teardown per
+  test with `addTearDown` inside a helper that takes the tester:
+  unmount → `container.dispose()` → 6× `pump(1s)` → `db.close()`. The pumps
+  must come **after** dispose — the stream teardown timer only starts when the
+  subscription is cancelled. Same trap that stalled `service_stock_test.dart`
+  and `items_visibility_regression_test.dart`.
+- `flutter test` **buffers output to the end of the process**, so a hung test
+  shows a completely empty log. Instrument with `print` and read them after exit.
 
 ## The app is Apex Books (2026-10-04)
 

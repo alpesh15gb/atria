@@ -30,14 +30,42 @@ new tests proven to fail against reverted code) before its commit.
       `test/app_data_dir_migration_test.dart` (10). **Left as `Atria` on
       purpose:** Dart package name, `Atria*` classes, `atria_*.dart` filenames,
       the `.atriabak` constant, the server's `ATRIA_*` env vars.
-- [ ] **Phase 3 — bulk actions.** Extract the 8 hand-rolled confirm dialogs into
-      one `confirmDestructive` first. `SelectionBar` for
-      `AtriaListPage.toolbar`; reuse the selection highlight currently trapped
-      privately in `parties_screen.dart:340-343`. The desktop table hardcodes a
-      `SizedBox(width: 50)` leading slot with fixed flexes in both the header and
-      the totals — a checkbox must be accounted for in all three. Bulk PDF / CSV
-      / delete with Undo. "Select all" means "all loaded" (sales caps at 200) —
-      surface that, do not hide it.
+- [ ] **Phase 3 — bulk actions.** In progress; commit when the suite is green.
+      - [x] `confirmDestructive` extracted (**11** call sites, not 8).
+      - [x] `BulkSelection` + `bulkSoftDelete`/`bulkRestore` in
+            `lib/core/bulk/bulk_actions.dart`.
+      - [x] `SalesRepository.softDelete`/`restore` now return `Future<bool>` —
+            a delete that changed nothing must be reported, not counted.
+      - [x] `CsvExport` — all five methods take `{Set<String>? ids}`.
+      - [x] `BulkSalesActions` + `BulkPdfShare` (share seam injected).
+      - [x] `SelectionBar`.
+      - [x] Wired into the Sales list: `_SelectionBox` pinned to the table's
+            fixed 50px leading slot (the card list keeps the doc glyph beside the
+            checkbox; the table list drops the glyph rather than drift every
+            flexed column), selection reconciled into a local in `build`.
+      - [ ] **Still open:** items / parties / expenses / purchases lists are
+            unwired. The plan named the Sales list specifically, and the point
+            that matters — a selection that prunes itself against what is on
+            screen — is proven there first. Do not spread it until the pattern
+            survives a real session.
+      - [ ] `parties_screen.dart:340-343`'s private selection highlight was
+            **not** extracted to a shared widget. Duplicated rather than
+            generalised: one caller is not an abstraction yet. Revisit if a
+            second list needs it.
+- [ ] **Phase 4 — quotation lifecycle.** `converted` is a terminal *overwrite*
+      of `status`, which is why one column cannot also express `expired`. Add
+      `convertedToInvoiceId` + `convertedAt`. Collapse `StatusChip.doc` and the
+      hand-rolled `_statusText`/`_statusKindFor` onto one `DocumentStatus` enum
+      so a value cannot be added to one and missed in the other. `expired` is
+      **computed** from the editor's "Valid till", not stored.
+      - **Corrections from the plan review, not yet applied:** `'converted'`
+        rows **cannot** be migrated — the linked invoice id was never stored, so
+        rewriting them re-enables double conversion on real data. Keep
+        `'converted'` as a deprecated `convertedLegacy`. `watchOverdue`'s
+        `!= 'converted'` clause is already dead. `db.assertDateEditable` throws
+        bare `Exception`, not `PeriodLockedException` — pre-existing bug.
+      - `watchList`'s stream cache key must gain the status filter or the filter
+        silently does nothing.
 - [ ] **Phase 4 — quotation lifecycle.** `converted` is a terminal *overwrite*
       of `status`, which is why one column cannot also express `expired`. Add
       `convertedToInvoiceId` + `convertedAt`. Collapse `StatusChip.doc` and the

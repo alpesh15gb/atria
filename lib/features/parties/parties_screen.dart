@@ -20,6 +20,7 @@ import '../../shared/widgets/atria_list_page.dart';
 import '../../shared/widgets/atria_list_toolbar.dart';
 import '../../shared/widgets/atria_page_header.dart';
 import '../../shared/widgets/common_widgets.dart';
+import '../../shared/widgets/confirm_destructive.dart';
 import '../../shared/widgets/money_text.dart';
 import '../../shared/widgets/transaction_list.dart';
 
@@ -39,8 +40,10 @@ enum _Filter { all, customers, suppliers }
 /// the tables it is built from change. No polling, and no focus signal to plumb
 /// through the router. `autoDispose` so a row scrolled off screen releases its
 /// drift subscription.
-final _outstandingProvider =
-    StreamProvider.autoDispose.family<double, String>((ref, partyId) async* {
+final _outstandingProvider = StreamProvider.autoDispose.family<double, String>((
+  ref,
+  partyId,
+) async* {
   final repo = ref.watch(partyRepositoryProvider);
   if (repo == null) return;
   yield await repo.outstandingFor(partyId);
@@ -73,10 +76,10 @@ class _PartiesScreenState extends ConsumerState<PartiesScreen> {
   /// a `late` field written once left the heading and the "New vendor" button
   /// naming the wrong side of the ledger for the rest of the session.
   _Filter get _filter => switch (widget.initialType) {
-        'customer' => _Filter.customers,
-        'supplier' => _Filter.suppliers,
-        _ => _Filter.all,
-      };
+    'customer' => _Filter.customers,
+    'supplier' => _Filter.suppliers,
+    _ => _Filter.all,
+  };
 
   String _search = '';
   Timer? _debounce;
@@ -155,10 +158,10 @@ class _PartiesScreenState extends ConsumerState<PartiesScreen> {
               scrollable: false,
               value: _filter,
               onChanged: (f) => context.go(switch (f) {
-                    _Filter.all => '/parties',
-                    _Filter.customers => '/parties?type=customer',
-                    _Filter.suppliers => '/parties?type=supplier',
-                  }),
+                _Filter.all => '/parties',
+                _Filter.customers => '/parties?type=customer',
+                _Filter.suppliers => '/parties?type=supplier',
+              }),
               segments: const [
                 AtriaSegment(value: _Filter.all, label: 'All'),
                 AtriaSegment(value: _Filter.customers, label: 'Customers'),
@@ -169,11 +172,11 @@ class _PartiesScreenState extends ConsumerState<PartiesScreen> {
           body: repo == null
               ? _noFirmState
               : masterDetail
-                  ? PartiesMasterDetail(
-                      list: _list(repo, masterDetail: true),
-                      selectedParty: _selected,
-                    )
-                  : _list(repo),
+              ? PartiesMasterDetail(
+                  list: _list(repo, masterDetail: true),
+                  selectedParty: _selected,
+                )
+              : _list(repo),
         );
       },
     );
@@ -338,9 +341,8 @@ class _PartyRow extends ConsumerWidget {
     if (dense) {
       return Material(
         color: selected
-            ? Theme.of(context).colorScheme.primaryContainer.withValues(
-                  alpha: 0.55,
-                )
+            ? Theme.of(context).colorScheme.primaryContainer
+                  .withValues(alpha: 0.55)
             : Colors.transparent,
         borderRadius: AppRadius.mdAll,
         // Without this the row's ink splash paints a square over the rounded
@@ -453,11 +455,8 @@ class _OutstandingCell extends StatelessWidget {
         height: 20,
         child: CircularProgressIndicator(strokeWidth: 2.2),
       ),
-      error: (_, _) => Icon(
-        Icons.error_outline_rounded,
-        size: 18,
-        color: colors.negative,
-      ),
+      error: (_, _) =>
+          Icon(Icons.error_outline_rounded, size: 18, color: colors.negative),
       data: (value) {
         final decimal = Decimal.parse(value.toStringAsFixed(2));
         final isReceivable = value > 0.005;
@@ -482,15 +481,15 @@ class _OutstandingCell extends StatelessWidget {
                 settled
                     ? 'Settled'
                     : isReceivable
-                        ? 'Receivable'
-                        : 'Payable',
+                    ? 'Receivable'
+                    : 'Payable',
                 style: text.labelSmall?.copyWith(
                   fontWeight: FontWeight.w700,
                   color: settled
                       ? Theme.of(context).colorScheme.onSurfaceVariant
                       : isReceivable
-                          ? colors.positive
-                          : colors.negative,
+                      ? colors.positive
+                      : colors.negative,
                 ),
               ),
             ],
@@ -663,30 +662,12 @@ String _formatPhone(String phone) {
   return phone.trim();
 }
 
-Future<bool> _confirmDelete(BuildContext context) async {
-  final result = await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: const Text('Delete party?'),
-      content: const Text(
-        'This removes the party from your books. Existing invoices and bills '
-        'are kept, but will no longer be linked to this party.',
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(dialogContext).pop(false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          style: FilledButton.styleFrom(
-            backgroundColor: Theme.of(dialogContext).colorScheme.error,
-            foregroundColor: Theme.of(dialogContext).colorScheme.onError,
-          ),
-          onPressed: () => Navigator.of(dialogContext).pop(true),
-          child: const Text('Delete'),
-        ),
-      ],
-    ),
+Future<bool> _confirmDelete(BuildContext context) {
+  return confirmDestructive(
+    context,
+    title: 'Delete party?',
+    message:
+        'This removes the party from your books. Existing invoices and '
+        'bills are kept, but will no longer be linked to this party.',
   );
-  return result ?? false;
 }

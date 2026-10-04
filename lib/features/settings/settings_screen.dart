@@ -40,26 +40,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _syncEnabled = false;
   bool _syncLoading = true;
   bool _probing = false;
+
   /// Inline error for the server address, from [ApiConfig.validateBaseUrl].
   String? _apiUrlError;
+
   /// Result of the last connection test: null = not run yet.
   String? _probeMessage;
   bool? _probeOk;
+
   /// True when the address in use was chosen on this device rather than being
   /// the built-in default. The field shows the effective address either way, so
   /// this only affects the caption — but the caption should not claim the user
   /// set something they did not.
   bool _apiUrlIsCustom = false;
+
   /// The address actually in force, as of the last successful write or load.
   /// Everything typed that differs from this is *not* what the app will talk to,
   /// and the field says so rather than pretending otherwise.
   String _apiUrlSaved = '';
+
   /// Pending write for the address field, if any.
   ///
   /// Each write is a SQLite transaction that DELETEs and re-INSERTs the setting,
   /// so saving per keystroke turned a 30-character address into 30 transactions
   /// on the UI-triggered path. Same debounce shape as the search fields.
   Timer? _apiUrlDebounce;
+
   /// Captured so a pending address can still be written while the screen is
   /// being disposed — reading `ref` after dispose is not allowed.
   SettingsRepository? _settingsRepo;
@@ -101,12 +107,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _loadSettings() async {
     final db = ref.read(appDatabaseProvider);
     _settingsRepo = db.settingsRepository;
-    final syncEnabled =
-        await db.settingsRepository.getBool(SettingsRepository.kSyncEnabled);
-    final storedUrl =
-        await db.settingsRepository.get(SettingsRepository.kApiBaseUrl);
-    final stamp =
-        await db.settingsRepository.get(SettingsRepository.kLastBackupAt);
+    final syncEnabled = await db.settingsRepository.getBool(
+      SettingsRepository.kSyncEnabled,
+    );
+    final storedUrl = await db.settingsRepository.get(
+      SettingsRepository.kApiBaseUrl,
+    );
+    final stamp = await db.settingsRepository.get(
+      SettingsRepository.kLastBackupAt,
+    );
     final info = await PackageInfo.fromPlatform();
 
     // Show the address actually in force rather than the raw setting: when the
@@ -135,8 +144,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       // The short id is what a support request can quote to revoke one device
       // without signing every other one out.
       _deviceLabel = deviceLabel;
-      _lastBackup =
-          stamp == null ? null : DateTime.tryParse(stamp)?.toLocal();
+      _lastBackup = stamp == null ? null : DateTime.tryParse(stamp)?.toLocal();
       _packageInfo = info;
       _syncLoading = false;
     });
@@ -170,9 +178,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
       );
     } catch (error) {
-      messenger?.showSnackBar(
-        SnackBar(content: Text('Backup failed: $error')),
-      );
+      messenger?.showSnackBar(SnackBar(content: Text('Backup failed: $error')));
     } finally {
       if (mounted) setState(() => _backingUp = false);
     }
@@ -185,8 +191,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final db = ref.read(appDatabaseProvider);
       final firmId = ref.read(activeFirmIdProvider);
       if (firmId == null) {
-        messenger?.showSnackBar(const SnackBar(
-            content: Text('Open a business before exporting.')));
+        messenger?.showSnackBar(
+          const SnackBar(content: Text('Open a business before exporting.')),
+        );
         return;
       }
       final export = CsvExport(db, firmId);
@@ -198,26 +205,29 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         await export.expenses(),
       ];
       if (!mounted) return;
-      setState(() => _exportResult =
-          '5 files exported to ${Formatters.ellipsis(files.first.parent.path, 40)}');
-      messenger?.showSnackBar(SnackBar(
-        content: Text('Exported to ${Formatters.ellipsis(
-            files.first.parent.path, 52)}'),
-        action: SnackBarAction(
-          // Says "Open folder" because that is what it does: it hands the
-          // *directory* to the platform, which shows it. "Open folder file" read
-          // like a typo and promised a file that was never named.
-          label: 'Open folder',
-          onPressed: () {
-            if (!context.mounted) return;
-            OpenFilex.open(files.first.parent.path);
-          },
-        ),
-      ));
-    } catch (error) {
-      messenger?.showSnackBar(
-        SnackBar(content: Text('Export failed: $error')),
+      setState(
+        () => _exportResult =
+            '5 files exported to ${Formatters.ellipsis(files.first.parent.path, 40)}',
       );
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(
+            'Exported to ${Formatters.ellipsis(files.first.parent.path, 52)}',
+          ),
+          action: SnackBarAction(
+            // Says "Open folder" because that is what it does: it hands the
+            // *directory* to the platform, which shows it. "Open folder file" read
+            // like a typo and promised a file that was never named.
+            label: 'Open folder',
+            onPressed: () {
+              if (!context.mounted) return;
+              OpenFilex.open(files.first.parent.path);
+            },
+          ),
+        ),
+      );
+    } catch (error) {
+      messenger?.showSnackBar(SnackBar(content: Text('Export failed: $error')));
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
@@ -235,8 +245,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     // bin exactly as full as it was, with no message at all.
     final firmId = ref.read(activeFirmIdProvider);
     if (firmId == null) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(
-          content: Text('Open a business first.')));
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(const SnackBar(content: Text('Open a business first.')));
       return;
     }
 
@@ -247,8 +258,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final total = await _recycleBinCount(db, firmId);
     if (!mounted) return;
     if (total == 0) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(
-          content: Text('The recycle bin is already empty.')));
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('The recycle bin is already empty.')),
+      );
       return;
     }
 
@@ -311,36 +323,54 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   /// built. The old version pulled every deleted row of six tables into memory
   /// purely to call `.length` on the lists, then did it all again to purge.
   Future<int> _recycleBinCount(AppDatabase db, String firmId) async {
-    final sales = await (db.selectOnly(db.salesInvoices)
-          ..addColumns([db.salesInvoices.id.count()])
-          ..where(db.salesInvoices.firmId.equals(firmId) &
-              db.salesInvoices.isDeleted.equals(true)))
-        .getSingle();
-    final bills = await (db.selectOnly(db.purchaseBills)
-          ..addColumns([db.purchaseBills.id.count()])
-          ..where(db.purchaseBills.firmId.equals(firmId) &
-              db.purchaseBills.isDeleted.equals(true)))
-        .getSingle();
-    final payments = await (db.selectOnly(db.payments)
-          ..addColumns([db.payments.id.count()])
-          ..where(db.payments.firmId.equals(firmId) &
-              db.payments.isDeleted.equals(true)))
-        .getSingle();
-    final expenses = await (db.selectOnly(db.expenses)
-          ..addColumns([db.expenses.id.count()])
-          ..where(db.expenses.firmId.equals(firmId) &
-              db.expenses.isDeleted.equals(true)))
-        .getSingle();
-    final parties = await (db.selectOnly(db.parties)
-          ..addColumns([db.parties.id.count()])
-          ..where(db.parties.firmId.equals(firmId) &
-              db.parties.isDeleted.equals(true)))
-        .getSingle();
-    final items = await (db.selectOnly(db.items)
-          ..addColumns([db.items.id.count()])
-          ..where(db.items.firmId.equals(firmId) &
-              db.items.isDeleted.equals(true)))
-        .getSingle();
+    final sales =
+        await (db.selectOnly(db.salesInvoices)
+              ..addColumns([db.salesInvoices.id.count()])
+              ..where(
+                db.salesInvoices.firmId.equals(firmId) &
+                    db.salesInvoices.isDeleted.equals(true),
+              ))
+            .getSingle();
+    final bills =
+        await (db.selectOnly(db.purchaseBills)
+              ..addColumns([db.purchaseBills.id.count()])
+              ..where(
+                db.purchaseBills.firmId.equals(firmId) &
+                    db.purchaseBills.isDeleted.equals(true),
+              ))
+            .getSingle();
+    final payments =
+        await (db.selectOnly(db.payments)
+              ..addColumns([db.payments.id.count()])
+              ..where(
+                db.payments.firmId.equals(firmId) &
+                    db.payments.isDeleted.equals(true),
+              ))
+            .getSingle();
+    final expenses =
+        await (db.selectOnly(db.expenses)
+              ..addColumns([db.expenses.id.count()])
+              ..where(
+                db.expenses.firmId.equals(firmId) &
+                    db.expenses.isDeleted.equals(true),
+              ))
+            .getSingle();
+    final parties =
+        await (db.selectOnly(db.parties)
+              ..addColumns([db.parties.id.count()])
+              ..where(
+                db.parties.firmId.equals(firmId) &
+                    db.parties.isDeleted.equals(true),
+              ))
+            .getSingle();
+    final items =
+        await (db.selectOnly(db.items)
+              ..addColumns([db.items.id.count()])
+              ..where(
+                db.items.firmId.equals(firmId) &
+                    db.items.isDeleted.equals(true),
+              ))
+            .getSingle();
 
     return sales.read<int>(db.salesInvoices.id.count())! +
         bills.read<int>(db.purchaseBills.id.count())! +
@@ -417,58 +447,79 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       // Parties and items carry no date of their own — their repositories check
       // references, not dates — so only the id is read for those two.
       final docRows = [
-        for (final row in await (db.selectOnly(db.salesInvoices)
-              ..addColumns([db.salesInvoices.id, db.salesInvoices.invoiceDate])
-              ..where(db.salesInvoices.firmId.equals(firmId) &
-                  db.salesInvoices.isDeleted.equals(true)))
-            .get())
+        for (final row
+            in await (db.selectOnly(db.salesInvoices)
+                  ..addColumns([
+                    db.salesInvoices.id,
+                    db.salesInvoices.invoiceDate,
+                  ])
+                  ..where(
+                    db.salesInvoices.firmId.equals(firmId) &
+                        db.salesInvoices.isDeleted.equals(true),
+                  ))
+                .get())
           _RecycleRow(
             row.read(db.salesInvoices.id)!,
             row.read(db.salesInvoices.invoiceDate),
-          )
+          ),
       ];
       final billRows = [
-        for (final row in await (db.selectOnly(db.purchaseBills)
-              ..addColumns([db.purchaseBills.id, db.purchaseBills.billDate])
-              ..where(db.purchaseBills.firmId.equals(firmId) &
-                  db.purchaseBills.isDeleted.equals(true)))
-            .get())
+        for (final row
+            in await (db.selectOnly(db.purchaseBills)
+                  ..addColumns([db.purchaseBills.id, db.purchaseBills.billDate])
+                  ..where(
+                    db.purchaseBills.firmId.equals(firmId) &
+                        db.purchaseBills.isDeleted.equals(true),
+                  ))
+                .get())
           _RecycleRow(
             row.read(db.purchaseBills.id)!,
             row.read(db.purchaseBills.billDate),
-          )
+          ),
       ];
       final payRows = [
-        for (final row in await (db.selectOnly(db.payments)
-              ..addColumns([db.payments.id, db.payments.date])
-              ..where(db.payments.firmId.equals(firmId) &
-                  db.payments.isDeleted.equals(true)))
-            .get())
-          _RecycleRow(row.read(db.payments.id)!, row.read(db.payments.date))
+        for (final row
+            in await (db.selectOnly(db.payments)
+                  ..addColumns([db.payments.id, db.payments.date])
+                  ..where(
+                    db.payments.firmId.equals(firmId) &
+                        db.payments.isDeleted.equals(true),
+                  ))
+                .get())
+          _RecycleRow(row.read(db.payments.id)!, row.read(db.payments.date)),
       ];
       final expRows = [
-        for (final row in await (db.selectOnly(db.expenses)
-              ..addColumns([db.expenses.id, db.expenses.date])
-              ..where(db.expenses.firmId.equals(firmId) &
-                  db.expenses.isDeleted.equals(true)))
-            .get())
-          _RecycleRow(row.read(db.expenses.id)!, row.read(db.expenses.date))
+        for (final row
+            in await (db.selectOnly(db.expenses)
+                  ..addColumns([db.expenses.id, db.expenses.date])
+                  ..where(
+                    db.expenses.firmId.equals(firmId) &
+                        db.expenses.isDeleted.equals(true),
+                  ))
+                .get())
+          _RecycleRow(row.read(db.expenses.id)!, row.read(db.expenses.date)),
       ];
       final partyRows = [
-        for (final row in await (db.selectOnly(db.parties)
-              ..addColumns([db.parties.id])
-              ..where(db.parties.firmId.equals(firmId) &
-                  db.parties.isDeleted.equals(true)))
-            .get())
-          _RecycleRow(row.read(db.parties.id)!, null)
+        for (final row
+            in await (db.selectOnly(db.parties)
+                  ..addColumns([db.parties.id])
+                  ..where(
+                    db.parties.firmId.equals(firmId) &
+                        db.parties.isDeleted.equals(true),
+                  ))
+                .get())
+          _RecycleRow(row.read(db.parties.id)!, null),
       ];
       final itemRows = [
-        for (final row in await (db.selectOnly(db.items)
-              ..addColumns([db.items.id])
-              ..where(db.items.firmId.equals(firmId) &
-                  db.items.isDeleted.equals(true)))
-            .get())
-          _RecycleRow(row.read(db.items.id)!, null)
+        for (final row
+            in await (db.selectOnly(db.items)
+                  ..addColumns([db.items.id])
+                  ..where(
+                    db.items.firmId.equals(firmId) &
+                        db.items.isDeleted.equals(true),
+                  ))
+                .get())
+          _RecycleRow(row.read(db.items.id)!, null),
       ];
 
       await purgeEach(docRows, (id) => sales.purge(id));
@@ -497,15 +548,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (!mounted) return;
       // Say what happened, in both directions. The old message could read
       // "Purged 12" for a run where five tables had not been reached.
-      messenger?.showSnackBar(SnackBar(
-        content: Text(
-          leftovers.isEmpty
-              ? 'Recycle bin emptied ($purged deleted forever)'
-              : 'Deleted $purged for ever. Still in the bin: '
-                  '${leftovers.join('; ')}.'
-                  '${firstError == null ? '' : ' $firstError'}',
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(
+            leftovers.isEmpty
+                ? 'Recycle bin emptied ($purged deleted forever)'
+                : 'Deleted $purged for ever. Still in the bin: '
+                      '${leftovers.join('; ')}.'
+                      '${firstError == null ? '' : ' $firstError'}',
+          ),
         ),
-      ));
+      );
     } on Object catch (error) {
       messenger?.showSnackBar(
         SnackBar(content: Text('Could not empty the bin: $error')),
@@ -520,9 +573,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await ref.read(appDatabaseProvider).firmRepository.setDefault(firmId);
     if (!mounted) return;
     setState(() => _switchExpanded = false);
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      const SnackBar(content: Text('Switched business')),
-    );
+    ScaffoldMessenger.maybeOf(context)
+        ?.showSnackBar(const SnackBar(content: Text('Switched business')));
   }
 
   Future<void> _toggleSync(bool value) async {
@@ -539,9 +591,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final themeMode = ref.watch(themeModeProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settings'),
-      ),
+      appBar: AppBar(title: const Text('Settings')),
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -616,8 +666,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               height: 42,
               decoration: BoxDecoration(
                 color: scheme.primaryContainer,
-                borderRadius:
-                    const BorderRadius.all(Radius.circular(AppRadius.md)),
+                borderRadius: const BorderRadius.all(
+                  Radius.circular(AppRadius.md),
+                ),
               ),
               alignment: Alignment.center,
               child: PhosphorIcon(
@@ -635,24 +686,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     firm?.name ?? 'No business selected',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+                    style: Theme.of(context).textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     [
-                      if (firm?.gstin != null &&
-                          firm!.gstin!.trim().isNotEmpty)
+                      if (firm?.gstin != null && firm!.gstin!.trim().isNotEmpty)
                         firm.gstin!.toUpperCase(),
                       if (state != null) state.name,
                       if (firm?.city != null && firm!.city!.isNotEmpty)
                         firm.city,
                     ].join('  •  '),
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                        ),
+                      color: scheme.onSurfaceVariant,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
                   ),
                 ],
               ),
@@ -717,9 +766,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   Expanded(
                     child: Text(
                       'Switch firm',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
+                      style: Theme.of(context).textTheme.bodyMedium
+                          ?.copyWith(fontWeight: FontWeight.w600),
                     ),
                   ),
                   AnimatedRotation(
@@ -797,36 +845,35 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight:
-                              selected ? FontWeight.w700 : FontWeight.w500,
-                        ),
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    ),
                   ),
                   if (firm.gstin != null && firm.gstin!.trim().isNotEmpty)
                     Text(
                       firm.gstin!.toUpperCase(),
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                          ),
+                        color: scheme.onSurfaceVariant,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
                     ),
                 ],
               ),
             ),
             if (firm.isDefault)
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: scheme.primaryContainer,
-                  borderRadius:
-                      const BorderRadius.all(Radius.circular(AppRadius.pill)),
+                  borderRadius: const BorderRadius.all(
+                    Radius.circular(AppRadius.pill),
+                  ),
                 ),
                 child: Text(
                   'Default',
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: scheme.primary,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    color: scheme.primary,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
           ],
@@ -850,9 +897,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               Text(
                 'Theme',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 10),
               SegmentedButton<ThemeMode>(
@@ -874,9 +921,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                 ],
                 selected: {mode},
-                onSelectionChanged: (selection) => ref
-                    .read(themeModeProvider.notifier)
-                    .set(selection.first),
+                onSelectionChanged: (selection) =>
+                    ref.read(themeModeProvider.notifier).set(selection.first),
               ),
             ],
           ),
@@ -942,7 +988,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 title: const Text('Import from Vyapar'),
                 subtitle: const Text(
-                    'Bring a Vyapar backup (.vyb) across as a new business'),
+                  'Bring a Vyapar backup (.vyb) across as a new business',
+                ),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () => context.push('/settings/vyapar-import'),
               ),
@@ -955,7 +1002,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 title: const Text('Label printers'),
                 subtitle: const Text(
-                    'Set up a TSC or Zebra thermal printer for barcode labels'),
+                  'Set up a TSC or Zebra thermal printer for barcode labels',
+                ),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () => context.push('/settings/printers'),
               ),
@@ -973,8 +1021,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         color: scheme.primary,
                       ),
                 title: const Text('Export to CSV'),
-                subtitle: Text(_exportResult ??
-                    'Parties, items, sales, purchases and expenses as spreadsheets'),
+                subtitle: Text(
+                  _exportResult ?? 'Parties, items, sales, purchases and expenses as spreadsheets',
+                ),
                 enabled: !_exporting,
                 onTap: _exportCsv,
               ),
@@ -987,7 +1036,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 title: const Text('Recycle Bin'),
                 subtitle: const Text(
-                    'Restore deleted documents, parties and items'),
+                  'Restore deleted documents, parties and items',
+                ),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () => context.push('/settings/recycle-bin'),
               ),
@@ -1006,8 +1056,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                 title: const Text('Empty recycle bin'),
                 subtitle: const Text(
-                    'Permanently delete everything in the bin — documents, '
-                    'parties and items. Cannot be undone.'),
+                  'Permanently delete everything in the bin — documents, '
+                  'parties and items. Cannot be undone.',
+                ),
                 enabled: !_purging,
                 onTap: _confirmEmptyRecycleBin,
               ),
@@ -1020,7 +1071,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 title: const Text('Period lock'),
                 subtitle: const Text(
-                    'Freeze books up to a date — no edits to closed periods'),
+                  'Freeze books up to a date — no edits to closed periods',
+                ),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () => context.push('/settings/period-lock'),
               ),
@@ -1033,7 +1085,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 title: const Text('Audit log'),
                 subtitle: const Text(
-                    'Every create, edit, delete and restore — who and when'),
+                  'Every create, edit, delete and restore — who and when',
+                ),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () => context.push('/settings/audit-log'),
               ),
@@ -1060,7 +1113,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       children: [
         const SectionHeader(
           title: 'Apex Books account',
-          subtitle: 'Optional. It is what lets Apex Books erase or sync your books '
+          subtitle:
+              'Optional. It is what lets Apex Books erase or sync your books '
               'on the server for you.',
         ),
         AtriaCard(
@@ -1096,9 +1150,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             auth.signedIn ? auth.email : 'Not signed in',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyMedium
+                            style: Theme.of(context).textTheme.bodyMedium
                                 ?.copyWith(fontWeight: FontWeight.w600),
                           ),
                           const SizedBox(height: 2),
@@ -1106,13 +1158,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             auth.refreshing
                                 ? 'Renewing this device\'s session…'
                                 : auth.signedIn
-                                    ? 'This device has a session for this '
-                                        'account.'
-                                    : 'Sign in to erase a business from the '
-                                        'server, or to sync.',
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodySmall
+                                ? 'This device has a session for this '
+                                      'account.'
+                                : 'Sign in to erase a business from the '
+                                      'server, or to sync.',
+                            style: Theme.of(context).textTheme.bodySmall
                                 ?.copyWith(color: scheme.onSurfaceVariant),
                           ),
                         ],
@@ -1141,7 +1191,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       children: [
         const SectionHeader(
           title: 'Apex Books server',
-          subtitle: 'Where this device signs in and syncs. Apex Books works fully '
+          subtitle:
+              'Where this device signs in and syncs. Apex Books works fully '
               'offline either way.',
         ),
         AtriaCard(
@@ -1182,10 +1233,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       child: Text(
                         'TWO-WAY SYNC',
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: colors.success,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0.8,
-                            ),
+                          color: colors.success,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.8,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -1218,11 +1269,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             'Cloud sync is optional. Your books are always '
                             'stored locally first, so they never depend on a '
                             'server.',
-                            style:
-                                Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: scheme.onSurfaceVariant,
-                                      height: 1.5,
-                                    ),
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: scheme.onSurfaceVariant,
+                                  height: 1.5,
+                                ),
                           ),
                         ),
                       ],
@@ -1278,9 +1329,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     } else if (status.hasError) {
       body = Text(
         'Could not read the outbox: ${status.error}',
-        style: Theme.of(context)
-            .textTheme
-            .bodySmall
+        style: Theme.of(context).textTheme.bodySmall
             ?.copyWith(color: scheme.error),
       );
     } else {
@@ -1309,13 +1358,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       lastSynced != null
                           ? 'Last synced ${Formatters.dateTime(lastSynced)}.'
                           : lastPushed != null
-                              ? 'Last sent ${Formatters.dateTime(lastPushed)}; '
-                                  'nothing received yet.'
-                              : 'This device has never completed a sync.',
+                          ? 'Last sent ${Formatters.dateTime(lastPushed)}; '
+                                'nothing received yet.'
+                          : 'This device has never completed a sync.',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                          ),
+                        color: scheme.onSurfaceVariant,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
                     ),
                   ],
                 ),
@@ -1341,9 +1390,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               padding: const EdgeInsets.only(top: 2),
               child: Text(
                 blocked,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
+                style: Theme.of(context).textTheme.bodySmall
                     ?.copyWith(color: scheme.onSurfaceVariant),
               ),
             ),
@@ -1351,10 +1398,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       );
     }
 
-    return Padding(
-      padding: const EdgeInsets.only(top: 6),
-      child: body,
-    );
+    return Padding(padding: const EdgeInsets.only(top: 6), child: body);
   }
 
   /// The journal-repair action: re-send this firm's whole books from this
@@ -1389,10 +1433,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 'Something missing on another device? Re-send this firm\'s '
                 'entire books from here, so every device receives the '
                 'complete data.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                      height: 1.5,
-                    ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: scheme.onSurfaceVariant, height: 1.5),
               ),
               const SizedBox(height: 4),
               Align(
@@ -1405,9 +1447,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               if (blocked != null)
                 Text(
                   blocked,
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
+                  style: Theme.of(context).textTheme.bodySmall
                       ?.copyWith(color: scheme.onSurfaceVariant),
                 ),
             ],
@@ -1448,15 +1488,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (!mounted) return;
     setState(() => _syncing = true);
     try {
-      final enqueued =
-          await ref.read(syncEngineProvider).rejournalEverything(firmId: firmId);
+      final enqueued = await ref
+          .read(syncEngineProvider)
+          .rejournalEverything(firmId: firmId);
       if (!mounted) return;
       ref.invalidate(syncStatusProvider);
       if (enqueued == 0) {
-        messenger?.showSnackBar(const SnackBar(
-          content: Text('Nothing to re-send — the queue already covers '
-              'every row.'),
-        ));
+        messenger?.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Nothing to re-send — the queue already covers '
+              'every row.',
+            ),
+          ),
+        );
         return;
       }
       // Push immediately rather than waiting for the timer: the operator
@@ -1465,13 +1510,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final report = await ref.read(syncEngineProvider).push();
       if (!mounted) return;
       ref.invalidate(syncStatusProvider);
-      messenger?.showSnackBar(SnackBar(
-        content: Text(report.ok
-            ? 'Queued $enqueued change(s); sent ${report.pushed}'
-                '${report.pending > 0 ? ', ${report.pending} still going' : ''}.'
-            : 'Queued $enqueued change(s), but sending stopped: '
-                '${report.error ?? 'unknown error'}'),
-      ));
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(
+            report.ok
+                ? 'Queued $enqueued change(s); sent ${report.pushed}'
+                      '${report.pending > 0 ? ', ${report.pending} still going' : ''}.'
+                : 'Queued $enqueued change(s), but sending stopped: '
+                      '${report.error ?? 'unknown error'}',
+          ),
+        ),
+      );
     } on Object catch (error) {
       messenger?.showSnackBar(
         SnackBar(content: Text('Could not re-send: $error')),
@@ -1537,12 +1586,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             errorText: _apiUrlError,
             helperText: _apiUrlError != null
                 ? 'Not saved — the app is still using '
-                    '${Formatters.ellipsis(_apiUrlSaved, 32)}'
+                      '${Formatters.ellipsis(_apiUrlSaved, 32)}'
                 : inForce
-                    ? (_apiUrlIsCustom
-                        ? 'Saved on this device'
-                        : 'Built-in address — type your own to change it')
-                    : 'Saving…',
+                ? (_apiUrlIsCustom
+                      ? 'Saved on this device'
+                      : 'Built-in address — type your own to change it')
+                : 'Saving…',
           ),
           // Debounced, not per keystroke: every write is a SQLite transaction
           // that DELETEs and re-INSERTs the setting, so typing an address used
@@ -1564,8 +1613,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Icon(Icons.wifi_tethering_rounded,
-                  size: AppIconSize.md),
+              : const Icon(Icons.wifi_tethering_rounded, size: AppIconSize.md),
           label: Text(_probing ? 'Testing…' : 'Test connection'),
         ),
         if (_probeMessage != null) ...[
@@ -1607,8 +1655,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     // Shown straight away: the field must not claim to be showing an address
     // that is not stored yet.
     setState(() {
-      _apiUrlError =
-          trimmed.isEmpty ? null : ApiConfig.validateBaseUrl(trimmed);
+      _apiUrlError = trimmed.isEmpty
+          ? null
+          : ApiConfig.validateBaseUrl(trimmed);
       if (_apiUrlError == null) {
         // A different address invalidates whatever the last test proved.
         if (_savedFormOf(trimmed) != _apiUrlSaved) {
@@ -1659,8 +1708,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
     }
 
-    await _persistApiUrl(clearing ? '' : ApiConfig.normaliseBaseUrl(trimmed),
-        announce: announce);
+    await _persistApiUrl(
+      clearing ? '' : ApiConfig.normaliseBaseUrl(trimmed),
+      announce: announce,
+    );
     if (!mounted) return;
 
     // Ask the config what is now in force, rather than assuming: with a
@@ -1762,9 +1813,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ? 'Version $version'
                         : 'Version $version ($build)',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                        ),
+                      color: scheme.onSurfaceVariant,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
                   ),
                 ],
               ),
@@ -1784,9 +1835,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       'Made in India for Indian businesses. Your data stays '
                       'private and on your device.',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                            height: 1.5,
-                          ),
+                        color: scheme.onSurfaceVariant,
+                        height: 1.5,
+                      ),
                     ),
                   ),
                 ],

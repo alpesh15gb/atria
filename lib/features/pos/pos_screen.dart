@@ -19,6 +19,7 @@ import '../../core/utils/id_utils.dart';
 import '../../core/utils/money.dart';
 import '../../shared/widgets/atria_page_header.dart';
 import '../../shared/widgets/common_widgets.dart';
+import '../../shared/widgets/confirm_destructive.dart';
 
 /// The counter screen: scan, take the money, print the labels.
 ///
@@ -227,30 +228,16 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     if (_lines.isEmpty) return;
     final lineCount = _lines.length;
     final partyName = _party?.name;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Clear the cart?'),
-        content: Text(
+    final confirmed = await confirmDestructive(
+      context,
+      title: 'Clear the cart?',
+      message:
           'This removes $lineCount line${lineCount == 1 ? '' : 's'}'
           '${partyName == null ? '' : ' and the customer “$partyName”'}. '
           'Nothing has been billed, so no document changes — but the whole cart '
           'has to be keyed in again.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Keep the cart'),
-          ),
-          FilledButton.tonal(
-            style: FilledButton.styleFrom(
-              foregroundColor: Theme.of(dialogContext).colorScheme.error,
-            ),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Clear it'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Clear it',
+      cancelLabel: 'Keep the cart',
     );
     if (confirmed != true || !mounted) return;
     setState(() {

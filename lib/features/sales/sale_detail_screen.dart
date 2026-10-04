@@ -29,6 +29,7 @@ import '../../core/utils/whatsapp_links.dart';
 import '../../shared/widgets/atria_line_grid.dart';
 import '../../shared/widgets/atria_pdf_preview.dart';
 import '../../shared/widgets/common_widgets.dart';
+import '../../shared/widgets/confirm_destructive.dart';
 import '../../shared/widgets/money_text.dart';
 import '../../shared/widgets/status_chip.dart';
 import '../../core/theme/app_sizes.dart';
@@ -244,10 +245,8 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
     if (firm == null || _invoice == null) return;
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final bytes = await InvoicePdf.forFirm(firm).build(
-        invoice: _invoice!,
-        items: _items,
-      );
+      final bytes = await InvoicePdf.forFirm(firm)
+          .build(invoice: _invoice!, items: _items);
       final dir = await getTemporaryDirectory();
       final file = File(p.join(dir.path, _pdfFileName));
       await file.writeAsBytes(bytes, flush: true);
@@ -295,10 +294,8 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
     if (firm == null || _invoice == null) return;
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final bytes = await InvoicePdf.forFirm(firm).build(
-        invoice: _invoice!,
-        items: _items,
-      );
+      final bytes = await InvoicePdf.forFirm(firm)
+          .build(invoice: _invoice!, items: _items);
       final dir = await getApplicationDocumentsDirectory();
       final outDir = Directory(p.join(dir.path, 'apexbooks', 'invoices'));
       if (!outDir.existsSync()) outDir.createSync(recursive: true);
@@ -380,28 +377,14 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
   }
 
   Future<void> _confirmCancel() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Cancel invoice?'),
-        content: Text(
+    final confirmed = await confirmDestructive(
+      context,
+      title: 'Cancel invoice?',
+      message:
           '${_invoice!.number} will be marked cancelled. Stock effects '
           'already applied remain as-is. This cannot be undone from the app.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Keep'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-            child: const Text('Cancel invoice'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Cancel invoice',
+      cancelLabel: 'Keep',
     );
     if (confirmed != true) return;
     final sales = ref.read(salesRepositoryProvider);
@@ -415,28 +398,13 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
   Future<void> _confirmDelete() async {
     final invoice = _invoice;
     if (invoice == null) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Delete ${invoice.number}?'),
-        content: const Text(
+    final confirmed = await confirmDestructive(
+      context,
+      title: 'Delete ${invoice.number}?',
+      message:
           'Stock and balances are reversed. The document moves to the '
           'recycle bin and can be restored from Settings.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Keep'),
-          ),
-          FilledButton.tonal(
-            style: FilledButton.styleFrom(
-              foregroundColor: Theme.of(dialogContext).colorScheme.error,
-            ),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+      cancelLabel: 'Keep',
     );
     if (confirmed != true || !mounted) return;
     await ref.read(salesRepositoryProvider)?.softDelete(invoice.id);
@@ -1035,9 +1003,8 @@ class _AmountBreakdown extends StatelessWidget {
               colorize: false,
               textAlign: TextAlign.right,
               shrinkToFit: true,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -1070,9 +1037,8 @@ class _PaymentSectionState extends ConsumerState<_PaymentSection> {
   bool _amountIsTyped = false;
 
   /// The balance, formatted the way the field shows it.
-  String _amountTextFor(double balance) => balance > 0
-      ? Formatters.indianGroup(balance.toStringAsFixed(2))
-      : '0.00';
+  String _amountTextFor(double balance) =>
+      balance > 0 ? Formatters.indianGroup(balance.toStringAsFixed(2)) : '0.00';
 
   @override
   void dispose() {
@@ -1370,10 +1336,9 @@ class _PdfPreviewCardState extends State<_PdfPreviewCard> {
                 }
                 return AtriaPdfPreview(
                   height: 380,
-                  builder: (format) => InvoicePdf.forFirm(firm).build(
-                    invoice: widget.invoice,
-                    items: widget.items,
-                  ),
+                  builder: (format) =>
+                      InvoicePdf.forFirm(firm)
+                          .build(invoice: widget.invoice, items: widget.items),
                   onPrint: widget.onPrint,
                   onShare: widget.onShare,
                 );

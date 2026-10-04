@@ -7,6 +7,7 @@ import '../../core/state/providers.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/money.dart';
 import '../../shared/widgets/common_widgets.dart';
+import '../../shared/widgets/confirm_destructive.dart';
 
 /// Vyapar-style recycle bin: everything soft-deleted lands here and can be
 /// restored or permanently removed. Permanent removal is deliberately
@@ -72,8 +73,8 @@ class RecycleBinScreen extends ConsumerWidget {
               },
               subtitleOf: (entity) =>
                   '${entity.partyName ?? "Walk-in"} · '
-                      '${Formatters.money(Money.of(entity.grandTotal))} · '
-                      'Deleted ${_when(entity.deletedAt)}',
+                  '${Formatters.money(Money.of(entity.grandTotal))} · '
+                  'Deleted ${_when(entity.deletedAt)}',
               purgeNote:
                   'A document dated inside a locked period cannot be removed.',
               onRestore: (id) => docs?.restore(id) ?? Future.value(),
@@ -85,8 +86,8 @@ class RecycleBinScreen extends ConsumerWidget {
                   'Bill ${(entity as PurchaseBillEntity).number}',
               subtitleOf: (entity) =>
                   '${entity.partyName ?? "Supplier"} · '
-                      '${Formatters.money(Money.of(entity.grandTotal))} · '
-                      'Deleted ${_when(entity.deletedAt)}',
+                  '${Formatters.money(Money.of(entity.grandTotal))} · '
+                  'Deleted ${_when(entity.deletedAt)}',
               purgeNote:
                   'A bill dated inside a locked period cannot be removed.',
               onRestore: (id) => bills?.restore(id) ?? Future.value(),
@@ -97,8 +98,8 @@ class RecycleBinScreen extends ConsumerWidget {
               titleOf: (entity) => (entity as PaymentEntity).number,
               subtitleOf: (entity) =>
                   '${entity.partyName ?? "Payment"} · '
-                      '${Formatters.money(Money.of(entity.amount))} · '
-                      'Deleted ${_when(entity.deletedAt)}',
+                  '${Formatters.money(Money.of(entity.amount))} · '
+                  'Deleted ${_when(entity.deletedAt)}',
               purgeNote:
                   'A payment dated inside a locked period cannot be removed.',
               onRestore: (id) => payments?.restore(id) ?? Future.value(),
@@ -110,8 +111,7 @@ class RecycleBinScreen extends ConsumerWidget {
               titleOf: (entity) => (entity as PartyEntity).name,
               subtitleOf: (entity) =>
                   'Deleted ${_when((entity as PartyEntity).deletedAt)}',
-              purgeNote:
-                  'A party used on any invoice or bill is refused automatically.',
+              purgeNote: 'A party used on any invoice or bill is refused automatically.',
               onRestore: partyRepo.restore,
               onDeleteForever: partyRepo.deleteForever,
             ),
@@ -120,8 +120,7 @@ class RecycleBinScreen extends ConsumerWidget {
               titleOf: (entity) => (entity as ItemEntity).name,
               subtitleOf: (entity) =>
                   'Deleted ${_when((entity as ItemEntity).deletedAt)}',
-              purgeNote:
-                  'An item with stock history is refused automatically.',
+              purgeNote: 'An item with stock history is refused automatically.',
               onRestore: itemRepo.restore,
               onDeleteForever: itemRepo.deleteForever,
             ),
@@ -134,13 +133,13 @@ class RecycleBinScreen extends ConsumerWidget {
   /// The document types the bin can hold, as a person reads them. The stored
   /// value is the slug the rest of the app keys filters on.
   String _docTypeLabel(String docType) => switch (docType) {
-        'invoice' => 'Invoice',
-        'quotation' => 'Quotation',
-        'sales_order' => 'Sales order',
-        'delivery_note' => 'Delivery note',
-        'credit_note' => 'Credit note',
-        _ => docType,
-      };
+    'invoice' => 'Invoice',
+    'quotation' => 'Quotation',
+    'sales_order' => 'Sales order',
+    'delivery_note' => 'Delivery note',
+    'credit_note' => 'Credit note',
+    _ => docType,
+  };
 
   String _when(DateTime? at) {
     if (at == null) return 'earlier';
@@ -171,26 +170,14 @@ class _DeletedList extends StatelessWidget {
   final Future<void> Function(String) onDeleteForever;
 
   Future<void> _confirmDeleteForever(
-      BuildContext context, dynamic entity) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Delete "${titleOf(entity)}" forever?'),
-        content: Text('This cannot be undone. $purgeNote'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton.tonal(
-            style: FilledButton.styleFrom(
-              foregroundColor: Theme.of(dialogContext).colorScheme.error,
-            ),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Delete forever'),
-          ),
-        ],
-      ),
+    BuildContext context,
+    dynamic entity,
+  ) async {
+    final confirmed = await confirmDestructive(
+      context,
+      title: 'Delete "${titleOf(entity)}" forever?',
+      message: 'This cannot be undone. $purgeNote',
+      confirmLabel: 'Delete forever',
     );
     if (confirmed != true || !context.mounted) return;
     final messenger = ScaffoldMessenger.maybeOf(context);
@@ -198,9 +185,7 @@ class _DeletedList extends StatelessWidget {
       await onDeleteForever(entity.id);
       messenger?.showSnackBar(SnackBar(content: Text('Deleted forever')));
     } catch (error) {
-      messenger?.showSnackBar(SnackBar(
-        content: Text('$error'),
-      ));
+      messenger?.showSnackBar(SnackBar(content: Text('$error')));
     }
   }
 
@@ -219,7 +204,8 @@ class _DeletedList extends StatelessWidget {
           return const EmptyState(
             icon: Icons.delete_outline_rounded,
             title: 'Nothing here',
-            message: 'Deleted records wait here until they are restored or '
+            message:
+                'Deleted records wait here until they are restored or '
                 'removed for good.',
           );
         }
@@ -241,17 +227,13 @@ class _DeletedList extends StatelessWidget {
                           titleOf(entity),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleSmall
+                          style: Theme.of(context).textTheme.titleSmall
                               ?.copyWith(fontWeight: FontWeight.w700),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           subtitleOf(entity),
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
+                          style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(color: scheme.onSurfaceVariant),
                         ),
                       ],
@@ -266,21 +248,27 @@ class _DeletedList extends StatelessWidget {
                         await onRestore(entity.id);
                         if (!context.mounted) return;
                         messenger?.showSnackBar(
-                          SnackBar(content: Text('Restored "${titleOf(entity)}"')),
+                          SnackBar(
+                            content: Text('Restored "${titleOf(entity)}"'),
+                          ),
                         );
                       } catch (error) {
                         // A restore is lock-guarded like a purge is, so this
                         // can be refused — and without a message the row would
                         // just sit there, looking broken.
                         if (!context.mounted) return;
-                        messenger?.showSnackBar(SnackBar(content: Text('$error')));
+                        messenger?.showSnackBar(
+                          SnackBar(content: Text('$error')),
+                        );
                       }
                     },
                   ),
                   IconButton(
                     tooltip: 'Delete forever',
-                    icon: Icon(Icons.delete_forever_rounded,
-                        color: scheme.error),
+                    icon: Icon(
+                      Icons.delete_forever_rounded,
+                      color: scheme.error,
+                    ),
                     onPressed: () => _confirmDeleteForever(context, entity),
                   ),
                 ],

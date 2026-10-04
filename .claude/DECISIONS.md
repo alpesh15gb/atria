@@ -1,5 +1,63 @@
 # Decisions
 
+## Bulk delete counts what happened, never what was asked for (2026-10-04)
+
+**Decision:** `SalesRepository.softDelete` and `restore` changed from
+`Future<void>` to `Future<bool>`, and `bulkSoftDelete` treats `false` as a
+failure. `BulkDeleteOutcome` carries the ids that were *confirmed* changed, and
+that set — not the requested list — is what the undo is offered for.
+
+**Why:** the repository's old bare `return` for an id it could not find is
+correct behaviour for a single delete (there is nothing to report) and quietly
+wrong at 200. "12 invoices deleted" for 11 rows that changed leaves the
+operator believing their books are clean, and the undo then "restores" a
+document that was never deleted — which, on a unique document number, can
+collide with a live one.
+
+**The alternative considered and rejected:** N existence-check queries up front
+so the batch could report accurately without changing a repository signature.
+That moves the cost to the fast path for every caller and still cannot cover a
+row deleted between the check and the write. Making the repository honest is
+strictly better: one source of truth, no TOCTOU window.
+
+**Consequence:** any repository that wants to be usable in a bulk action should
+return whether it did something. A `void` method cannot be called honestly
+twice.
+
+## Bulk delete is one transaction per row, not one transaction (2026-10-04)
+
+**Decision:** `bulkSoftDelete` opens a transaction *per document* (via the
+existing repository methods) and collects failures rather than throwing.
+
+**Why:** these soft-deletes reverse stock and party balances. One transaction
+around the whole batch means a single locked period halfway through a 200-row
+delete rolls back all of it — leaving a button that either works or does
+nothing at all, on documents that may have been selected by accident. Partial
+progress plus an accurate report is more useful than all-or-nothing, and the
+report is honest because of the decision above.
+
+**Cost:** N commits instead of one. Measured as acceptable for the 200-row
+cap; if a shop ever needs thousands, the right move is chunked batches of ~50
+rather than reintroducing all-or-nothing.
+
+## A selection is pruned against what is on screen, in build (2026-10-04)
+
+**Decision:** the Sales list reconciles its `BulkSelection` into a **local**
+inside the `StreamBuilder` builder, using `pruned(visibleIds)`, and only calls
+`setState` from the tap handlers. `BulkSelection.pruned` returns the *same
+instance* when nothing needs pruning, so the screen can compare by identity.
+
+**Why:** the trap is operational, not visual — tick two invoices, delete one
+from its own detail screen, come back, and the stale id silently joins the next
+bulk delete. Reconciling in `build` (rather than in an effect) is what makes it
+impossible to forget: the selection cannot be rendered in a state the visible
+rows do not support. Mutating the field from `build` would throw; deriving it
+locally is the only correct shape.
+
+**Consequence:** the field is the *intent*, the local is the *truth*, and the
+actions take the local. `BulkSelection` is immutable and has no `==` override,
+so identity comparison in `_setSelection` is exact.
+
 ## The product is Apex Books; the Dart package is still `atria` (2026-10-04)
 
 **Decision:** the rename covered everything a person can see — brand strings,

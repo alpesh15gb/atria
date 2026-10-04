@@ -53,8 +53,10 @@ Future<Directory> exportRootDirectory() async {
 ///
 /// Second resolution still collides when a user exports two periods of the
 /// same party back to back, which is exactly what a CA does.
-String exportTimestamp([DateTime? now]) =>
-    (now ?? DateTime.now()).toIso8601String().replaceAll(':', '-').substring(0, 16);
+String exportTimestamp([DateTime? now]) => (now ?? DateTime.now())
+    .toIso8601String()
+    .replaceAll(':', '-')
+    .substring(0, 16);
 
 /// Minimal CSV export for accountants: every list a Vyapar user would hand
 /// to their CA, written as RFC-4180 CSV (quotes doubled, newlines inside
@@ -80,7 +82,10 @@ class CsvExport {
   static String esc(Object? value) {
     final s = value?.toString() ?? '';
     final needsQuote =
-        s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r');
+        s.contains(',') ||
+        s.contains('"') ||
+        s.contains('\n') ||
+        s.contains('\r');
     final doubled = s.replaceAll('"', '""');
     return needsQuote ? '"$doubled"' : doubled;
   }
@@ -88,114 +93,296 @@ class CsvExport {
   static String row(List<Object?> cells) => cells.map(esc).join(',');
 
   /// CSV amounts stay plain (no ₹ or grouping) so spreadsheet formulas work.
-  String _money(num? v) =>
-      v == null ? '' : v.toDouble().toStringAsFixed(2);
+  String _money(num? v) => v == null ? '' : v.toDouble().toStringAsFixed(2);
 
-  Future<File> parties() async {
-    final rows = await (db.select(db.parties)
-          ..where((t) =>
-              t.firmId.equals(firmId) & t.isDeleted.equals(false))
-          ..orderBy([(t) => OrderingTerm(expression: t.name)]))
-        .get();
+  /// The WHERE clauses every export shares: this firm, not deleted, and —
+  /// when the caller passed one — only the selected rows.
+  ///
+  /// `ids` is nullable, and null means "the whole table" so every existing
+  /// call site keeps its behaviour. It is deliberately *not* defaulted to an
+  /// empty set, because null and empty are different answers and only null
+  /// should produce a full export.
+  ///
+  /// An empty set therefore reaches `isIn` with nothing in it, which matches no
+  /// rows — so a user who ticked nothing and pressed Export gets a file with a
+  /// header and no data, rather than every row in the firm. That was checked
+  /// rather than assumed: removing an explicit empty-set guard from every
+  /// export changed nothing in `csv_bulk_filter_test.dart`, because drift
+  /// already emits a never-true clause. It is recorded here because the
+  /// opposite is easy to believe and expensive to get wrong.
+  Expression<bool> _scope(
+    Expression<bool> firm,
+    Expression<bool> notDeleted,
+    Column<String> id,
+    Set<String>? ids,
+  ) => Expression.and([firm, notDeleted, if (ids != null) id.isIn(ids)]);
+
+  Future<File> parties({Set<String>? ids}) async {
     final buf = StringBuffer()
-      ..writeln(row([
-        'Name', 'Type', 'GSTIN', 'GST Type', 'Phone', 'Email', 'City',
-        'State Code', 'Opening Balance', 'Opening Type', 'Notes',
-      ]));
+      ..writeln(
+        row([
+          'Name',
+          'Type',
+          'GSTIN',
+          'GST Type',
+          'Phone',
+          'Email',
+          'City',
+          'State Code',
+          'Opening Balance',
+          'Opening Type',
+          'Notes',
+        ]),
+      );
+
+    final rows =
+        await (db.select(db.parties)
+              ..where(
+                (t) => _scope(
+                  t.firmId.equals(firmId),
+                  t.isDeleted.equals(false),
+                  t.id,
+                  ids,
+                ),
+              )
+              ..orderBy([(t) => OrderingTerm(expression: t.name)]))
+            .get();
     for (final r in rows) {
-      buf.writeln(row([
-        r.name, r.type, r.gstin, r.gstType, r.phone, r.email, r.city,
-        r.stateCode, _money(r.openingBalance), r.openingBalanceType, r.notes,
-      ]));
+      buf.writeln(
+        row([
+          r.name,
+          r.type,
+          r.gstin,
+          r.gstType,
+          r.phone,
+          r.email,
+          r.city,
+          r.stateCode,
+          _money(r.openingBalance),
+          r.openingBalanceType,
+          r.notes,
+        ]),
+      );
     }
     return _write('parties', buf);
   }
 
-  Future<File> items() async {
-    final rows = await (db.select(db.items)
-          ..where((t) =>
-              t.firmId.equals(firmId) & t.isDeleted.equals(false))
-          ..orderBy([(t) => OrderingTerm(expression: t.name)]))
-        .get();
+  Future<File> items({Set<String>? ids}) async {
     final buf = StringBuffer()
-      ..writeln(row([
-        'Name', 'SKU', 'HSN/SAC', 'Unit', 'Sale Price', 'Purchase Price',
-        'MRP', 'GST %', 'Cess %', 'Is Service', 'Stock Type', 'Current Stock',
-        'Low Stock Alert', 'Barcode',
-      ]));
+      ..writeln(
+        row([
+          'Name',
+          'SKU',
+          'HSN/SAC',
+          'Unit',
+          'Sale Price',
+          'Purchase Price',
+          'MRP',
+          'GST %',
+          'Cess %',
+          'Is Service',
+          'Stock Type',
+          'Current Stock',
+          'Low Stock Alert',
+          'Barcode',
+        ]),
+      );
+
+    final rows =
+        await (db.select(db.items)
+              ..where(
+                (t) => _scope(
+                  t.firmId.equals(firmId),
+                  t.isDeleted.equals(false),
+                  t.id,
+                  ids,
+                ),
+              )
+              ..orderBy([(t) => OrderingTerm(expression: t.name)]))
+            .get();
     for (final r in rows) {
-      buf.writeln(row([
-        r.name, r.sku, r.hsn, r.unit, _money(r.salePrice),
-        _money(r.purchasePrice), _money(r.mrp), r.gstRate, r.cessRate,
-        r.isService ? 'yes' : 'no', r.stockType, r.currentStock,
-        r.lowStockAlert, r.barcode,
-      ]));
+      buf.writeln(
+        row([
+          r.name,
+          r.sku,
+          r.hsn,
+          r.unit,
+          _money(r.salePrice),
+          _money(r.purchasePrice),
+          _money(r.mrp),
+          r.gstRate,
+          r.cessRate,
+          r.isService ? 'yes' : 'no',
+          r.stockType,
+          r.currentStock,
+          r.lowStockAlert,
+          r.barcode,
+        ]),
+      );
     }
     return _write('items', buf);
   }
 
-  Future<File> sales() async {
-    final rows = await (db.select(db.salesInvoices)
-          ..where((t) => t.firmId.equals(firmId) & t.isDeleted.equals(false))
-          ..orderBy([(t) => OrderingTerm.desc(t.invoiceDate)]))
-        .get();
+  Future<File> sales({Set<String>? ids}) async {
     final buf = StringBuffer()
-      ..writeln(row([
-        'Date', 'Number', 'Type', 'Party', 'Party GSTIN', 'Taxable',
-        'CGST', 'SGST', 'IGST', 'Cess', 'Round Off', 'Grand Total',
-        'Paid', 'Balance', 'Payment Status', 'Status',
-      ]));
+      ..writeln(
+        row([
+          'Date',
+          'Number',
+          'Type',
+          'Party',
+          'Party GSTIN',
+          'Taxable',
+          'CGST',
+          'SGST',
+          'IGST',
+          'Cess',
+          'Round Off',
+          'Grand Total',
+          'Paid',
+          'Balance',
+          'Payment Status',
+          'Status',
+        ]),
+      );
+
+    final rows =
+        await (db.select(db.salesInvoices)
+              ..where(
+                (t) => _scope(
+                  t.firmId.equals(firmId),
+                  t.isDeleted.equals(false),
+                  t.id,
+                  ids,
+                ),
+              )
+              ..orderBy([(t) => OrderingTerm.desc(t.invoiceDate)]))
+            .get();
     for (final r in rows) {
-      buf.writeln(row([
-        Formatters.date(r.invoiceDate), r.number, r.docType, r.partyName,
-        r.partyGstin, _money(r.taxableValue), _money(r.cgst), _money(r.sgst),
-        _money(r.igst), _money(r.cess), _money(r.roundOff),
-        _money(r.grandTotal), _money(r.paidAmount), _money(r.balanceDue),
-        r.paymentStatus, r.status,
-      ]));
+      buf.writeln(
+        row([
+          Formatters.date(r.invoiceDate),
+          r.number,
+          r.docType,
+          r.partyName,
+          r.partyGstin,
+          _money(r.taxableValue),
+          _money(r.cgst),
+          _money(r.sgst),
+          _money(r.igst),
+          _money(r.cess),
+          _money(r.roundOff),
+          _money(r.grandTotal),
+          _money(r.paidAmount),
+          _money(r.balanceDue),
+          r.paymentStatus,
+          r.status,
+        ]),
+      );
     }
     return _write('sales', buf);
   }
 
-  Future<File> purchases() async {
-    final rows = await (db.select(db.purchaseBills)
-          ..where((t) => t.firmId.equals(firmId) & t.isDeleted.equals(false))
-          ..orderBy([(t) => OrderingTerm.desc(t.billDate)]))
-        .get();
+  Future<File> purchases({Set<String>? ids}) async {
     final buf = StringBuffer()
-      ..writeln(row([
-        'Date', 'Number', 'Type', 'Supplier', 'Supplier GSTIN',
-        'Supplier Invoice No', 'Taxable', 'CGST', 'SGST', 'IGST',
-        'Grand Total', 'Paid', 'Balance', 'Status',
-      ]));
+      ..writeln(
+        row([
+          'Date',
+          'Number',
+          'Type',
+          'Supplier',
+          'Supplier GSTIN',
+          'Supplier Invoice No',
+          'Taxable',
+          'CGST',
+          'SGST',
+          'IGST',
+          'Grand Total',
+          'Paid',
+          'Balance',
+          'Status',
+        ]),
+      );
+
+    final rows =
+        await (db.select(db.purchaseBills)
+              ..where(
+                (t) => _scope(
+                  t.firmId.equals(firmId),
+                  t.isDeleted.equals(false),
+                  t.id,
+                  ids,
+                ),
+              )
+              ..orderBy([(t) => OrderingTerm.desc(t.billDate)]))
+            .get();
     for (final r in rows) {
-      buf.writeln(row([
-        Formatters.date(r.billDate), r.number, r.docType, r.partyName,
-        r.partyGstin, r.supplierInvoiceNumber, _money(r.taxableValue),
-        _money(r.cgst), _money(r.sgst), _money(r.igst), _money(r.grandTotal),
-        _money(r.paidAmount), _money(r.balanceDue), r.status,
-      ]));
+      buf.writeln(
+        row([
+          Formatters.date(r.billDate),
+          r.number,
+          r.docType,
+          r.partyName,
+          r.partyGstin,
+          r.supplierInvoiceNumber,
+          _money(r.taxableValue),
+          _money(r.cgst),
+          _money(r.sgst),
+          _money(r.igst),
+          _money(r.grandTotal),
+          _money(r.paidAmount),
+          _money(r.balanceDue),
+          r.status,
+        ]),
+      );
     }
     return _write('purchases', buf);
   }
 
-  Future<File> expenses() async {
-    final rows = await (db.select(db.expenses)
-          ..where((t) =>
-              t.firmId.equals(firmId) & t.isDeleted.equals(false))
-          ..orderBy([(t) => OrderingTerm.desc(t.date)]))
-        .get();
+  Future<File> expenses({Set<String>? ids}) async {
     final buf = StringBuffer()
-      ..writeln(row([
-        'Date', 'Number', 'Type', 'Category', 'Amount', 'GST', 'Mode',
-        'Vendor', 'Reference', 'Notes',
-      ]));
+      ..writeln(
+        row([
+          'Date',
+          'Number',
+          'Type',
+          'Category',
+          'Amount',
+          'GST',
+          'Mode',
+          'Vendor',
+          'Reference',
+          'Notes',
+        ]),
+      );
+
+    final rows =
+        await (db.select(db.expenses)
+              ..where(
+                (t) => _scope(
+                  t.firmId.equals(firmId),
+                  t.isDeleted.equals(false),
+                  t.id,
+                  ids,
+                ),
+              )
+              ..orderBy([(t) => OrderingTerm.desc(t.date)]))
+            .get();
     for (final r in rows) {
-      buf.writeln(row([
-        Formatters.date(r.date), r.number, r.type, r.category,
-        _money(r.amount), _money(r.gstAmount), r.mode, r.vendorName,
-        r.reference, r.notes,
-      ]));
+      buf.writeln(
+        row([
+          Formatters.date(r.date),
+          r.number,
+          r.type,
+          r.category,
+          _money(r.amount),
+          _money(r.gstAmount),
+          r.mode,
+          r.vendorName,
+          r.reference,
+          r.notes,
+        ]),
+      );
     }
     return _write('expenses', buf);
   }

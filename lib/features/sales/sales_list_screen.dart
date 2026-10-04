@@ -5,11 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 
+import '../../core/bulk/bulk_actions.dart';
+import '../../core/bulk/bulk_sales_actions.dart';
 import '../../core/constants/indian_states.dart';
 import '../../core/database/app_database.dart';
 import '../../core/database/repositories/sales_repository.dart';
 import '../../core/responsive/breakpoints.dart';
+import '../../core/services/csv_export.dart';
 import '../../core/state/providers.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/money.dart';
@@ -17,8 +21,10 @@ import '../../shared/widgets/atria_list_page.dart';
 import '../../shared/widgets/atria_list_toolbar.dart';
 import '../../shared/widgets/atria_page_header.dart';
 import '../../shared/widgets/common_widgets.dart';
+import '../../shared/widgets/confirm_destructive.dart';
 import '../../shared/widgets/document_row_menu.dart';
 import '../../shared/widgets/period_selector.dart';
+import '../../shared/widgets/selection_bar.dart';
 import '../../shared/widgets/status_chip.dart';
 import '../../shared/widgets/transaction_list.dart';
 
@@ -227,6 +233,37 @@ class _SaleListState extends ConsumerState<_SaleList> {
     });
   }
 
+  /// Which rows are ticked.
+  ///
+  /// Lives here rather than in the page frame because this is where the rows
+  /// are: `AtriaListPage.toolbar` belongs to the parent screen, which never sees
+  /// the stream. The selection bar is therefore rendered as the list's first
+  /// child, where it sits directly above the rows it acts on.
+  BulkSelection _selection = const BulkSelection();
+
+  void _setSelection(BulkSelection next) {
+    if (next == _selection) return;
+    setState(() => _selection = next);
+  }
+
+  void _toggle(String id) => _setSelection(_selection.toggle(id));
+
+  /// Ticks every loaded row, or clears the whole selection if it already was
+  /// everything.
+  ///
+  /// [loadedCount] is supplied here rather than read off [_selection] because
+  /// the field holds *intent* only — the count belongs to the list, and only
+  /// the list knows it. Leaving the field's count at zero makes `isAllLoaded`
+  /// permanently false, and the select-all control can then only ever grow the
+  /// selection: pressing it twice gives you every row selected rather than none.
+  void _toggleAll(List<SalesInvoiceEntity> data) {
+    final current = BulkSelection(
+      ids: _selection.ids,
+      loadedCount: data.length,
+    );
+    _setSelection(current.toggleAll(data.map((d) => d.id)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final sales = ref.watch(salesRepositoryProvider);
@@ -239,6 +276,16 @@ class _SaleListState extends ConsumerState<_SaleList> {
           return const Center(child: CircularProgressIndicator(strokeWidth: 2));
         }
         final data = snapshot.data ?? const [];
+        // A document deleted from another screen must not linger in the
+        // selection and then fail the next bulk action with an error nobody can
+        // act on, and a row hidden by a new search must lose its tick rather
+        // than silently joining the next action. Reconciled into a local rather
+        // than into the field, because build must not mutate state.
+        final visible = data.map((d) => d.id).toSet();
+        final selection = BulkSelection(
+          ids: _selection.pruned(visible).ids,
+          loadedCount: data.length,
+        );
         if (data.isEmpty) {
           final query = widget.search.trim();
           if (query.isNotEmpty) {
@@ -271,14 +318,18 @@ class _SaleListState extends ConsumerState<_SaleList> {
 
         return LayoutBuilder(
           builder: (context, constraints) => constraints.isCompact
-              ? _cardList(context, data)
-              : _tableList(context, data),
+              ? _cardList(context, data, selection)
+              : _tableList(context, data, selection),
         );
       },
     );
   }
 
-  Widget _cardList(BuildContext context, List<SalesInvoiceEntity> data) {
+  Widget _cardList(
+    BuildContext context,
+    List<SalesInvoiceEntity> data,
+    BulkSelection selection,
+  ) {
     final stats = _statsOf(data);
     return ListView(
       padding: const EdgeInsets.fromLTRB(0, 8, 0, 28),
@@ -291,6 +342,7 @@ class _SaleListState extends ConsumerState<_SaleList> {
           filtered: widget.search.trim().isNotEmpty,
         ),
         const SizedBox(height: 4),
+        _selectionBar(data, selection),
         for (final invoice in data)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
@@ -298,15 +350,53 @@ class _SaleListState extends ConsumerState<_SaleList> {
               invoice: invoice,
               docType: widget.docType,
               showDate: true,
+              selected: selection.contains(invoice.id),
+              onToggleSelect: () => _toggle(invoice.id),
             ),
           ),
       ],
     );
   }
 
+  /// The bulk bar. Returns a zero-height box when nothing is ticked, so the row
+  /// collapses instead of leaving an always-present band of dead controls.
+  Widget _selectionBar(List<SalesInvoiceEntity> data, BulkSelection selection) {
+    if (selection.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: SelectionBar(
+        selection: selection,
+        selectionNoun: _resultNoun,
+        onChanged: _setSelection,
+        onSelectAll: () => _toggleAll(data),
+        actions: [
+          TextButton.icon(
+            onPressed: () => _bulkPdf(data, selection),
+            icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+            label: const Text('PDF'),
+          ),
+          TextButton.icon(
+            onPressed: () => _bulkCsv(selection),
+            icon: const Icon(Icons.table_chart_outlined, size: 18),
+            label: const Text('CSV'),
+          ),
+          TextButton.icon(
+            onPressed: () => _bulkDelete(data, selection),
+            icon: const Icon(Icons.delete_outline, size: 18),
+            label: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Desktop: the rows *are* the summarised figures, so the totals close the
   /// table instead of sitting above it as a separate panel — QBO's arrangement.
-  Widget _tableList(BuildContext context, List<SalesInvoiceEntity> data) {
+  Widget _tableList(
+    BuildContext context,
+    List<SalesInvoiceEntity> data,
+    BulkSelection selection,
+  ) {
     final stats = _statsOf(data);
     return ListView(
       padding: const EdgeInsets.fromLTRB(0, 0, 0, 28),
@@ -316,6 +406,7 @@ class _SaleListState extends ConsumerState<_SaleList> {
           noun: _resultNoun,
           filtered: widget.search.trim().isNotEmpty,
         ),
+        _selectionBar(data, selection),
         TransactionTableHeader(
           columns: const TransactionColumns(
             date: 'Date',
@@ -331,7 +422,12 @@ class _SaleListState extends ConsumerState<_SaleList> {
           trailing: const SizedBox(width: 48),
         ),
         for (final invoice in data)
-          _SaleTableRow(invoice: invoice, docType: widget.docType),
+          _SaleTableRow(
+            invoice: invoice,
+            docType: widget.docType,
+            selected: selection.contains(invoice.id),
+            onToggleSelect: () => _toggle(invoice.id),
+          ),
         if (widget.docType == 'invoice')
           TransactionTableTotals(
             // Aligned under the same columns the rows use, kebab slot
@@ -344,6 +440,144 @@ class _SaleListState extends ConsumerState<_SaleList> {
             ],
           ),
       ],
+    );
+  }
+
+  BulkSalesActions _actions() => BulkSalesActions(
+    sales: ref.read(salesRepositoryProvider),
+    firmId: ref.read(activeFirmIdProvider) ?? '',
+    exportBaseDirectory: exportRootDirectory,
+  );
+
+  Future<void> _bulkCsv(BulkSelection selection) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    try {
+      final file = await _actions().csv(selection.ids);
+      if (!mounted) return;
+      // Both, always: on Android the share sheet is the only way out of
+      // app-private storage, and a path printed as the primary result is
+      // meaningless to someone holding a phone.
+      await Share.shareXFiles([XFile(file.path)]);
+      if (!mounted) return;
+      _setSelection(selection.cleared());
+      messenger?.showSnackBar(
+        SnackBar(content: Text('Exported ${selection.count} $_resultNoun')),
+      );
+    } catch (error) {
+      messenger?.showSnackBar(
+        SnackBar(content: Text('Could not export: $error')),
+      );
+    }
+  }
+
+  Future<void> _bulkPdf(
+    List<SalesInvoiceEntity> data,
+    BulkSelection selection,
+  ) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final firm = ref.read(activeFirmProvider).valueOrNull;
+    if (firm == null) return;
+    try {
+      final result = await _actions().pdfs(selection.ids.toList(), firm);
+      if (!mounted) return;
+      if (result.files.isEmpty) {
+        messenger?.showSnackBar(
+          SnackBar(content: Text('Could not print: ${result.failed} failed')),
+        );
+        return;
+      }
+      await BulkPdfShare(
+        shareFiles: (paths, {subject}) => Share.shareXFiles([
+          for (final path in paths) XFile(path),
+        ], subject: subject),
+      ).share(result, subject: 'Invoices');
+      if (!mounted) return;
+      _setSelection(selection.cleared());
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(
+            result.failed == 0
+                ? 'Printed ${result.printed} $_resultNoun'
+                : 'Printed ${result.printed} of ${selection.count}; '
+                      '${result.failed} could not be built',
+          ),
+        ),
+      );
+    } catch (error) {
+      messenger?.showSnackBar(
+        SnackBar(content: Text('Could not print: $error')),
+      );
+    }
+  }
+
+  /// Deletes the selection after naming what is about to go, then offers an undo
+  /// covering **only** the rows it confirmed deleting.
+  Future<void> _bulkDelete(
+    List<SalesInvoiceEntity> data,
+    BulkSelection selection,
+  ) async {
+    // Taken before the dialog: the messenger belongs to the scaffold that owns
+    // this screen, and looking it up after the await risks reaching a different
+    // one if the operator navigated during the confirmation.
+    final messenger = ScaffoldMessenger.maybeOf(context);
+
+    final ids = selection.ids.toList();
+    final named = data
+        .where((d) => selection.contains(d.id))
+        .map((d) => d.number)
+        .toList();
+
+    // Name the first few. A confirmation listing 200 invoice numbers is not
+    // read by anyone; naming a couple makes the accidental selection obvious.
+    final preview = named.take(3).join(', ');
+    final more = named.length > 3 ? ' and ${named.length - 3} more' : '';
+    final confirmed = await confirmDestructive(
+      context,
+      title: 'Delete ${selection.count} $_resultNoun?',
+      message:
+          '$preview$more move to the recycle bin. Stock and balances are '
+          'reversed, and you can restore them until you empty the bin.',
+    );
+    if (!confirmed || !mounted) return;
+
+    final outcome = await _actions().delete(ids);
+    if (!mounted) return;
+    _setSelection(selection.cleared());
+
+    // The count is the count that happened, never the count asked for.
+    final message = outcome.failed == 0
+        ? 'Deleted ${outcome.deleted} $_resultNoun'
+        : 'Deleted ${outcome.deleted} of ${outcome.requested}; '
+              '${outcome.failed} could not be deleted';
+    messenger?.hideCurrentSnackBar();
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 6),
+        action: outcome.deleted == 0
+            ? null
+            : SnackBarAction(
+                label: 'Undo',
+                onPressed: () => _undoDelete(outcome.deletedIds),
+              ),
+      ),
+    );
+  }
+
+  Future<void> _undoDelete(Set<String> ids) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final outcome = await _actions().undoDelete(ids);
+    if (!mounted) return;
+    messenger?.hideCurrentSnackBar();
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text(
+          outcome.failed == 0
+              ? 'Restored ${outcome.deleted}'
+              : 'Restored ${outcome.deleted} of ${outcome.requested}; '
+                    '${outcome.failed} could not be restored',
+        ),
+      ),
     );
   }
 
@@ -541,21 +775,87 @@ ChipKind _statusKindFor(SalesInvoiceEntity doc, String docType) {
   };
 }
 
+/// A tick target sized to fit a table's fixed 50px leading slot.
+///
+/// A stock `Checkbox` is 40px of visual plus its own padding, which measures
+/// wider than the slot and pushes every flexed column right of it. Pinning it
+/// with `SizedBox` + `Center` keeps the header, the rows, and the totals line
+/// on the same grid, and lets the row itself stay tappable for navigation.
+class _SelectionBox extends StatelessWidget {
+  const _SelectionBox({
+    required this.selected,
+    required this.onTap,
+    this.rowId,
+  });
+
+  final bool selected;
+  final VoidCallback onTap;
+
+  /// The document this tick belongs to, when it is a row's tick rather than
+  /// something a caller positions itself. Carried as a key so a test can name
+  /// a row's checkbox instead of counting `Checkbox`es — the selection bar has
+  /// one of its own, and it appears and disappears as the selection changes, so
+  /// any index into a raw `find.byType(Checkbox)` shifts underneath the test.
+  final String? rowId;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 50,
+      height: 40,
+      child: Center(
+        child: Checkbox(
+          key: rowId == null ? null : ValueKey('select-$rowId'),
+          value: selected,
+          onChanged: (_) => onTap(),
+          visualDensity: VisualDensity.compact,
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+      ),
+    );
+  }
+}
+
 class _SaleRow extends ConsumerWidget {
   const _SaleRow({
     required this.invoice,
     required this.docType,
     this.showDate = false,
+    this.selected = false,
+    this.onToggleSelect,
   });
 
   final SalesInvoiceEntity invoice;
   final String docType;
   final bool showDate;
 
+  /// Whether this row is ticked for a bulk action.
+  final bool selected;
+
+  /// Null hides the checkbox — a list without bulk actions passes nothing and
+  /// gets no tick target at all.
+  final VoidCallback? onToggleSelect;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return TransactionRow(
-      leading: LeadingGlyph(icon: _docIcon(docType)),
+      // The card has no column grid to line up with, so it keeps its document
+      // glyph and gains a checkbox beside it. The table below drops the glyph
+      // instead — see [_SaleTableRow].
+      leading: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (onToggleSelect != null) ...[
+            _SelectionBox(
+              selected: selected,
+              onTap: onToggleSelect!,
+              rowId: invoice.id,
+            ),
+            const SizedBox(width: 10),
+          ],
+          LeadingGlyph(icon: _docIcon(docType)),
+        ],
+      ),
       title: invoice.partyName ?? 'Walk-in customer',
       subtitle: _subtitle,
       amount: Money.of(invoice.grandTotal),
@@ -591,16 +891,34 @@ class _SaleRow extends ConsumerWidget {
 }
 
 class _SaleTableRow extends ConsumerWidget {
-  const _SaleTableRow({required this.invoice, required this.docType});
+  const _SaleTableRow({
+    required this.invoice,
+    required this.docType,
+    this.selected = false,
+    this.onToggleSelect,
+  });
 
   final SalesInvoiceEntity invoice;
   final String docType;
+  final bool selected;
+  final VoidCallback? onToggleSelect;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return TransactionTableRow(
       onTap: () => context.push('/sales/detail/${invoice.id}'),
-      leading: LeadingGlyph(icon: _docIcon(docType)),
+      // The header reserves a fixed 50px leading slot for exactly this widget.
+      // A Checkbox is 40px tall with a tap target wider than that, so it is
+      // pinned to the slot rather than left to push the flexed columns along —
+      // the glyph has to go instead, which is why it survives only in the card
+      // list above.
+      leading: onToggleSelect == null
+          ? LeadingGlyph(icon: _docIcon(docType))
+          : _SelectionBox(
+              selected: selected,
+              onTap: onToggleSelect!,
+              rowId: invoice.id,
+            ),
       date: Formatters.date(invoice.invoiceDate),
       number: invoice.number,
       party: invoice.partyName ?? 'Walk-in customer',

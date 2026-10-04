@@ -19,6 +19,7 @@ import '../../shared/widgets/atria_list_toolbar.dart';
 import '../../shared/widgets/atria_list_page.dart';
 import '../../shared/widgets/atria_page_header.dart';
 import '../../shared/widgets/common_widgets.dart';
+import '../../shared/widgets/confirm_destructive.dart';
 import '../../shared/widgets/money_text.dart';
 import '../../shared/widgets/status_chip.dart';
 import '../../shared/widgets/transaction_list.dart';
@@ -361,11 +362,8 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
                       // scrolling to the bottom of the page for a Danger Zone
                       // nobody reaches. Same confirm-and-soft-delete the editor
                       // performs, offered where the item is.
-                      onDelete: () => _confirmDeleteFromList(
-                        context,
-                        ref,
-                        rowItems[i],
-                      ),
+                      onDelete: () =>
+                          _confirmDeleteFromList(context, ref, rowItems[i]),
                     ),
                   ),
                   if (i < crossAxisCount - 1) const SizedBox(width: 16),
@@ -394,29 +392,13 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
     // Captured before the dialog: the `await` is an async gap, and a
     // ScaffoldMessenger looked up afterwards can belong to a dead element.
     final messenger = ScaffoldMessenger.maybeOf(context);
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Delete ${item.name}?'),
-        content: const Text(
+    final confirmed = await confirmDestructive(
+      context,
+      title: 'Delete ${item.name}?',
+      message:
           'This removes the item from your catalogue. Documents that '
           'already use it are not changed. You can restore it later from '
           'the recycle bin.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton.tonal(
-            style: FilledButton.styleFrom(
-              foregroundColor: Theme.of(dialogContext).colorScheme.error,
-            ),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
     );
     if (confirmed != true) return;
     try {
@@ -425,7 +407,9 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
       // above promises a restore rather than a failure.
       await repo.delete(item.id);
       messenger?.showSnackBar(
-        const SnackBar(content: Text('Item deleted — restore it from the recycle bin')),
+        const SnackBar(
+          content: Text('Item deleted — restore it from the recycle bin'),
+        ),
       );
     } catch (error) {
       messenger?.showSnackBar(

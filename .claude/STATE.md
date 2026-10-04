@@ -18,7 +18,7 @@ local PIN roles.** Ship one piece per commit. Full plan:
 | — | rename to Apex Books | `9afe494` | **shipped** |
 | 3 | bulk actions | `8f9f1fc` | **shipped** |
 | 4 | quotation lifecycle | `daddc02` | **shipped** |
-| 5 | optional PIN roles | — | **shipped (uncommitted as of this edit)** |
+| 5 | optional PIN roles | `50bae8a` | **shipped** |
 
 ## Current implementation state
 
@@ -34,7 +34,7 @@ local PIN roles.** Ship one piece per commit. Full plan:
   quotation to `accepted`, or tapped a bulk Delete on real hardware. Every
   phase below is verified by analyzer + suite + revert-proofing only.
 
-## Phase 5 — optional local users and PIN roles (shipped)
+## Phase 5 — optional local users and PIN roles (shipped `50bae8a`)
 
 The last piece. **Off is indistinguishable from today**, and that is the whole
 design constraint, not a detail.

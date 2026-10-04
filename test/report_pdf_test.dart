@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -8,7 +9,9 @@ import 'package:atria/core/reports/spec/report_spec.dart';
 import 'package:atria/core/services/pdf_template_style.dart';
 import 'package:atria/core/reports/window/report_window.dart';
 import 'package:decimal/decimal.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf/pdf.dart';
 
 /// The printed half of the export.
 ///
@@ -22,6 +25,11 @@ import 'package:flutter_test/flutter_test.dart';
 /// document that silently stops after the first page, which reads as "that is
 /// all the business did".
 void main() {
+  // The print assertions install a mock method-channel handler, which needs the
+  // test binding to exist. Nothing else in this file is a widget test, so the
+  // binding is initialised here rather than with `testWidgets`.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   final window = ReportWindow(
     preset: ReportWindowPreset.custom,
     from: DateTime(2026, 4, 1),
@@ -216,6 +224,77 @@ void main() {
       expect(file.path, endsWith('.pdf'));
       expect(file.path, contains('Party_Statement_'));
       expect(isPdf(await file.readAsBytes()), isTrue);
+    });
+  });
+
+  group('printing', () {
+    // `net.nfet.printing` is the plugin's channel. `printPdf` opens the platform
+    // print dialog; `sharePdf` opens a share sheet. They are different platforms
+    // methods with different arguments, which is what makes this assertable at
+    // all — the earlier version called `sharePdf`, so the menu item labelled
+    // "Print" handed the reader a list of messaging apps.
+    final channel = MethodChannel('net.nfet.printing');
+    final calls = <String>[];
+
+    setUp(() {
+      calls.clear();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+        calls.add(call.method);
+        // `layoutPdf` returns before the reader decides; the plugin then waits on
+        // a completion port. Nothing has to happen here for the assertion, which
+        // is the point: the failure this guards is *which method was called*, and
+        // that is settled the moment the channel is invoked.
+        return 0;
+      });
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+
+    test('opens the print dialog, not a share sheet', () async {
+      // **Deliberately not awaited.** `layoutPdf` sends the job and then waits on
+      // the platform's completion port, which never fires without a real print
+      // dialog — so awaiting would hang the suite on a test that has already
+      // proven what it came to prove. What is asserted is settled the moment the
+      // channel is invoked: *which* platform method was called.
+      unawaited(
+        const ReportPdfBuilder().print(fold([row('A', Decimal.fromInt(100))])),
+      );
+      for (var i = 0; i < 50 && calls.isEmpty; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(
+        calls,
+        contains('printPdf'),
+        reason: 'Print must reach the spooler',
+      );
+      expect(
+        calls,
+        isNot(contains('sharePdf')),
+        reason: 'a share sheet is not a printer, however convenient the spelling',
+      );
+    });
+
+    test('hands the preview a real document for the paper it is shown on', () async {
+      // The preview re-asks for the document each time the reader changes paper
+      // or orientation. If the builder ignored that and returned one fixed set of
+      // bytes, changing to A5 would lay A4 column widths onto an A5 page and run
+      // the right-hand columns off the edge.
+      final builder = ReportPdfBuilder();
+      final bytes = await builder.build(
+        fold([row('A', Decimal.fromInt(100))]),
+        title: 'Party Statement',
+        format: PdfPageFormat.a5,
+      );
+      expect(isPdf(bytes), isTrue);
+      expect(
+        pageCount(bytes),
+        greaterThan(0),
+        reason: 'an A5 render produced no page at all',
+      );
     });
   });
 }

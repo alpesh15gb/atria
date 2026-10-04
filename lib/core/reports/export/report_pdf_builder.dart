@@ -40,7 +40,11 @@ class ReportPdfBuilder {
   /// Builds the bytes. Split from [write] so a test can assert on the document
   /// without touching a filesystem, and so the print path and the save path
   /// cannot drift apart.
-  Future<Uint8List> build(ReportResult result, {required String title}) async {
+  Future<Uint8List> build(
+    ReportResult result, {
+    required String title,
+    PdfPageFormat? format,
+  }) async {
     final spec = result.spec;
     // Helvetica has no ₹ (see PdfFonts); Inter rides along as a fallback.
     final doc = pw.Document(
@@ -50,7 +54,11 @@ class ReportPdfBuilder {
 
     doc.addPage(
       pw.MultiPage(
-        pageFormat: style.pageFormat,
+        // The print preview passes the reader's own paper through [format]; every
+        // other caller gets the firm's template page. Without the parameter a
+        // reader who switched to A5 got an A4 document laid out at A4 widths,
+        // which runs the right-hand columns off the edge of the page.
+        pageFormat: format ?? style.pageFormat,
         margin: pw.EdgeInsets.symmetric(
           horizontal: style.gutter,
           vertical: 28,
@@ -81,15 +89,35 @@ class ReportPdfBuilder {
     return file;
   }
 
-  /// Hands the document straight to the platform print spool.
+  /// Hands the document to the platform's print dialog and returns whether the
+  /// job was sent.
   ///
-  /// Separate from [write] because the two fail differently: saving can fail on
-  /// a full disk, printing fails when no print service is available. Sharing
-  /// one code path would report a printer problem as a filesystem one.
-  Future<void> print(ReportResult result, {String? jobName}) async {
-    Printing.sharePdf(
-      bytes: await build(result, title: result.spec.title),
-      filename: '${ReportExportService.fileStem(result)}.pdf',
+  /// **This is `Printing.layoutPdf`, not `Printing.sharePdf`.** The obvious
+  /// spelling — share the bytes and let the user find the print option — opens a
+  /// *share sheet*, not a print dialog, and a menu item labelled "Print" that
+  /// sends the reader to a list of messaging apps is a menu item that does not do
+  /// what it says. `layoutPdf` opens the real spooler preview, which is also
+  /// where the reader gets to choose pages and copies.
+  ///
+  /// The document is rebuilt through [onLayout] rather than passed as fixed
+  /// bytes, because the preview lets the reader change paper size and
+  /// orientation and a document built for A4 lays out wrongly on A5. The
+  /// template's own format is used on the first pass, so the preview opens on
+  /// the firm's page and the reader only overrides it if they want to.
+  ///
+  /// Returns `false` when the reader cancels — which the caller reports as
+  /// nothing, not as a failure, since a cancelled print job is not a broken
+  /// one. Throws when the platform refuses, which is.
+  Future<bool> print(ReportResult result, {String? jobName}) {
+    final title = result.spec.title;
+    return Printing.layoutPdf(
+      name: jobName ?? title,
+      format: style.pageFormat,
+      // The printer's own settings win where the platform supports it (Windows).
+      // Off elsewhere: it is documented as driver-dependent, and a driver that
+      // misreads the page size prints every number off the right edge.
+      usePrinterSettings: false,
+      onLayout: (format) => build(result, title: title, format: format),
     );
   }
 

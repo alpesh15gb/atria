@@ -356,6 +356,10 @@ class _ExportButton extends ConsumerWidget {
       };
 
       if (format == _ExportFormat.print) {
+        // `false` means the reader closed the print dialog without sending the
+        // job. Staying silent is right there — a snackbar saying "cancelled"
+        // every time somebody changes their mind is noise, and the report is
+        // still on screen either way.
         await const ReportPdfBuilder().print(result);
         return;
       }

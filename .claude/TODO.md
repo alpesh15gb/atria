@@ -11,22 +11,18 @@ new tests proven to fail against reverted code) before its commit.
       an instance class reading `style.*`, Firm Settings swatch picker,
       `test/pdf_template_test.dart` (5). **This is the enabling refactor** —
       everything below inherits the style system.
-- [ ] **Phase 1 — purchase-side PDFs.** New `PurchasePdf`: bill, purchase order,
-      debit note, payment receipt. `_itemsTable` works verbatim (the item
-      entities are identical); `_totals` needs a **TDS** branch plus
-      `otherCharges`; **`_secondTaxHead` arguments invert** — for a purchase the
-      party is the *supplier* and the firm is the buyer. No UPI QR (the shop is
-      paying, not collecting), no customer terms. Write via
-      `exportRootDirectory()` + `sanitizeFileName` + `exportTimestamp` so
-      Android app-private storage is handled. Then flip the `document_row_menu`
-      gate at `:199` from `_isSalesDoc` to `_isSalesDoc || _isPurchaseDoc` and
-      give `_openPdf`/`_print` the repo switch that `:446` already has.
-- [ ] **Phase 2 — paid / balance due / PAID stamp + a live UPI QR bug.** The QR
-      at `invoice_pdf.dart:637` encodes `invoice.grandTotal`, so a **partially
-      paid** invoice asks the customer for the full amount. Fix to balance due;
-      skip the QR when nothing is outstanding. Amount Paid + Balance Due rows go
-      into the existing local `row(label, value, {emphasize})` helper
-      (`:501-531`).
+- [x] **Phase 1 — purchase-side PDFs.** Shipped `7bf9a6b`. `PurchasePdf`
+      (bill / purchase order / debit note / payment voucher), the row-menu gate
+      widened to purchases + payments, Preview kept sales-and-invoice only.
+      Party roles invert, TDS is a deduction, no collect QR.
+      `test/purchase_pdf_test.dart` (11).
+- [x] **Phase 2 — paid / balance due / PAID stamp + the UPI QR bug.** Shipped
+      `bd860de`. The QR now encodes the balance, not the grand total, and both
+      it and the bank block disappear when nothing is outstanding. Amount Paid /
+      Balance Due print below the grand total via `totalsTable`'s new
+      `afterGrand`; the header carries PAID IN FULL / CANCELLED. Purchase bills
+      too. `test/invoice_settlement_pdf_test.dart` (12); six of them confirmed
+      failing against reverted code.
 - [ ] **Phase 3 — bulk actions.** Extract the 8 hand-rolled confirm dialogs into
       one `confirmDestructive` first. `SelectionBar` for
       `AtriaListPage.toolbar`; reuse the selection highlight currently trapped

@@ -1,6 +1,6 @@
 # Project State
 
-_Last updated: 2026-10-04 (Phase 0 shipped: three PDF templates, per firm)_
+_Last updated: 2026-10-04 (Phases 0–2 shipped; Phase 3 bulk actions is next)_
 
 ## Current objective
 
@@ -9,17 +9,96 @@ balance/PAID stamp + UPI QR fix → bulk actions → quotation lifecycle → opt
 local PIN roles.** Ship one piece per commit. Full plan:
 `C:\Users\Administrator\.claude\plans\woolly-pondering-gray.md`.
 
-Phase 0 (PDF templates) is **done and verified**. **Next: Phase 1 — purchase-side
-PDFs** (`PurchasePdf` for bill / purchase order / debit note / payment receipt).
+| Phase | Piece | Commit | State |
+|---|---|---|---|
+| 0 | PDF templates, per firm | `e92fb8f` | **shipped** |
+| — | `PdfSections` extraction | `954cb09` | **shipped** |
+| 1 | purchase-side PDFs | `7bf9a6b` | **shipped** |
+| 2 | paid / balance / stamp + UPI QR fix | `bd860de` | **shipped** |
+| 3 | bulk actions | — | **next** |
+| 4 | quotation lifecycle | — | not started |
+| 5 | optional PIN roles | — | not started |
 
 ## Current implementation state
 
 - `flutter analyze lib/ test/` → clean.
-- `flutter test` → **579 passed / 1 skipped / 0 failed.**
+- `flutter test` → **602 passed / 1 skipped / 0 failed.**
 - Windows debug builds; APK debug/release build (release APK is debug-key-signed,
   `CN=Android Debug`, per `build.gradle.kts`'s deliberate fallback).
 - **No phone attached** (`adb devices` empty) — the sync fix is proven against a
   faithful fake server only, never on hardware.
+
+## Phases 1–2 shipped (2026-10-04)
+
+**`PdfSections` (`954cb09`).** Everything on an Atria document that does not
+depend on it being a *sale* — header band, party boxes, items table, totals
+block, words, signature, footer — now lives in `lib/core/services/pdf_sections.dart`.
+`InvoicePdf` extends it; `PurchasePdf` extends it. Verified by output, not by
+argument: a rich invoice rendered before and after matched **byte for byte**
+across all 12,029 bytes of rendered document. Only the XRef trailer differs
+(dart_pdf stamps it with the time of day).
+
+Two constraints discovered while doing that, both preserved:
+
+- **dart_pdf output is not byte-deterministic.** The `/ID` is timestamp-derived
+  and sits in the binary XRef stream. Only bytes before the `/Type/XRef` object
+  are stable. Any byte-comparison must cut there — cutting at the XRef
+  object's own `endobj` still contains the id and fails.
+- **A `pw.Column` nested inside another `pw.Column` emits an extra `q … cm`
+  translate.** It lays out identically and breaks byte comparison. This is why
+  `wordsBlock` and `bankBlock` return `List<pw.Widget>` and `panelOf` exists —
+  keeping the children flat is what makes the refactor provable.
+
+**Phase 1 — purchase PDFs (`7bf9a6b`).** `PurchasePdf` renders bill, purchase
+order, debit note and payment voucher; the row menu's gate widened from
+`_isSalesDoc` to also cover purchase docs and payments. Preview stays
+sales-and-invoice only. Three things are *not* a sales invoice relabelled:
+party roles invert (`supplierState: placeOfSupply`, `buyerState: firm`); TDS is
+a deduction, not an addition; there is no collect QR because the shop is paying.
+`payments.partyGstin` came with the v8 migration.
+
+**Phase 2 — settlement on the printed page (`bd860de`).** The invoice PDF
+never read `paidAmount`/`balanceDue`, and the UPI QR encoded `grandTotal` — so
+a part-paid invoice asked the customer for the full amount again. Now: Amount
+Paid / Balance Due print **below** the grand total (`totalsTable` grew
+`afterGrand`), the QR encodes the balance and disappears when nothing is
+outstanding, bank details go with it, and the header carries a PAID IN FULL /
+CANCELLED stamp. Purchase bills get the same.
+
+Three placement rules the tests forced, worth not re-deriving:
+
+- **Balance Due prints even when it equals the grand total** — it is the line
+  the customer is looking for. "Amount Paid ₹0.00" is the noise, not the balance.
+- **Only an invoice carries a balance.** Quotations/orders/delivery notes are
+  stored with `DocumentSettlement.settled` (zero balance, `paid` status),
+  because the bill raised against them is the payable one.
+- **A cancelled invoice's zeroed balance is bookkeeping, not settlement** — the
+  cancel path zeroes it so ageing stops counting it.
+
+## Things not to re-learn
+
+- **Assert on rendered PDF text, never on bytes.** `test/helpers/rendered_text.dart`
+  decodes the `[(word)]TJ` arrays out of the Flate-compressed content streams.
+  Stable across runs, and it is what the assertion is actually about.
+- **Delhi is a UT but charges SGST.** Only the four UTs without a legislature
+  (Chandigarh `04`, DNH+DD `26`, Lakshadweep `31`, A&N `35`) levy UTGST — see
+  `IndianStates.utgstStates`. A UTGST test using Delhi passes for the wrong
+  reason.
+- **In test fixtures, hardcoded row ids collide.** Two `seedInvoice` calls in
+  one test both insert `id: 'inv-1'` / `'item-1'` → UNIQUE constraint failure
+  that reads like a production bug. Parameterise the id.
+- **drift test columns must be self-consistent.** A fixture setting
+  `isInterState: true` while also filling `cgst`/`sgst` makes the document
+  assert CGST on a bill the engine charged IGST on, and the heading test then
+  proves nothing.
+- Never `sed` across a Dart file in this repo — it destroyed
+  `vyapar_sync_roundtrip_test.dart` beyond patching. Use `Edit`.
+- PowerShell here-strings mangle multi-line `git commit -m`. Write the message
+  to a file and use `git commit -F`.
+- `flutter` is **not on PATH**. Invoke `C:\flutter\bin\flutter.bat`.
+- In a `flutter test` file, a local getter named `db` shadows the top-level one
+  and silently turns `db.select(...)` into `Function.select(...)` — pass the
+  database in as a parameter instead.
 
 ## Phase 0 shipped (2026-10-04) — three PDF templates, per firm
 
@@ -346,6 +425,31 @@ Also fixed this day (earlier audit pass, tests in place):
   title printed the raw slug (`sales_order`) instead of "Sales order".
 
 ## Exact next action
+
+**Phase 3 — bulk actions**, per the plan:
+
+1. Extract the 8 hand-rolled `showDialog` → `AlertDialog` confirmations
+   (`document_row_menu.dart:415`, `expenses_screen.dart:423`,
+   `recycle_bin_screen.dart:175`, `sale_detail_screen.dart:385`,
+   `items_screen.dart:397`, `parties_screen.dart:667`,
+   `settings_screen.dart:255`, `pos_screen.dart:230`) into one
+   `confirmDestructive(...)` **before** adding a fifth copy.
+2. `SelectionBar` for `AtriaListPage.toolbar` (`atria_list_page.dart:68`), plus
+   a selection prop on `TransactionRow` / `TransactionTableRow`. **The desktop
+   table hardcodes `SizedBox(width: 50)` + fixed flexes 8/8/16/12/9/9 in its
+   header *and* its totals** — a leading checkbox has to be accounted for in
+   all three or the columns drift. Reuse the selection-highlight treatment
+   from `parties_screen.dart:340-343` (`primaryContainer @ 0.55`), currently
+   trapped in a private widget.
+3. Actions: bulk PDF (call `InvoicePdf.build`/`PurchasePdf.build` per doc, then
+   share — precedent `sale_detail_screen.dart:276`), bulk CSV (extend
+   `csv_export.dart` with an id-filtered variant; every existing method is
+   whole-table), bulk delete = confirm with N named → `softDelete` each →
+   SnackBar with **Undo** calling `restore(id)`, precedent `pos_screen.dart:198-215`.
+4. "Select all" means "all loaded" — there is no pagination. Sales caps at 200
+   rows (`sales_list_screen.dart:225`); surface that rather than hide it.
+
+Then the standing backlog (below "Still open"), and:
 
 1. **Rebuild + install the app and re-import the real `.vyb`** to confirm the
    line items now reach the server. The bug is fixed and regression-tested in

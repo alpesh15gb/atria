@@ -58,9 +58,11 @@ extension DatabaseRepositories on AppDatabase {
     // this key; getSingleOrNull() would throw on the pair and abort every
     // save. Order newest-first and take one — mirrors SettingsRepository.get.
     final query = select(appSettings)
-      ..where((t) =>
-          t.key.equals('books_locked_upto') &
-          (t.firmId.equals(firmId) | t.firmId.isNull()))
+      ..where(
+        (t) =>
+            t.key.equals('books_locked_upto') &
+            (t.firmId.equals(firmId) | t.firmId.isNull()),
+      )
       ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])
       ..limit(1);
     final row = await query.getSingleOrNull();
@@ -71,16 +73,20 @@ extension DatabaseRepositories on AppDatabase {
 
   /// Throws when [date] is inside the locked period. The single enforcement
   /// point — the duplicate [PeriodLock.assertDateEditable] in
-  /// audit_repository.dart is a thin alias kept for its nicer typed error.
+  /// audit_repository.dart is a thin alias for it.
+  ///
+  /// Throws [PeriodLockedException] rather than a bare `Exception`. A caller's
+  /// `on PeriodLockedException catch` can only ever fire if this is the type
+  /// that leaves here, and it did not: `expenses_screen.dart` has one, and it
+  /// was unreachable, so a refused delete fell through to the generic handler
+  /// and reported "Could not delete: Instance of 'Exception'" — the same
+  /// sentence with the message thrown away.
   Future<void> assertDateEditable(String firmId, DateTime date) async {
     final locked = await booksLockedUpto(firmId);
     if (locked == null) return;
     final day = DateTime(date.year, date.month, date.day);
     if (!day.isAfter(locked)) {
-      throw Exception(
-          'Books are locked through ${locked.day}/${locked.month}/'
-          '${locked.year}. Unlock the period in Settings to change earlier '
-          'transactions.');
+      throw PeriodLockedException(locked, date);
     }
   }
 

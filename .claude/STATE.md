@@ -1,6 +1,6 @@
 # Project State
 
-_Last updated: 2026-10-04 (Phase 3 bulk actions in progress; Phase 4 next)_
+_Last updated: 2026-10-04 (Phase 3 shipped `8f9f1fc`; Phase 4 in progress)_
 
 ## Current objective
 
@@ -16,21 +16,63 @@ local PIN roles.** Ship one piece per commit. Full plan:
 | 1 | purchase-side PDFs | `7bf9a6b` | **shipped** |
 | 2 | paid / balance / stamp + UPI QR fix | `bd860de` | **shipped** |
 | — | rename to Apex Books | `9afe494` | **shipped** |
-| 3 | bulk actions | — | **in progress** |
-| 4 | quotation lifecycle | — | not started |
+| 3 | bulk actions | `8f9f1fc` | **shipped** |
+| 4 | quotation lifecycle | — | **in progress** |
 | 5 | optional PIN roles | — | not started |
 
 ## Current implementation state
 
 - `flutter analyze lib/ test/` → clean.
-- `flutter test` → **612 passed / 1 skipped / 0 failed** before Phase 3; the
-  three new Phase 3 files add 43 tests, and the widget test adds 5 more.
+- `flutter test` → **674 passed / 1 skipped / 0 failed** (after Phase 4).
 - Windows debug builds; APK debug/release build (release APK is debug-key-signed,
   `CN=Android Debug`, per `build.gradle.kts`'s deliberate fallback).
 - **No phone attached** (`adb devices` empty) — the sync fix is proven against a
   faithful fake server only, never on hardware.
 
-## Phase 3 — bulk actions (in progress)
+## Phase 4 — quotation lifecycle (in progress)
+
+- **Schema v9** (`schemaVersion => 9`). Adds `salesInvoices.convertedToInvoiceId`
+  and `convertedAt`, both nullable, migration at `app_database.dart` after the v8
+  block. `test/quotation_lifecycle_migration_test.dart` rolls a real v9 file back
+  to `user_version = 8` and reopens.
+- **`lib/core/domain/document_status.dart`** — one `DocumentStatus` enum owning
+  labels, chip kinds, allowed transitions and the expiry rule. `forDocType`
+  scopes the vocabulary (invoices are not "accepted"); `of()` falls back rather
+  than throwing. `StatusChip.doc` and the sales list's private `_statusText` /
+  `_statusKindFor` now both resolve through it.
+- **`markConverted(id, {required invoiceId})`** writes the link and leaves
+  `status` alone. `markStatus(id, DocumentStatus)` moves a document through a
+  legal transition and refuses anything else with `StateError`; it refuses
+  `expired` outright (`ArgumentError`).
+- **`markCancelled` refuses pre-v9 converted rows.** Cancelling one would wipe
+  the only record that it had been invoiced.
+- **Status filter** on the sales list, single-select with "All" first. Its
+  value **is part of `_streamFor`'s cache key** — omit it and the control works
+  while the list silently does not change.
+- **`expired` is derived** from `dueDate` (the editor's "Valid till"), never
+  stored, and only for quotations/orders. An invoice's date passing makes it
+  *overdue*, not expired.
+- **Purchase side untouched** — `purchase_bills.status = 'converted'` stays.
+  `DocumentRowMenu` honours either shape.
+- **Two real bugs the revert-proofing caught**, both mine, both silent:
+  `convertedLegacy.name` is `"convertedLegacy"` while the column stores
+  `"converted"`, so every legacy guard was a no-op; and excluding `confirmed`
+  from the quotation set left a freshly saved quotation with no legal moves.
+
+## Things not to re-learn (Phase 4)
+
+- **Never read a legacy column through `EnumName.name`.** The enum value was
+  renamed to say what it is; the constant `DocumentStatus.legacyConvertedValue`
+  is what the database holds. A mismatch here does not throw — every guard
+  returns false and the feature is simply absent.
+- **`pdf_template_test.dart`'s v7→v8 rollback had to learn about v9.** It sets
+  `user_version = 7`, so the v9 step also runs and `addColumn` fails on a
+  duplicate. Its rollback now drops the two new columns too.
+- **`dart format` reformats 200 unrelated files** — the repo was last formatted
+  by an older Dart. `dart format lib/ test/` is *not* safe here. Format the
+  named files only. `git checkout --` the rest.
+
+## Phase 3 — bulk actions (shipped `8f9f1fc`)
 
 - **One confirmation helper.** `lib/shared/widgets/confirm_destructive.dart` —
   `confirmDestructive(context, title:, message:, confirmLabel:)` returns a

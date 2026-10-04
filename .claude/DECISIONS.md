@@ -1,5 +1,104 @@
 # Decisions
 
+## Conversion is a link, never a status (2026-10-04)
+
+**Decision:** schema v9 adds `salesInvoices.convertedToInvoiceId` and
+`convertedAt`. `markConverted` writes them and leaves `status` alone. Pre-v9 rows
+that carry `status = 'converted'` stay exactly as they are, read through
+`DocumentStatus.convertedLegacy`.
+
+**Why:** conversion used to *overwrite* `status`. That destroyed the document's
+real lifecycle — a quotation that had been sent became indistinguishable from a
+cancelled one — and `markCancelled` on it silently un-converted it. One column
+cannot carry both "expired" and "converted".
+
+**Why the legacy rows are not migrated:** the invoice they became was never
+recorded anywhere, so there is nothing to back-fill from. Rewriting them would
+re-enable the convert action on quotations that have genuinely been invoiced,
+which is worse than a row that reads oddly. They are kept, displayed as
+"Converted", and `markCancelled` now *refuses* them — cancelling would wipe the
+only record that they were invoiced.
+
+## A stored legacy value is a constant, never `EnumName.name` (2026-10-04)
+
+**Decision:** `DocumentStatus.legacyConvertedValue = 'converted'` exists
+alongside `convertedLegacy`. All readers of the old column use the constant.
+
+**Why:** the enum value is `convertedLegacy`, so `.name` is `"convertedLegacy"`
+— it matches nothing in a database that stores `"converted"`. The failure is
+silent and total: every guard returns false, so `markCancelled` accepts a
+converted quotation and wipes its only flag. Found by a test that reverted the
+guard and watched the guard-less behaviour return. **Verify any new legacy-column
+read against the literal, not against the enum.**
+
+## The vocabulary is one enum, scoped by document type (2026-10-04)
+
+**Decision:** `lib/core/domain/document_status.dart` owns the labels, the chip
+kinds, the allowed transitions and the expiry rule. `StatusChip.doc` and the
+sales list's private `_statusText` / `_statusKindFor` both resolve through it.
+
+**Why:** the vocabulary was written down twice and had already drifted —
+`converted` fell through to a grey chip in one map and a blue badge in the other.
+`StatusChip.doc` had one caller; the list had its own copy.
+
+**"Accepted" is scoped to quotations deliberately.** An invoice is not accepted;
+that word is meaningless for money owed. Each doc type gets its own state set,
+and `of()` falls back rather than throwing, so a status from a restored backup
+written by a newer build degrades to a plain chip instead of taking the list down.
+
+**Note:** `confirmed` is in the quotation set because it is the *stored default*
+for every saved document — the editor writes it unconditionally. Excluding it
+left a freshly saved quotation with no legal moves at all. It is also why
+`confirmed` means "open" for a quotation and "issued" for an invoice; the
+transitions branch on doc type accordingly.
+
+## Expired is derived, and only from the valid-till date (2026-10-04)
+
+**Decision:** `DocumentStatus.isExpired` computes from `dueDate` (which is the
+editor's "Valid till" for a quotation). No `expired` column, and `markStatus`
+throws `ArgumentError` if asked to write it.
+
+**Why:** the editor already has the field. A stored copy is one more thing that
+can disagree with it, and it would disagree the moment the date moved. Invoices
+are excluded deliberately — a due date passing makes an invoice *overdue*, not
+expired; the document is unchanged, the money is late.
+
+**Consequence:** an expired filter cannot ride in the SQL `WHERE`, so
+`watchList` post-filters. That means the `limit` applies *before* the filter, so
+"Expired" can return fewer rows than the limit on a busy month. Accepted: a
+filter that silently under-reports is worse than one that pages, and the list
+already states how many rows are loaded.
+
+## The status filter is single-select, with "All" first (2026-10-04)
+
+**Decision:** one `AtriaAdaptiveFilter<String>` after Date. Null means every
+status. Its value is part of the list's stream cache key.
+
+**Why the cache key matters:** the stream map is keyed by
+`(docType, search, range)`. A filter that is not in the key returns the
+*unfiltered* cached stream — the control works, the list does not change, and
+nothing errors. This is the same class of bug as the one already recorded in
+`STATE.md` about `_docType` being latched rather than derived.
+
+**Why single-select:** a multi-select needs a control that stays visible while
+you set it, and the filter row is one line of pills. A second sheet per list is
+a worse trade than not offering combinations.
+
+**"Converted" matches two shapes on purpose:** pre-v9 rows (status flag) and
+post-v9 rows (the link). Matching the status column alone silently misses every
+document converted since the upgrade — which is every document a new user has.
+
+## The purchase side keeps its own conversion flag (2026-10-04)
+
+**Decision:** `purchase_bills.status = 'converted'` is untouched.
+
+**Why:** the purchase side has its own table, its own `markConverted`, its own
+readers, and its own tests, and it is internally consistent. `DocumentRowMenu`
+takes `convertedToInvoiceId` and treats *either* shape as converted, so the
+shared menu behaves identically on both sides. Porting it is a separate change
+with its own migration; bundling it here would make one commit touch two
+lifecycles.
+
 ## Bulk delete counts what happened, never what was asked for (2026-10-04)
 
 **Decision:** `SalesRepository.softDelete` and `restore` changed from

@@ -74,6 +74,7 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
   final _discountPercentController = TextEditingController(text: '0');
   final _discountAmountController = TextEditingController(text: '0');
   final _shippingController = TextEditingController(text: '0');
+
   /// TCS percentage. Defaults to the firm's `invoiceTcsRate` on a new invoice
   /// and comes from the stored document on an edit, so a shop that always
   /// collects 0.1% under s.206C(1H) types it once in the firm profile.
@@ -269,7 +270,8 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
             .toStringAsFixed(2);
         _shippingController.text = doc.shippingCharge.toStringAsFixed(2);
         _tcsRateController.text = Formatters.rateInput(doc.tcsRate);
-        _applyRoundOff = doc.roundOff.abs() > 0.000001 ||
+        _applyRoundOff =
+            doc.roundOff.abs() > 0.000001 ||
             (doc.grandTotal - doc.grandTotal.round()).abs() < 0.001;
         _party = _parties
             .where((p) => p.id == doc.partyId)
@@ -318,7 +320,8 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
             .toStringAsFixed(2);
         _shippingController.text = doc.shippingCharge.toStringAsFixed(2);
         _tcsRateController.text = Formatters.rateInput(doc.tcsRate);
-        _applyRoundOff = doc.roundOff.abs() > 0.000001 ||
+        _applyRoundOff =
+            doc.roundOff.abs() > 0.000001 ||
             (doc.grandTotal - doc.grandTotal.round()).abs() < 0.001;
         _party = _parties
             .where((p) => p.id == doc.partyId)
@@ -553,8 +556,10 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('This document no longer exists — it may '
-                    'have been deleted. Nothing was saved.'),
+                content: Text(
+                  'This document no longer exists — it may '
+                  'have been deleted. Nothing was saved.',
+                ),
               ),
             );
           }
@@ -680,16 +685,18 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
       );
       final overpayment = settlement.overpaid
           ? 'Saved, but ${Formatters.money(Decimal.parse(savedDoc.paidAmount.toStringAsFixed(2)))} '
-              'was already received and this invoice is now worth only '
-              '${Formatters.money(Decimal.parse(savedDoc.grandTotal.toStringAsFixed(2)))}. '
-              'The balance shows as zero — check the payments recorded against it.'
+                'was already received and this invoice is now worth only '
+                '${Formatters.money(Decimal.parse(savedDoc.grandTotal.toStringAsFixed(2)))}. '
+                'The balance shows as zero — check the payments recorded against it.'
           : null;
 
-      // A converted quotation/order is flagged so it shows its badge in the
-      // list and cannot be converted a second time.
+      // A converted quotation/order records which invoice it became, so the list
+      // can badge it, open the invoice from it, and refuse a second
+      // conversion. The link is the whole point — the old flag recorded only
+      // that something had happened, never what.
       final sourceId = _convertSourceId;
       if (sourceId != null) {
-        await sales.markConverted(sourceId);
+        await sales.markConverted(sourceId, invoiceId: draft.id);
         _convertSourceId = null;
       }
 
@@ -697,7 +704,8 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                overpayment ?? '${_title.replaceFirst('New ', '')} saved'),
+              overpayment ?? '${_title.replaceFirst('New ', '')} saved',
+            ),
             duration: overpayment == null
                 ? const Duration(seconds: 4)
                 : const Duration(seconds: 8),
@@ -1090,7 +1098,9 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
                           // absolute date (a 15-day term stays a 15-day term),
                           // and a due date that sat on the invoice date is
                           // pulled up to it so it is never in the past.
-                          final creditPeriod = _dueDate?.difference(_invoiceDate);
+                          final creditPeriod = _dueDate?.difference(
+                            _invoiceDate,
+                          );
                           _invoiceDate = d ?? DateTime.now();
                           if (creditPeriod != null) {
                             final shifted = _invoiceDate.add(creditPeriod);
@@ -1132,10 +1142,10 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
                             tcsRateController: _tcsRateController,
                             tcsHint: _firmTcsRate > 0
                                 ? 'The firm profile collects '
-                                    '${Formatters.percent(_firmTcsRate)} — it '
-                                    'is already filled in.'
+                                      '${Formatters.percent(_firmTcsRate)} — it '
+                                      'is already filled in.'
                                 : 'Tax collected at source under '
-                                    's.206C(1H), on the taxable value.',
+                                      's.206C(1H), on the taxable value.',
                             applyRoundOff: _applyRoundOff,
                             onRoundOffChanged: (v) => setState(() {
                               _applyRoundOff = v;
@@ -1164,11 +1174,7 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
 /// widget.
 class _CatalogueSuggestion extends ItemSuggestion {
   _CatalogueSuggestion(this.item)
-      : super(
-          name: item.name,
-          salePrice: item.salePrice,
-          unit: item.unit,
-        );
+    : super(name: item.name, salePrice: item.salePrice, unit: item.unit);
 
   final ItemEntity item;
 }
@@ -1553,16 +1559,10 @@ class _DateField extends StatelessWidget {
           suffixIcon: clearable && value != null
               ? IconButton(
                   tooltip: 'Clear date',
-                  icon: const Icon(
-                    Icons.close_rounded,
-                    size: AppIconSize.md,
-                  ),
+                  icon: const Icon(Icons.close_rounded, size: AppIconSize.md),
                   onPressed: () => onChanged(null),
                 )
-              : const Icon(
-                  Icons.calendar_today_rounded,
-                  size: AppIconSize.md,
-                ),
+              : const Icon(Icons.calendar_today_rounded, size: AppIconSize.md),
         ),
         child: Text(
           value == null ? 'Not set' : Formatters.date(value),
@@ -1633,9 +1633,9 @@ class _AdjustmentsSection extends StatelessWidget {
             child: Text(
               tcsHint,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    height: 1.4,
-                  ),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                height: 1.4,
+              ),
             ),
           ),
         ),

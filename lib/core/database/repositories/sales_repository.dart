@@ -1,6 +1,7 @@
 import 'package:decimal/decimal.dart';
 import 'package:drift/drift.dart';
 
+import '../../domain/document_status.dart';
 import '../../engine/gst_engine.dart';
 import '../../utils/money.dart';
 import '../app_database.dart';
@@ -667,7 +668,27 @@ class SalesRepository with SyncQueueMixin {
     DateTime? from,
     DateTime? to,
     int limit = 100,
+    Set<DocumentStatus> statuses = const {},
   }) {
+    // A converted document is one of two things on disk: pre-v9 rows carry
+    // status 'converted', post-v9 rows keep their lifecycle and point at the
+    // invoice via convertedToInvoiceId. Both mean the same thing to the
+    // operator, so the filter has to accept both — matching the status column
+    // alone would make the filter silently miss every document converted
+    // since the upgrade, which is every document a new user has.
+    const storedStatuses = {
+      DocumentStatus.draft,
+      DocumentStatus.confirmed,
+      DocumentStatus.delivered,
+      DocumentStatus.sent,
+      DocumentStatus.accepted,
+      DocumentStatus.rejected,
+      DocumentStatus.cancelled,
+    };
+    final byStored = statuses.where(storedStatuses.contains).toSet();
+    final wantsConverted = statuses.contains(DocumentStatus.convertedLegacy);
+    final wantsExpired = statuses.contains(DocumentStatus.expired);
+
     final query = db.select(db.salesInvoices)
       ..where(
         (t) =>
@@ -679,6 +700,15 @@ class SalesRepository with SyncQueueMixin {
         (t) => OrderingTerm.desc(t.invoiceDate),
         (t) => OrderingTerm(expression: t.number),
       ]);
+    if (byStored.isNotEmpty || wantsConverted) {
+      query.where(
+        (t) => [
+          if (byStored.isNotEmpty) t.status.isIn(byStored.map((s) => s.name)),
+          if (wantsConverted)
+            t.convertedToInvoiceId.isNotNull() | t.status.equals('converted'),
+        ].reduce((a, b) => a | b),
+      );
+    }
     if (partyId != null) {
       query.where((t) => t.partyId.equals(partyId));
     }
@@ -695,7 +725,27 @@ class SalesRepository with SyncQueueMixin {
       );
     }
     query.limit(limit);
-    return query.watch();
+    final stream = query.watch();
+    if (!wantsExpired) return stream;
+
+    // Expired is derived from the valid-till date, not stored, so it cannot be
+    // part of the SQL WHERE — SQLite has no idea which documents it applies to.
+    // Filtering after the query is exact but caps at [limit] *before* the
+    // filter, so "Expired" on a month with 200 invoices could return fewer
+    // than the limit even when more expired rows exist below it. Accepted,
+    // because a filter that under-reports silently is worse than one that
+    // pages; the list already tells the operator how many rows are loaded.
+    return stream.map(
+      (rows) => rows
+          .where(
+            (d) => DocumentStatus.isExpired(
+              status: d.status,
+              docType: d.docType,
+              validTill: d.dueDate,
+            ),
+          )
+          .toList(growable: false),
+    );
   }
 
   /// Every non-deleted sales document (invoices, quotations, orders, notes)
@@ -723,6 +773,19 @@ class SalesRepository with SyncQueueMixin {
     await db.transaction(() async {
       final doc = await getById(id);
       if (doc == null) return;
+      // A pre-v9 converted row cannot be un-converted: its flag lives in
+      // `status`, which this write overwrites, and the invoice it became was
+      // never recorded. Cancelling one would wipe the flag and leave a
+      // quotation that had genuinely been invoiced looking convertible again.
+      // Refusing is the lesser wrong — the document is already invoiced, so
+      // there is nothing about it left to withdraw.
+      if (doc.status == DocumentStatus.legacyConvertedValue) {
+        throw StateError(
+          'This ${doc.docType} was already converted to an invoice. Cancel '
+          'the invoice instead — cancelling the ${doc.docType} cannot recall '
+          'the invoice it produced.',
+        );
+      }
       await db.assertDateEditable(firmId, doc.invoiceDate);
       // A cancelled invoice stops chasing money: its balance columns zero
       // out so outstanding/ageing never count it (H3 parity at the row level).
@@ -911,17 +974,36 @@ class SalesRepository with SyncQueueMixin {
     });
   }
 
-  /// Flags a quotation / sales order as converted (after its invoice was
-  /// saved), so lists can badge it and the convert action cannot run twice.
-  Future<void> markConverted(String id, {String? actor}) async {
+  /// Records that [id] became [invoiceId].
+  ///
+  /// Writes the link and the timestamp; deliberately leaves `status` alone.
+  /// It used to overwrite it with 'converted', which destroyed the document's
+  /// actual lifecycle — a quotation that had been sent became indistinguishable
+  /// from one that had been cancelled, and `markCancelled` on it silently
+  /// un-converted it. Conversion is an event, and an event is a link, not a
+  /// replacement state.
+  ///
+  /// Guards: refuses a document already converted, and refuses dates inside a
+  /// locked period. The first is what makes a stale double-tap harmless — the
+  /// UI hides the action, but a second tap can land before the rebuild.
+  Future<void> markConverted(
+    String id, {
+    required String invoiceId,
+    String? actor,
+  }) async {
     await db.transaction(() async {
       final doc = await getById(id);
       if (doc == null) return;
+      if (doc.convertedToInvoiceId != null) return;
       await db.assertDateEditable(firmId, doc.invoiceDate);
       await db
           .update(db.salesInvoices)
           .replace(
-            doc.copyWith(status: 'converted', updatedAt: DateTime.now()),
+            doc.copyWith(
+              convertedToInvoiceId: Value(invoiceId),
+              convertedAt: Value(DateTime.now()),
+              updatedAt: DateTime.now(),
+            ),
           );
       await enqueue(
         firmId: firmId,
@@ -935,7 +1017,64 @@ class SalesRepository with SyncQueueMixin {
         firmId: firmId,
         actor: actor,
         entityId: id,
-        summary: 'Converted ${doc.docType} ${doc.number} to invoice',
+        summary: 'Converted ${doc.docType} ${doc.number} to invoice $invoiceId',
+      );
+    });
+  }
+
+  /// Moves a document to a new lifecycle state.
+  ///
+  /// A repository method rather than a generic setter, because each write has
+  /// its own rules and a setter is where those rules get forgotten: the target
+  /// is checked against [DocumentStatus.transitionsFrom], so "cancel an
+  /// accepted quotation" cannot happen by calling this with the wrong argument
+  /// from a screen nobody reviewed.
+  ///
+  /// Refuses dates inside a locked period, like every other status write.
+  Future<void> markStatus(
+    String id,
+    DocumentStatus status, {
+    String? actor,
+  }) async {
+    await db.transaction(() async {
+      final doc = await getById(id);
+      if (doc == null) return;
+      await db.assertDateEditable(firmId, doc.invoiceDate);
+      // Expired is derived from the valid-till date, so it is not a state a
+      // caller may write — it would disagree with the column that computes it
+      // the moment the date moved.
+      if (status == DocumentStatus.expired) {
+        throw ArgumentError(
+          'Expired is derived from the valid-till date, not stored. '
+          'Withdrawing or reissuing is what an operator does with a lapsed '
+          'quotation.',
+        );
+      }
+      final from = DocumentStatus.of(doc.status, doc.docType);
+      if (!from.transitionsFrom(from, doc.docType).contains(status)) {
+        throw StateError(
+          'A ${doc.docType} that is "${from.label}" cannot become '
+          '"${status.label}".',
+        );
+      }
+      await db
+          .update(db.salesInvoices)
+          .replace(
+            doc.copyWith(status: status.name, updatedAt: DateTime.now()),
+          );
+      await enqueue(
+        firmId: firmId,
+        entity: 'sales_invoices',
+        entityId: id,
+        operation: 'update',
+      );
+      await db.auditRepository.log(
+        action: 'update',
+        entity: 'sales_invoices',
+        firmId: firmId,
+        actor: actor,
+        entityId: id,
+        summary: 'Marked ${doc.docType} ${doc.number} as ${status.label}',
       );
     });
   }

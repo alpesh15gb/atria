@@ -58,8 +58,7 @@ void main() {
       expect(reread.vendorName, isNull);
     });
 
-    test('income and expense rows stay separate types after an edit',
-        () async {
+    test('income and expense rows stay separate types after an edit', () async {
       final repo = db.expenseRepositoryFor(firmId);
       final income = await repo.create(
         type: 'income',
@@ -78,88 +77,118 @@ void main() {
   });
 
   group('quotation → invoice conversion', () {
-    test('markConverted flags the source and is idempotent-safe to re-call',
-        () async {
+    test('markConverted links the source to its invoice and is safe to '
+        're-call', () async {
       final sales = db.salesRepositoryFor(firmId);
-      final quote = await sales.save(SalesDraft(
-        id: 'q1',
-        number: 'QT-1',
-        docType: 'quotation',
-        invoiceDate: DateTime(2026, 9, 20),
-        lines: [
-          SalesLineDraft(
-            id: 'l1',
-            name: 'Wall putty 40kg',
-            quantity: Decimal.parse('5'),
-            unit: 'bags',
-            rate: Decimal.parse('400'),
-            gstRate: 18,
-          ),
-        ],
-      ));
+      final quote = await sales.save(
+        SalesDraft(
+          id: 'q1',
+          number: 'QT-1',
+          docType: 'quotation',
+          invoiceDate: DateTime(2026, 9, 20),
+          lines: [
+            SalesLineDraft(
+              id: 'l1',
+              name: 'Wall putty 40kg',
+              quantity: Decimal.parse('5'),
+              unit: 'bags',
+              rate: Decimal.parse('400'),
+              gstRate: 18,
+            ),
+          ],
+        ),
+      );
 
-      await sales.markConverted(quote.id);
+      await sales.markConverted(quote.id, invoiceId: 'inv-from-q1');
       final converted = await sales.getById(quote.id);
-      expect(converted!.status, 'converted');
+      expect(
+        converted!.convertedToInvoiceId,
+        'inv-from-q1',
+        reason: 'the link is the record — a badge alone cannot be opened',
+      );
+      expect(converted.convertedAt, isNotNull);
 
-      // A second call must not throw — the UI hides the action, but a stale
-      // double-tap before the rebuild would still land here.
-      await sales.markConverted(quote.id);
-      expect((await sales.getById(quote.id))!.status, 'converted');
+      // A second call must not throw and must not re-point the link at some
+      // other invoice: the UI hides the action, but a stale double-tap before
+      // the rebuild would still land here.
+      await sales.markConverted(quote.id, invoiceId: 'inv-second');
+      expect(
+        (await sales.getById(quote.id))!.convertedToInvoiceId,
+        'inv-from-q1',
+        reason: 'a quotation has one invoice; a second convert is a bug',
+      );
     });
 
-    test('a converted quotation can still be edited without losing status '
-        '(edit does not resurrect the convert action on its own)', () async {
-      final sales = db.salesRepositoryFor(firmId);
-      await sales.save(SalesDraft(
-        id: 'q2',
-        number: 'QT-2',
-        docType: 'quotation',
-        invoiceDate: DateTime(2026, 9, 20),
-        lines: [
-          SalesLineDraft(
-            // Line ids are globally unique, not per-document — reusing 'l1'
-            // across two documents trips the UNIQUE constraint.
-            id: 'ql1',
-            name: 'Primer',
-            quantity: Decimal.one,
-            unit: 'ltr',
-            rate: Decimal.parse('250'),
-            gstRate: 18,
+    test(
+      'a converted quotation keeps its own lifecycle, not "converted"',
+      () async {
+        final sales = db.salesRepositoryFor(firmId);
+        await sales.save(
+          SalesDraft(
+            id: 'q2',
+            number: 'QT-2',
+            docType: 'quotation',
+            invoiceDate: DateTime(2026, 9, 20),
+            lines: [
+              SalesLineDraft(
+                // Line ids are globally unique, not per-document — reusing 'l1'
+                // across two documents trips the UNIQUE constraint.
+                id: 'ql1',
+                name: 'Primer',
+                quantity: Decimal.one,
+                unit: 'ltr',
+                rate: Decimal.parse('250'),
+                gstRate: 18,
+              ),
+            ],
           ),
-        ],
-      ));
-      await sales.markConverted('q2');
+        );
+        await sales.markConverted('q2', invoiceId: 'inv1');
 
-      // The convert flow the editor performs: save the NEW invoice, then
-      // mark the source. The source stays converted; the new doc is an
-      // invoice with a fresh number.
-      await sales.save(SalesDraft(
-        id: 'inv1',
-        number: 'INV-1',
-        docType: 'invoice',
-        invoiceDate: DateTime(2026, 9, 26),
-        dueDate: DateTime(2026, 10, 10),
-        lines: [
-          SalesLineDraft(
-            id: 'il1',
-            name: 'Primer',
-            quantity: Decimal.one,
-            unit: 'ltr',
-            rate: Decimal.parse('250'),
-            gstRate: 18,
+        // The convert flow the editor performs: save the NEW invoice, then
+        // mark the source. The source keeps its own lifecycle and gains a link;
+        // the new doc is an invoice with a fresh number.
+        await sales.save(
+          SalesDraft(
+            id: 'inv1',
+            number: 'INV-1',
+            docType: 'invoice',
+            invoiceDate: DateTime(2026, 9, 26),
+            dueDate: DateTime(2026, 10, 10),
+            lines: [
+              SalesLineDraft(
+                id: 'il1',
+                name: 'Primer',
+                quantity: Decimal.one,
+                unit: 'ltr',
+                rate: Decimal.parse('250'),
+                gstRate: 18,
+              ),
+            ],
           ),
-        ],
-      ));
-      await sales.markConverted('q2');
+        );
+        await sales.markConverted('q2', invoiceId: 'inv1');
 
-      final invoice = await sales.getById('inv1');
-      expect(invoice!.docType, 'invoice');
-      expect(invoice.number, 'INV-1');
-      expect(invoice.status, isNot('converted'),
-          reason: 'the generated invoice must not inherit the converted flag');
-      expect((await sales.getById('q2'))!.status, 'converted');
-    });
+        final invoice = await sales.getById('inv1');
+        expect(invoice!.docType, 'invoice');
+        expect(invoice.number, 'INV-1');
+        expect(
+          invoice.convertedToInvoiceId,
+          isNull,
+          reason: 'the generated invoice is not itself a conversion',
+        );
+
+        final quote = await sales.getById('q2');
+        expect(
+          quote!.status,
+          'confirmed',
+          reason:
+              'conversion records a link, not a replacement state — the '
+              'quotation is still a live offer, it has simply been invoiced',
+        );
+        expect(quote.convertedToInvoiceId, 'inv1');
+      },
+    );
   });
 
   group('stock adjustment', () {
@@ -216,8 +245,10 @@ void main() {
       final after = await items.getById(item.id);
       expect(after!.currentStock, 12.5);
       final movements = await items.movements(item.id);
-      expect(movements.any((m) => m.kind == 'adjustment' && m.quantity == 2.5),
-          isTrue);
+      expect(
+        movements.any((m) => m.kind == 'adjustment' && m.quantity == 2.5),
+        isTrue,
+      );
     });
   });
 }

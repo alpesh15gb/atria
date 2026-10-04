@@ -52,34 +52,20 @@ new tests proven to fail against reverted code) before its commit.
             **not** extracted to a shared widget. Duplicated rather than
             generalised: one caller is not an abstraction yet. Revisit if a
             second list needs it.
-- [ ] **Phase 4 — quotation lifecycle.** `converted` is a terminal *overwrite*
-      of `status`, which is why one column cannot also express `expired`. Add
-      `convertedToInvoiceId` + `convertedAt`. Collapse `StatusChip.doc` and the
-      hand-rolled `_statusText`/`_statusKindFor` onto one `DocumentStatus` enum
-      so a value cannot be added to one and missed in the other. `expired` is
-      **computed** from the editor's "Valid till", not stored.
-      - **Corrections from the plan review, not yet applied:** `'converted'`
-        rows **cannot** be migrated — the linked invoice id was never stored, so
-        rewriting them re-enables double conversion on real data. Keep
-        `'converted'` as a deprecated `convertedLegacy`. `watchOverdue`'s
-        `!= 'converted'` clause is already dead. `db.assertDateEditable` throws
-        bare `Exception`, not `PeriodLockedException` — pre-existing bug.
-      - `watchList`'s stream cache key must gain the status filter or the filter
-        silently does nothing.
-- [ ] **Phase 4 — quotation lifecycle.** `converted` is a terminal *overwrite*
-      of `status`, which is why one column cannot also express `expired`. Add
-      `convertedToInvoiceId` + `convertedAt`. Collapse `StatusChip.doc` and the
-      hand-rolled `_statusText`/`_statusKindFor` onto one `DocumentStatus` enum
-      so a value cannot be added to one and missed in the other. `expired` is
-      **computed** from the editor's "Valid till", not stored.
-      - **Corrections from the plan review, not yet applied:** `'converted'`
-        rows **cannot** be migrated — the linked invoice id was never stored, so
-        rewriting them re-enables double conversion on real data. Keep
-        `'converted'` as a deprecated `convertedLegacy`. `watchOverdue`'s
-        `!= 'converted'` clause is already dead. `db.assertDateEditable` throws
-        bare `Exception`, not `PeriodLockedException` — pre-existing bug.
-      - `watchList`'s stream cache key must gain the status filter or the filter
-        silently does nothing.
+- [x] **Phase 4 — quotation lifecycle.** Shipped. `convertedToInvoiceId` +
+      `convertedAt` added at schema v9; `markConverted` now records the link and
+      leaves `status` alone; one `DocumentStatus` enum replaces `StatusChip.doc`
+      and the list's private pair; `expired` is computed from "Valid till";
+      a status filter on the sales list whose value is in the stream cache key.
+      - **Corrections from the plan review, all applied:** `'converted'` rows are
+        kept as `convertedLegacy` — not migrated, because the linked invoice id
+        was never stored and rewriting them re-enables double conversion on
+        real data. `markCancelled` now refuses them. `watchOverdue`'s
+        `!= 'converted'` clause left alone (harmless; `docType` is pinned to
+        `invoice` there, so it was always dead). `db.assertDateEditable` still
+        throws bare `Exception`, not `PeriodLockedException` — **pre-existing,
+        still open**, see below.
+      - The stream cache key did gain the filter, as it must.
 - [ ] **Phase 5 — optional local PIN + roles.** Off must be indistinguishable
       from today. Off = no gate, no picker, every permission granted. Enforce in
       the repositories next to `assertDateEditable`, never in the UI. The gate

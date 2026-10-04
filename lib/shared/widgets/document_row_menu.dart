@@ -50,6 +50,7 @@ class DocumentRowMenu extends ConsumerWidget {
     required this.status,
     this.paymentStatus,
     this.balanceDue = 0,
+    this.convertedToInvoiceId,
     this.onEdit,
   });
 
@@ -67,6 +68,16 @@ class DocumentRowMenu extends ConsumerWidget {
 
   /// Invoices only — the amount *Receive Payment* opens with.
   final double balanceDue;
+
+  /// The invoice this document became, if it has been converted.
+  ///
+  /// Sales documents record conversion in this column rather than in `status`;
+  /// purchase documents still set `status = 'converted'` (their
+  /// `markConverted` was not part of this change). Both are honoured by
+  /// [_isConverted], so the menu behaves identically on either side instead of
+  /// offering *Convert* twice on a sales quotation that has already been
+  /// invoiced.
+  final String? convertedToInvoiceId;
 
   /// Overrides the View/Edit push. The payments screen passes its editor
   /// sheet here — payments have no edit route of their own.
@@ -86,7 +97,11 @@ class DocumentRowMenu extends ConsumerWidget {
   bool get _isPayment => docType == 'payment_in' || docType == 'payment_out';
 
   bool get _isCancelled => status == 'cancelled';
-  bool get _isConverted => status == 'converted';
+
+  /// Already turned into an invoice — by the link, or by the legacy flag on
+  /// rows converted before v9.
+  bool get _isConverted =>
+      convertedToInvoiceId != null || status == 'converted';
 
   /// Quotation / sales order / purchase order that can still be converted.
   bool get _convertible =>

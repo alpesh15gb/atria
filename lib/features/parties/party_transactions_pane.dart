@@ -55,9 +55,8 @@ class _PartyTransactionsPaneState extends ConsumerState<PartyTransactionsPane> {
             const SizedBox(height: 10),
             Text(
               'Select a party to see their transactions',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ],
         ),
@@ -66,10 +65,12 @@ class _PartyTransactionsPaneState extends ConsumerState<PartyTransactionsPane> {
 
     final sales = ref.watch(salesRepositoryProvider);
     if (sales == null) {
-      return const Center(child: EmptyState(
-        icon: Icons.storefront_outlined,
-        title: 'No business open',
-      ));
+      return const Center(
+        child: EmptyState(
+          icon: Icons.storefront_outlined,
+          title: 'No business open',
+        ),
+      );
     }
 
     return Column(
@@ -91,7 +92,10 @@ class _PartyTransactionsPaneState extends ConsumerState<PartyTransactionsPane> {
                 return EmptyState(
                   icon: Icons.error_outline_rounded,
                   title: 'Could not load transactions',
-                  message: atriaErrorMessage(snapshot.error, retry: 'Try again.'),
+                  message: atriaErrorMessage(
+                    snapshot.error,
+                    retry: 'Try again.',
+                  ),
                 );
               }
               var docs = snapshot.data ?? const <SalesInvoiceEntity>[];
@@ -109,7 +113,8 @@ class _PartyTransactionsPaneState extends ConsumerState<PartyTransactionsPane> {
                       'appear here.',
                   actionLabel: 'New invoice',
                   onAction: () => context.push(
-                      '/sales/new?party=${Uri.encodeComponent(party.id)}'),
+                    '/sales/new?party=${Uri.encodeComponent(party.id)}',
+                  ),
                 );
               }
               return ListView.separated(
@@ -120,8 +125,10 @@ class _PartyTransactionsPaneState extends ConsumerState<PartyTransactionsPane> {
                 itemBuilder: (context, index) {
                   final doc = docs[index];
                   return ListTile(
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 2,
+                    ),
                     leading: AtriaAvatar.glyph(
                       icon: switch (doc.docType) {
                         'quotation' => Icons.request_quote_outlined,
@@ -140,18 +147,15 @@ class _PartyTransactionsPaneState extends ConsumerState<PartyTransactionsPane> {
                             doc.number.isEmpty ? '(no number)' : doc.number,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyMedium
+                            style: Theme.of(context).textTheme.bodyMedium
                                 ?.copyWith(fontWeight: FontWeight.w600),
                           ),
                         ),
-                        if (doc.status == 'converted')
+                        if (doc.status == 'converted' ||
+                            doc.convertedToInvoiceId != null)
                           Text(
                             'converted',
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelSmall
+                            style: Theme.of(context).textTheme.labelSmall
                                 ?.copyWith(color: scheme.primary),
                           ),
                       ],
@@ -159,9 +163,8 @@ class _PartyTransactionsPaneState extends ConsumerState<PartyTransactionsPane> {
                     subtitle: Text(
                       '${_typeLabels[doc.docType] ?? doc.docType} · '
                       '${Formatters.date(doc.invoiceDate)}',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                          ),
+                      style: Theme.of(context).textTheme.bodySmall
+                          ?.copyWith(color: scheme.onSurfaceVariant),
                     ),
                     trailing: Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
@@ -169,18 +172,14 @@ class _PartyTransactionsPaneState extends ConsumerState<PartyTransactionsPane> {
                       children: [
                         MoneyText(
                           Money.of(doc.grandTotal),
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodyMedium
+                          style: Theme.of(context).textTheme.bodyMedium
                               ?.copyWith(fontWeight: FontWeight.w700),
                         ),
                         if (doc.balanceDue > 0.0001)
                           Text(
                             'due ${Formatters.money(Money.of(doc.balanceDue))}',
-                            style:
-                                Theme.of(context).textTheme.labelSmall?.copyWith(
-                                      color: scheme.error,
-                                    ),
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(color: scheme.error),
                           ),
                       ],
                     ),
@@ -207,10 +206,7 @@ class _PartyTransactionsPaneState extends ConsumerState<PartyTransactionsPane> {
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       child: Row(
         children: [
-          AtriaAvatar.initials(
-            name: party.name,
-            radius: AtriaAvatar.header,
-          ),
+          AtriaAvatar.initials(name: party.name, radius: AtriaAvatar.header),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -286,9 +282,7 @@ class PartiesMasterDetail extends StatelessWidget {
         // ~1/3 for the list, matching the Vyapar reference proportions.
         SizedBox(width: 340, child: list),
         VerticalDivider(width: 1, color: Theme.of(context).colorScheme.outline),
-        Expanded(
-          child: PartyTransactionsPane(party: selectedParty),
-        ),
+        Expanded(child: PartyTransactionsPane(party: selectedParty)),
       ],
     );
   }

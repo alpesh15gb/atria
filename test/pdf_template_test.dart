@@ -169,13 +169,23 @@ void main() {
             ),
           );
 
-      // 2. Roll it back to what a v7 file looked like.
+      // 2. Roll it back to what a v7 file looked like. The v9 columns go too: the
+      //    migration chain runs from 7 all the way to current, so leaving them
+      //    in place makes the v9 step try to add a column that already exists
+      //    and the upgrade fails on a duplicate — which is a property of this
+      //    hand-rolled rollback, not of any real database.
       await first.customStatement('ALTER TABLE firms DROP COLUMN pdf_template');
       await first.customStatement('ALTER TABLE payments DROP COLUMN party_gstin');
+      await first.customStatement(
+        'ALTER TABLE sales_invoices DROP COLUMN converted_to_invoice_id',
+      );
+      await first.customStatement(
+        'ALTER TABLE sales_invoices DROP COLUMN converted_at',
+      );
       await first.customStatement('PRAGMA user_version = 7');
       await first.close();
 
-      // 3. Reopen: this runs the v7 -> v8 upgrade for real.
+      // 3. Reopen: this runs the v7 -> v8 and v8 -> v9 upgrades for real.
       final upgraded = AppDatabase.test(NativeDatabase(file));
       addTearDown(upgraded.close);
 
@@ -192,7 +202,8 @@ void main() {
       expect(payment.partyGstin, isNull,
           reason: 'a GSTIN that was never recorded must not be invented');
 
-      expect(upgraded.schemaVersion, 8);
+      expect(upgraded.schemaVersion, 9,
+          reason: 'the chain runs all the way to current, not just to 8');
     });
   });
 }

@@ -25,6 +25,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/file_names.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/number_words.dart';
+import '../../core/domain/document_status.dart';
 import '../../core/utils/whatsapp_links.dart';
 import '../../shared/widgets/atria_line_grid.dart';
 import '../../shared/widgets/atria_pdf_preview.dart';
@@ -114,7 +115,7 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
                 tooltip: 'Share',
               ),
               PopupMenuButton<String>(
-                onSelected: (value) {
+                onSelected: (value) async {
                   switch (value) {
                     case 'edit':
                       context.push(
@@ -141,6 +142,19 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
                     case 'delete':
                       _confirmDelete();
                       break;
+                    default:
+                      // `status:<name>` — the lifecycle moves below. Anything
+                      // else reaching here would be a menu item with no
+                      // handler, so it is ignored rather than appearing to
+                      // work.
+                      if (value.startsWith('status:')) {
+                        await _markStatus(
+                          DocumentStatus.of(
+                            value.substring('status:'.length),
+                            invoice.docType,
+                          ),
+                        );
+                      }
                   }
                 },
                 itemBuilder: (context) => [
@@ -152,12 +166,19 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
                   if ((invoice.docType == 'quotation' ||
                           invoice.docType == 'sales_order' ||
                           invoice.docType == 'delivery_note') &&
+                      invoice.convertedToInvoiceId == null &&
                       invoice.status != 'converted' &&
                       invoice.status != 'cancelled')
                     const PopupMenuItem(
                       value: 'convert',
                       child: Text('Convert to invoice'),
                     ),
+                  // The lifecycle an operator drives by hand: a quotation is
+                  // sent, then answered. Derived from the enum's own rules, so
+                  // the menu cannot offer an action the repository would
+                  // refuse — a rejected quotation has no "Cancel", because
+                  // cancelling it would invent a fifth answer.
+                  ..._lifecycleEntries(invoice),
                   const PopupMenuItem(value: 'pdf', child: Text('Open as PDF')),
                   const PopupMenuItem(value: 'print', child: Text('Print')),
                   // A till-roll receipt, not the A4 document: different paper,
@@ -411,6 +432,74 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
     if (!mounted) return;
     context.pop();
   }
+
+  /// Moves the document to a new lifecycle state.
+  ///
+  /// Goes through the repository, which enforces the transition rules, rather
+  /// than writing the column from here — a screen that could set any status
+  /// would eventually offer one the rules forbid. `accepted` and `rejected`
+  /// confirm first, because both are statements to a customer about what
+  /// happened and neither is a thing to have recorded by accident.
+  Future<void> _markStatus(DocumentStatus status) async {
+    final invoice = _invoice;
+    if (invoice == null) return;
+    final isStatement =
+        status == DocumentStatus.accepted || status == DocumentStatus.rejected;
+    if (isStatement) {
+      final confirmed = await confirmDestructive(
+        context,
+        title: 'Mark as ${status.label}?',
+        message: isStatement
+            ? '${invoice.number} will be recorded as ${status.label.toLowerCase()}'
+                  '${invoice.convertedToInvoiceId != null ? ' and stays linked to its invoice' : ''}.'
+                  ' ${invoice.partyName ?? 'The customer'} will see this on'
+                  ' their copy.'
+            : '${invoice.number} will be marked ${status.label.toLowerCase()}.',
+        confirmLabel: 'Mark ${status.label}',
+        cancelLabel: 'Keep',
+      );
+      if (confirmed != true || !mounted) return;
+    }
+    final sales = ref.read(salesRepositoryProvider);
+    if (sales == null) return;
+    try {
+      await sales.markStatus(invoice.id, status);
+    } on StateError catch (e) {
+      // The repository is the enforcement point, so this is the expected way a
+      // stale menu item is refused. Surfaced rather than swallowed: silently
+      // doing nothing leaves the operator tapping a button that works
+      // sometimes.
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
+      return;
+    }
+    if (!mounted) return;
+    _load();
+  }
+}
+
+/// The lifecycle menu items for this document — sent, accepted, rejected,
+/// withdrawn — derived from the enum's own transition rules so the menu and
+/// the repository can never disagree about what is allowed.
+List<PopupMenuEntry<String>> _lifecycleEntries(SalesInvoiceEntity doc) {
+  final from = DocumentStatus.of(doc.status, doc.docType);
+  final targets = from
+      .transitionsFrom(from, doc.docType)
+      // Cancelling has its own menu item with its own confirmation, which says
+      // what happens to stock; a second generic "Mark cancelled" would be a
+      // quieter, blunter duplicate of it.
+      .where((s) => s != DocumentStatus.cancelled)
+      .toList();
+  if (targets.isEmpty) return const [];
+  return [
+    const PopupMenuDivider(),
+    for (final status in targets)
+      PopupMenuItem(
+        value: 'status:${status.name}',
+        child: Text('Mark as ${status.label}'),
+      ),
+  ];
 }
 
 class _StatusHero extends StatelessWidget {
@@ -428,6 +517,24 @@ class _StatusHero extends StatelessWidget {
         invoice.balanceDue > 0.001 &&
         due != null &&
         due.isBefore(DateTime.now());
+    // Resolved once and used by both the chip and the conversion notice below,
+    // because a screen that badges "Converted" and then offers "Convert to
+    // invoice" is telling the operator two different things at once.
+    final lifecycle = cancelled
+        ? null
+        : DocumentStatus.of(
+            invoice.convertedToInvoiceId != null ||
+                    invoice.status == DocumentStatus.legacyConvertedValue
+                ? DocumentStatus.legacyConvertedValue
+                : DocumentStatus.isExpired(
+                    status: invoice.status,
+                    docType: invoice.docType,
+                    validTill: due,
+                  )
+                ? DocumentStatus.expired.name
+                : invoice.status,
+            invoice.docType,
+          );
 
     return Container(
       width: double.infinity,
@@ -469,6 +576,11 @@ class _StatusHero extends StatelessWidget {
               ),
               if (cancelled)
                 const StatusChip(label: 'Cancelled', kind: ChipKind.danger)
+              // A quotation's fate — sent, accepted, rejected, expired — is the
+              // headline on its own screen. An invoice's is the money, which
+              // the balance line below already states.
+              else if (lifecycle != null)
+                lifecycle.chip()
               else if (isOverdue)
                 const StatusChip(label: 'Overdue', kind: ChipKind.danger)
               else
@@ -494,6 +606,23 @@ class _StatusHero extends StatelessWidget {
               fontSize: 12,
             ),
           ),
+          if (invoice.convertedToInvoiceId != null) ...[
+            const SizedBox(height: 12),
+            _ConvertedNotice(
+              invoiceNumber: invoice.number,
+              convertedAt: invoice.convertedAt,
+              // Legacy rows have the badge but no link — the invoice they
+              // became was never recorded, so there is genuinely nowhere to
+              // navigate to and offering a dead button would be worse than
+              // saying plainly that the link is missing.
+              onOpenInvoice:
+                  invoice.status == DocumentStatus.legacyConvertedValue
+                  ? null
+                  : () => context.push(
+                      '/sales/detail/${invoice.convertedToInvoiceId}',
+                    ),
+            ),
+          ],
           if (!cancelled && invoice.balanceDue > 0.001) ...[
             const SizedBox(height: 12),
             Container(
@@ -539,6 +668,60 @@ class _StatusHero extends StatelessWidget {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// "This became invoice X" — with a way to open it.
+///
+/// The link is the reason `markConverted` records which invoice rather than
+/// only that a conversion happened: without it a converted quotation was a
+/// dead-end badge, and the operator had to go and find the invoice by number.
+class _ConvertedNotice extends StatelessWidget {
+  const _ConvertedNotice({
+    required this.invoiceNumber,
+    required this.convertedAt,
+    required this.onOpenInvoice,
+  });
+
+  final String invoiceNumber;
+  final DateTime? convertedAt;
+  final VoidCallback? onOpenInvoice;
+
+  @override
+  Widget build(BuildContext context) {
+    final when = convertedAt;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            PhosphorIconsRegular.arrowSquareOut,
+            size: 16,
+            color: Colors.white.withValues(alpha: 0.9),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              when == null
+                  ? 'Converted to an invoice'
+                  : 'Converted to an invoice on ${Formatters.date(when)}',
+              maxLines: 2,
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.9)),
+            ),
+          ),
+          if (onOpenInvoice != null)
+            TextButton(
+              onPressed: onOpenInvoice,
+              style: TextButton.styleFrom(foregroundColor: Colors.white),
+              child: const Text('Open'),
+            ),
         ],
       ),
     );

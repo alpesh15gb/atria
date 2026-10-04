@@ -7770,6 +7770,28 @@ class $SalesInvoicesTable extends SalesInvoices
     requiredDuringInsert: false,
     defaultValue: const Constant('confirmed'),
   );
+  static const VerificationMeta _convertedToInvoiceIdMeta =
+      const VerificationMeta('convertedToInvoiceId');
+  @override
+  late final GeneratedColumn<String> convertedToInvoiceId =
+      GeneratedColumn<String>(
+        'converted_to_invoice_id',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _convertedAtMeta = const VerificationMeta(
+    'convertedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> convertedAt = GeneratedColumn<DateTime>(
+    'converted_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _paymentStatusMeta = const VerificationMeta(
     'paymentStatus',
   );
@@ -8198,6 +8220,8 @@ class $SalesInvoicesTable extends SalesInvoices
     invoiceDate,
     dueDate,
     status,
+    convertedToInvoiceId,
+    convertedAt,
     paymentStatus,
     paidAmount,
     balanceDue,
@@ -8301,6 +8325,24 @@ class $SalesInvoicesTable extends SalesInvoices
       context.handle(
         _statusMeta,
         status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    }
+    if (data.containsKey('converted_to_invoice_id')) {
+      context.handle(
+        _convertedToInvoiceIdMeta,
+        convertedToInvoiceId.isAcceptableOrUnknown(
+          data['converted_to_invoice_id']!,
+          _convertedToInvoiceIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('converted_at')) {
+      context.handle(
+        _convertedAtMeta,
+        convertedAt.isAcceptableOrUnknown(
+          data['converted_at']!,
+          _convertedAtMeta,
+        ),
       );
     }
     if (data.containsKey('payment_status')) {
@@ -8596,6 +8638,14 @@ class $SalesInvoicesTable extends SalesInvoices
         DriftSqlType.string,
         data['${effectivePrefix}status'],
       )!,
+      convertedToInvoiceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}converted_to_invoice_id'],
+      ),
+      convertedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}converted_at'],
+      ),
       paymentStatus: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}payment_status'],
@@ -8761,8 +8811,24 @@ class SalesInvoiceEntity extends DataClass
   final DateTime invoiceDate;
   final DateTime? dueDate;
 
-  /// draft | confirmed | delivered | cancelled
+  /// draft | confirmed | delivered | sent | accepted | rejected | cancelled
+  ///
+  /// The lifecycle only. Conversion used to overwrite this with 'converted',
+  /// which destroyed the original value — the column could then not also say
+  /// "expired", and `markCancelled` on a converted quotation silently
+  /// un-converted it. Conversion is now [convertedToInvoiceId] instead, so
+  /// this column is free to keep meaning one thing.
   final String status;
+
+  /// The invoice this document became, once converted. Null until then.
+  ///
+  /// This is the record that was missing: `markConverted` set a flag and threw
+  /// away which invoice it became, so a converted quotation could only ever be
+  /// shown as a badge with no way to open what it turned into.
+  final String? convertedToInvoiceId;
+
+  /// When the conversion happened — the date of the link, not the invoice date.
+  final DateTime? convertedAt;
 
   /// unpaid | partial | paid
   final String paymentStatus;
@@ -8814,6 +8880,8 @@ class SalesInvoiceEntity extends DataClass
     required this.invoiceDate,
     this.dueDate,
     required this.status,
+    this.convertedToInvoiceId,
+    this.convertedAt,
     required this.paymentStatus,
     required this.paidAmount,
     required this.balanceDue,
@@ -8866,6 +8934,12 @@ class SalesInvoiceEntity extends DataClass
       map['due_date'] = Variable<DateTime>(dueDate);
     }
     map['status'] = Variable<String>(status);
+    if (!nullToAbsent || convertedToInvoiceId != null) {
+      map['converted_to_invoice_id'] = Variable<String>(convertedToInvoiceId);
+    }
+    if (!nullToAbsent || convertedAt != null) {
+      map['converted_at'] = Variable<DateTime>(convertedAt);
+    }
     map['payment_status'] = Variable<String>(paymentStatus);
     map['paid_amount'] = Variable<double>(paidAmount);
     map['balance_due'] = Variable<double>(balanceDue);
@@ -8943,6 +9017,12 @@ class SalesInvoiceEntity extends DataClass
           ? const Value.absent()
           : Value(dueDate),
       status: Value(status),
+      convertedToInvoiceId: convertedToInvoiceId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(convertedToInvoiceId),
+      convertedAt: convertedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(convertedAt),
       paymentStatus: Value(paymentStatus),
       paidAmount: Value(paidAmount),
       balanceDue: Value(balanceDue),
@@ -9020,6 +9100,10 @@ class SalesInvoiceEntity extends DataClass
       invoiceDate: serializer.fromJson<DateTime>(json['invoiceDate']),
       dueDate: serializer.fromJson<DateTime?>(json['dueDate']),
       status: serializer.fromJson<String>(json['status']),
+      convertedToInvoiceId: serializer.fromJson<String?>(
+        json['convertedToInvoiceId'],
+      ),
+      convertedAt: serializer.fromJson<DateTime?>(json['convertedAt']),
       paymentStatus: serializer.fromJson<String>(json['paymentStatus']),
       paidAmount: serializer.fromJson<double>(json['paidAmount']),
       balanceDue: serializer.fromJson<double>(json['balanceDue']),
@@ -9074,6 +9158,8 @@ class SalesInvoiceEntity extends DataClass
       'invoiceDate': serializer.toJson<DateTime>(invoiceDate),
       'dueDate': serializer.toJson<DateTime?>(dueDate),
       'status': serializer.toJson<String>(status),
+      'convertedToInvoiceId': serializer.toJson<String?>(convertedToInvoiceId),
+      'convertedAt': serializer.toJson<DateTime?>(convertedAt),
       'paymentStatus': serializer.toJson<String>(paymentStatus),
       'paidAmount': serializer.toJson<double>(paidAmount),
       'balanceDue': serializer.toJson<double>(balanceDue),
@@ -9124,6 +9210,8 @@ class SalesInvoiceEntity extends DataClass
     DateTime? invoiceDate,
     Value<DateTime?> dueDate = const Value.absent(),
     String? status,
+    Value<String?> convertedToInvoiceId = const Value.absent(),
+    Value<DateTime?> convertedAt = const Value.absent(),
     String? paymentStatus,
     double? paidAmount,
     double? balanceDue,
@@ -9169,6 +9257,10 @@ class SalesInvoiceEntity extends DataClass
     invoiceDate: invoiceDate ?? this.invoiceDate,
     dueDate: dueDate.present ? dueDate.value : this.dueDate,
     status: status ?? this.status,
+    convertedToInvoiceId: convertedToInvoiceId.present
+        ? convertedToInvoiceId.value
+        : this.convertedToInvoiceId,
+    convertedAt: convertedAt.present ? convertedAt.value : this.convertedAt,
     paymentStatus: paymentStatus ?? this.paymentStatus,
     paidAmount: paidAmount ?? this.paidAmount,
     balanceDue: balanceDue ?? this.balanceDue,
@@ -9225,6 +9317,12 @@ class SalesInvoiceEntity extends DataClass
           : this.invoiceDate,
       dueDate: data.dueDate.present ? data.dueDate.value : this.dueDate,
       status: data.status.present ? data.status.value : this.status,
+      convertedToInvoiceId: data.convertedToInvoiceId.present
+          ? data.convertedToInvoiceId.value
+          : this.convertedToInvoiceId,
+      convertedAt: data.convertedAt.present
+          ? data.convertedAt.value
+          : this.convertedAt,
       paymentStatus: data.paymentStatus.present
           ? data.paymentStatus.value
           : this.paymentStatus,
@@ -9311,6 +9409,8 @@ class SalesInvoiceEntity extends DataClass
           ..write('invoiceDate: $invoiceDate, ')
           ..write('dueDate: $dueDate, ')
           ..write('status: $status, ')
+          ..write('convertedToInvoiceId: $convertedToInvoiceId, ')
+          ..write('convertedAt: $convertedAt, ')
           ..write('paymentStatus: $paymentStatus, ')
           ..write('paidAmount: $paidAmount, ')
           ..write('balanceDue: $balanceDue, ')
@@ -9361,6 +9461,8 @@ class SalesInvoiceEntity extends DataClass
     invoiceDate,
     dueDate,
     status,
+    convertedToInvoiceId,
+    convertedAt,
     paymentStatus,
     paidAmount,
     balanceDue,
@@ -9410,6 +9512,8 @@ class SalesInvoiceEntity extends DataClass
           other.invoiceDate == this.invoiceDate &&
           other.dueDate == this.dueDate &&
           other.status == this.status &&
+          other.convertedToInvoiceId == this.convertedToInvoiceId &&
+          other.convertedAt == this.convertedAt &&
           other.paymentStatus == this.paymentStatus &&
           other.paidAmount == this.paidAmount &&
           other.balanceDue == this.balanceDue &&
@@ -9457,6 +9561,8 @@ class SalesInvoicesCompanion extends UpdateCompanion<SalesInvoiceEntity> {
   final Value<DateTime> invoiceDate;
   final Value<DateTime?> dueDate;
   final Value<String> status;
+  final Value<String?> convertedToInvoiceId;
+  final Value<DateTime?> convertedAt;
   final Value<String> paymentStatus;
   final Value<double> paidAmount;
   final Value<double> balanceDue;
@@ -9503,6 +9609,8 @@ class SalesInvoicesCompanion extends UpdateCompanion<SalesInvoiceEntity> {
     this.invoiceDate = const Value.absent(),
     this.dueDate = const Value.absent(),
     this.status = const Value.absent(),
+    this.convertedToInvoiceId = const Value.absent(),
+    this.convertedAt = const Value.absent(),
     this.paymentStatus = const Value.absent(),
     this.paidAmount = const Value.absent(),
     this.balanceDue = const Value.absent(),
@@ -9550,6 +9658,8 @@ class SalesInvoicesCompanion extends UpdateCompanion<SalesInvoiceEntity> {
     required DateTime invoiceDate,
     this.dueDate = const Value.absent(),
     this.status = const Value.absent(),
+    this.convertedToInvoiceId = const Value.absent(),
+    this.convertedAt = const Value.absent(),
     this.paymentStatus = const Value.absent(),
     this.paidAmount = const Value.absent(),
     this.balanceDue = const Value.absent(),
@@ -9600,6 +9710,8 @@ class SalesInvoicesCompanion extends UpdateCompanion<SalesInvoiceEntity> {
     Expression<DateTime>? invoiceDate,
     Expression<DateTime>? dueDate,
     Expression<String>? status,
+    Expression<String>? convertedToInvoiceId,
+    Expression<DateTime>? convertedAt,
     Expression<String>? paymentStatus,
     Expression<double>? paidAmount,
     Expression<double>? balanceDue,
@@ -9647,6 +9759,9 @@ class SalesInvoicesCompanion extends UpdateCompanion<SalesInvoiceEntity> {
       if (invoiceDate != null) 'invoice_date': invoiceDate,
       if (dueDate != null) 'due_date': dueDate,
       if (status != null) 'status': status,
+      if (convertedToInvoiceId != null)
+        'converted_to_invoice_id': convertedToInvoiceId,
+      if (convertedAt != null) 'converted_at': convertedAt,
       if (paymentStatus != null) 'payment_status': paymentStatus,
       if (paidAmount != null) 'paid_amount': paidAmount,
       if (balanceDue != null) 'balance_due': balanceDue,
@@ -9698,6 +9813,8 @@ class SalesInvoicesCompanion extends UpdateCompanion<SalesInvoiceEntity> {
     Value<DateTime>? invoiceDate,
     Value<DateTime?>? dueDate,
     Value<String>? status,
+    Value<String?>? convertedToInvoiceId,
+    Value<DateTime?>? convertedAt,
     Value<String>? paymentStatus,
     Value<double>? paidAmount,
     Value<double>? balanceDue,
@@ -9745,6 +9862,8 @@ class SalesInvoicesCompanion extends UpdateCompanion<SalesInvoiceEntity> {
       invoiceDate: invoiceDate ?? this.invoiceDate,
       dueDate: dueDate ?? this.dueDate,
       status: status ?? this.status,
+      convertedToInvoiceId: convertedToInvoiceId ?? this.convertedToInvoiceId,
+      convertedAt: convertedAt ?? this.convertedAt,
       paymentStatus: paymentStatus ?? this.paymentStatus,
       paidAmount: paidAmount ?? this.paidAmount,
       balanceDue: balanceDue ?? this.balanceDue,
@@ -9813,6 +9932,14 @@ class SalesInvoicesCompanion extends UpdateCompanion<SalesInvoiceEntity> {
     }
     if (status.present) {
       map['status'] = Variable<String>(status.value);
+    }
+    if (convertedToInvoiceId.present) {
+      map['converted_to_invoice_id'] = Variable<String>(
+        convertedToInvoiceId.value,
+      );
+    }
+    if (convertedAt.present) {
+      map['converted_at'] = Variable<DateTime>(convertedAt.value);
     }
     if (paymentStatus.present) {
       map['payment_status'] = Variable<String>(paymentStatus.value);
@@ -9943,6 +10070,8 @@ class SalesInvoicesCompanion extends UpdateCompanion<SalesInvoiceEntity> {
           ..write('invoiceDate: $invoiceDate, ')
           ..write('dueDate: $dueDate, ')
           ..write('status: $status, ')
+          ..write('convertedToInvoiceId: $convertedToInvoiceId, ')
+          ..write('convertedAt: $convertedAt, ')
           ..write('paymentStatus: $paymentStatus, ')
           ..write('paidAmount: $paidAmount, ')
           ..write('balanceDue: $balanceDue, ')
@@ -23869,6 +23998,8 @@ typedef $$SalesInvoicesTableCreateCompanionBuilder =
       required DateTime invoiceDate,
       Value<DateTime?> dueDate,
       Value<String> status,
+      Value<String?> convertedToInvoiceId,
+      Value<DateTime?> convertedAt,
       Value<String> paymentStatus,
       Value<double> paidAmount,
       Value<double> balanceDue,
@@ -23917,6 +24048,8 @@ typedef $$SalesInvoicesTableUpdateCompanionBuilder =
       Value<DateTime> invoiceDate,
       Value<DateTime?> dueDate,
       Value<String> status,
+      Value<String?> convertedToInvoiceId,
+      Value<DateTime?> convertedAt,
       Value<String> paymentStatus,
       Value<double> paidAmount,
       Value<double> balanceDue,
@@ -24039,6 +24172,16 @@ class $$SalesInvoicesTableFilterComposer
 
   ColumnFilters<String> get status => $composableBuilder(
     column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get convertedToInvoiceId => $composableBuilder(
+    column: $table.convertedToInvoiceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get convertedAt => $composableBuilder(
+    column: $table.convertedAt,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -24297,6 +24440,16 @@ class $$SalesInvoicesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get convertedToInvoiceId => $composableBuilder(
+    column: $table.convertedToInvoiceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get convertedAt => $composableBuilder(
+    column: $table.convertedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get paymentStatus => $composableBuilder(
     column: $table.paymentStatus,
     builder: (column) => ColumnOrderings(column),
@@ -24513,6 +24666,16 @@ class $$SalesInvoicesTableAnnotationComposer
   GeneratedColumn<String> get status =>
       $composableBuilder(column: $table.status, builder: (column) => column);
 
+  GeneratedColumn<String> get convertedToInvoiceId => $composableBuilder(
+    column: $table.convertedToInvoiceId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get convertedAt => $composableBuilder(
+    column: $table.convertedAt,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get paymentStatus => $composableBuilder(
     column: $table.paymentStatus,
     builder: (column) => column,
@@ -24720,6 +24883,8 @@ class $$SalesInvoicesTableTableManager
                 Value<DateTime> invoiceDate = const Value.absent(),
                 Value<DateTime?> dueDate = const Value.absent(),
                 Value<String> status = const Value.absent(),
+                Value<String?> convertedToInvoiceId = const Value.absent(),
+                Value<DateTime?> convertedAt = const Value.absent(),
                 Value<String> paymentStatus = const Value.absent(),
                 Value<double> paidAmount = const Value.absent(),
                 Value<double> balanceDue = const Value.absent(),
@@ -24766,6 +24931,8 @@ class $$SalesInvoicesTableTableManager
                 invoiceDate: invoiceDate,
                 dueDate: dueDate,
                 status: status,
+                convertedToInvoiceId: convertedToInvoiceId,
+                convertedAt: convertedAt,
                 paymentStatus: paymentStatus,
                 paidAmount: paidAmount,
                 balanceDue: balanceDue,
@@ -24814,6 +24981,8 @@ class $$SalesInvoicesTableTableManager
                 required DateTime invoiceDate,
                 Value<DateTime?> dueDate = const Value.absent(),
                 Value<String> status = const Value.absent(),
+                Value<String?> convertedToInvoiceId = const Value.absent(),
+                Value<DateTime?> convertedAt = const Value.absent(),
                 Value<String> paymentStatus = const Value.absent(),
                 Value<double> paidAmount = const Value.absent(),
                 Value<double> balanceDue = const Value.absent(),
@@ -24860,6 +25029,8 @@ class $$SalesInvoicesTableTableManager
                 invoiceDate: invoiceDate,
                 dueDate: dueDate,
                 status: status,
+                convertedToInvoiceId: convertedToInvoiceId,
+                convertedAt: convertedAt,
                 paymentStatus: paymentStatus,
                 paidAmount: paidAmount,
                 balanceDue: balanceDue,

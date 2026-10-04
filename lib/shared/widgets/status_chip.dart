@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/domain/document_status.dart';
 import '../../core/theme/app_theme.dart';
 
 /// Small status pill used for payment / document states.
@@ -28,19 +29,16 @@ class StatusChip extends StatelessWidget {
     }
   }
 
-  factory StatusChip.doc(String status) {
-    switch (status) {
-      case 'confirmed':
-        return const StatusChip(label: 'Confirmed', kind: ChipKind.success);
-      case 'draft':
-        return const StatusChip(label: 'Draft', kind: ChipKind.neutral);
-      case 'delivered':
-        return const StatusChip(label: 'Delivered', kind: ChipKind.info);
-      case 'cancelled':
-        return const StatusChip(label: 'Cancelled', kind: ChipKind.danger);
-      default:
-        return StatusChip(label: status, kind: ChipKind.neutral);
-    }
+  /// The chip for a document lifecycle.
+  ///
+  /// Resolved through [DocumentStatus] rather than a switch of its own. This
+  /// factory used to carry a second copy of the vocabulary, and it had already
+  /// drifted from the sales list's private one — 'converted' fell through to
+  /// grey here while the list showed a blue badge. One enum means a status
+  /// cannot exist in one place and be missing in the other.
+  factory StatusChip.doc(String status, {String docType = 'invoice'}) {
+    final resolved = DocumentStatus.of(status, docType);
+    return StatusChip(label: resolved.label, kind: resolved.kind);
   }
 
   @override
@@ -109,4 +107,5 @@ class StatusChip extends StatelessWidget {
 }
 
 enum ChipKind { success, warning, danger, info, neutral }
+
 enum ChipSize { small, medium }

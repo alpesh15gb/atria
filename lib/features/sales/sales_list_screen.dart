@@ -12,6 +12,7 @@ import '../../core/bulk/bulk_sales_actions.dart';
 import '../../core/constants/indian_states.dart';
 import '../../core/database/app_database.dart';
 import '../../core/database/repositories/sales_repository.dart';
+import '../../core/domain/document_status.dart';
 import '../../core/responsive/breakpoints.dart';
 import '../../core/services/csv_export.dart';
 import '../../core/state/providers.dart';
@@ -43,6 +44,7 @@ class _SalesListScreenState extends ConsumerState<SalesListScreen> {
   final _searchController = TextEditingController();
   String _search = '';
   PeriodRange _range = PeriodRange(period: Period.thisMonth);
+  DocumentStatus? _status;
   Timer? _searchDebounce;
 
   /// The document type this list shows — one screen per type now that the
@@ -96,6 +98,31 @@ class _SalesListScreenState extends ConsumerState<SalesListScreen> {
     'credit_note' => 'New credit note',
     _ => 'New invoice',
   };
+
+  /// The statuses worth offering as filters, for the document type on screen.
+  ///
+  /// Built from [DocumentStatus.forDocType] rather than a hand-written list, so
+  /// the filter and the lifecycle can never offer a state the vocabulary does
+  /// not have. 'Confirmed' is dropped because it is the stored default on every
+  /// saved invoice — a segment labelled Confirmed that returns the whole list is
+  /// worse than no segment.
+  List<AtriaSegment<String>> get _statusSegments {
+    final allowed = DocumentStatus.forDocType(_docType);
+    // 'confirmed' is the stored default on every invoice and reads as "no
+    // filter", so offering it as a segment that returns "everything" is a lie.
+    final choices = allowed
+        .where(
+          (s) =>
+              s != DocumentStatus.confirmed &&
+              s != DocumentStatus.convertedLegacy,
+        )
+        .toList();
+    if (choices.length < 2) return const [];
+    return [
+      const AtriaSegment(value: 'all', label: 'All'),
+      ...choices.map((s) => AtriaSegment(value: s.name, label: s.label)),
+    ];
+  }
 
   /// Singular name of what this screen lists.
   ///
@@ -179,6 +206,20 @@ class _SalesListScreenState extends ConsumerState<SalesListScreen> {
           onChanged: (period) =>
               setState(() => _range = _range.withPeriod(period)),
         ),
+        // Only for the document types that actually have a lifecycle to
+        // filter. On invoices every row is 'confirmed', so the filter would
+        // offer four segments of which three return nothing.
+        if (_statusSegments.isNotEmpty)
+          AtriaAdaptiveFilter<String>(
+            label: 'Status',
+            segments: _statusSegments,
+            value: _status?.name ?? 'all',
+            onChanged: (value) => setState(
+              () => _status = value == 'all'
+                  ? null
+                  : DocumentStatus.of(value, _docType),
+            ),
+          ),
         // A custom window needs its two days on screen; the named ones show
         // the window in the select itself.
         if (_range.isCustom)
@@ -188,10 +229,11 @@ class _SalesListScreenState extends ConsumerState<SalesListScreen> {
           ),
       ],
       body: _SaleList(
-        key: ValueKey('$_docType|${_range.cacheKey}'),
+        key: ValueKey('$_docType|${_range.cacheKey}|${_status?.name}'),
         docType: _docType,
         search: _search,
         range: _range,
+        statusFilter: _status,
       ),
     );
   }
@@ -203,11 +245,21 @@ class _SaleList extends ConsumerStatefulWidget {
     required this.docType,
     required this.search,
     required this.range,
+    required this.statusFilter,
   });
 
   final String docType;
   final String search;
   final PeriodRange range;
+
+  /// Null = every status. Otherwise only this one.
+  ///
+  /// Single-select on purpose. A multi-select status filter needs a "which
+  /// are on?" control that stays visible while you set it, and the filter row
+  /// is a single line of pills — a second sheet for every list is a worse
+  /// trade than not offering combinations. "All" is the first segment, so the
+  /// way back out is always one tap and never a hidden reset.
+  final DocumentStatus? statusFilter;
 
   @override
   ConsumerState<_SaleList> createState() => _SaleListState();
@@ -221,7 +273,9 @@ class _SaleListState extends ConsumerState<_SaleList> {
 
   Stream<List<SalesInvoiceEntity>> _streamFor(SalesRepository? sales) {
     if (sales == null) return const Stream.empty();
-    final key = '${widget.docType}|${widget.search}|${widget.range.cacheKey}';
+    final key =
+        '${widget.docType}|${widget.search}|${widget.range.cacheKey}|'
+        '${widget.statusFilter?.name ?? 'all'}';
     return _streams.putIfAbsent(key, () {
       return sales.watchList(
         docType: widget.docType,
@@ -229,6 +283,9 @@ class _SaleListState extends ConsumerState<_SaleList> {
         from: widget.range.from,
         to: widget.range.to,
         limit: 200,
+        statuses: widget.statusFilter == null
+            ? const {}
+            : {widget.statusFilter!},
       );
     });
   }
@@ -724,30 +781,58 @@ IconData _docIcon(String docType) => switch (docType) {
   _ => Icons.receipt_long_outlined,
 };
 
-/// The lifecycle word for a row — or null when the payment state is what the
-/// Status column should carry.
+/// The lifecycle a row is in, with expiry worked out rather than read.
 ///
-/// Invoices deliberately return null when they are healthy: every saved
-/// invoice is stored as 'confirmed', so printing "Confirmed" there meant the
-/// Status column read "Confirmed" on a fully paid invoice and on a long-
-/// overdue one alike, and Paid / Partial / Unpaid were never visible. The
-/// lifecycle words are reserved for the document types where they mean
-/// something (estimates, orders, notes).
-String? _statusText(SalesInvoiceEntity doc, String docType) {
-  if (doc.status == 'cancelled') return 'Cancelled';
-  switch (docType) {
-    case 'invoice':
-      return _isOverdue(doc) ? 'Overdue' : null; // null -> payment status
-    case 'quotation':
-    case 'sales_order':
-      if (doc.status == 'converted') return 'Converted';
-      return doc.status == 'draft' ? 'Draft' : 'Open';
-    case 'delivery_note':
-    case 'credit_note':
-      return doc.status == 'draft' ? 'Draft' : 'Issued';
-    default:
-      return null;
+/// Null means "this column carries the payment state, not a lifecycle" —
+/// which is the case for a healthy invoice, because every saved invoice is
+/// 'confirmed' and a Status column reading "Confirmed" above a long-overdue
+/// one told the operator nothing while hiding Paid / Partial / Unpaid.
+DocumentStatus? _lifecycleOf(SalesInvoiceEntity doc, String docType) {
+  if (doc.status == 'cancelled') return DocumentStatus.cancelled;
+  if (doc.convertedToInvoiceId != null ||
+      doc.status == DocumentStatus.legacyConvertedValue) {
+    return DocumentStatus.convertedLegacy;
   }
+  if (DocumentStatus.isExpired(
+    status: doc.status,
+    docType: docType,
+    // A quotation's "Valid till" is stored in dueDate — the same field an
+    // invoice uses for when payment is due, and for a document nobody has
+    // committed to paying, that field means the offer's last day.
+    validTill: doc.dueDate,
+  )) {
+    return DocumentStatus.expired;
+  }
+  final stored = DocumentStatus.of(doc.status, docType);
+  // 'confirmed' on an invoice is not news, and a quotation that is merely
+  // awaiting a reply has not earned a badge either — it is the default, so it
+  // gets no chip rather than a chip every row shares.
+  if (stored == DocumentStatus.confirmed && docType != 'invoice') return null;
+  if (docType == 'invoice') return null;
+  return stored;
+}
+
+/// The label and colour for a row's Status cell, decided in one place.
+///
+/// The two used to be separate functions, which is how they drifted: the
+/// label knew about 'converted' and the colour function knew about it
+/// independently, and a status added to one was invisible in the other.
+({String label, ChipKind kind}) _rowStatus(
+  SalesInvoiceEntity doc,
+  String docType,
+) {
+  final lifecycle = _lifecycleOf(doc, docType);
+  if (lifecycle != null) {
+    return (label: lifecycle.label, kind: lifecycle.kind);
+  }
+  if (_isOverdue(doc)) {
+    return (label: 'Overdue', kind: ChipKind.danger);
+  }
+  return switch (doc.paymentStatus) {
+    'paid' => (label: 'Paid', kind: ChipKind.success),
+    'partial' => (label: 'Partial', kind: ChipKind.warning),
+    _ => (label: 'Unpaid', kind: ChipKind.neutral),
+  };
 }
 
 /// The same rule the dashboard and the reminders list use: a live document
@@ -755,24 +840,6 @@ String? _statusText(SalesInvoiceEntity doc, String docType) {
 bool _isOverdue(SalesInvoiceEntity doc) {
   final due = doc.dueDate;
   return doc.balanceDue > 0.001 && due != null && due.isBefore(DateTime.now());
-}
-
-String _paymentLabel(SalesInvoiceEntity doc) => switch (doc.paymentStatus) {
-  'paid' => 'Paid',
-  'partial' => 'Partial',
-  _ => 'Unpaid',
-};
-
-ChipKind _statusKindFor(SalesInvoiceEntity doc, String docType) {
-  if (doc.status == 'cancelled') return ChipKind.danger;
-  if (doc.status == 'converted') return ChipKind.info;
-  if (docType != 'invoice') return ChipKind.info;
-  if (_isOverdue(doc)) return ChipKind.danger;
-  return switch (doc.paymentStatus) {
-    'paid' => ChipKind.success,
-    'partial' => ChipKind.warning,
-    _ => ChipKind.neutral,
-  };
 }
 
 /// A tick target sized to fit a table's fixed 50px leading slot.
@@ -860,8 +927,8 @@ class _SaleRow extends ConsumerWidget {
       subtitle: _subtitle,
       amount: Money.of(invoice.grandTotal),
       amountColorize: false,
-      statusLabel: _statusText(invoice, docType) ?? _paymentLabel(invoice),
-      statusKind: _statusKindFor(invoice, docType),
+      statusLabel: _rowStatus(invoice, docType).label,
+      statusKind: _rowStatus(invoice, docType).kind,
       dimmed: invoice.status == 'cancelled',
       onTap: () => context.push('/sales/detail/${invoice.id}'),
       // Content-aware kebab: the entries adapt to the document type and its
@@ -872,6 +939,7 @@ class _SaleRow extends ConsumerWidget {
         docId: invoice.id,
         number: invoice.number,
         status: invoice.status,
+        convertedToInvoiceId: invoice.convertedToInvoiceId,
         paymentStatus: invoice.paymentStatus,
         balanceDue: invoice.balanceDue,
       ),
@@ -922,12 +990,12 @@ class _SaleTableRow extends ConsumerWidget {
       date: Formatters.date(invoice.invoiceDate),
       number: invoice.number,
       party: invoice.partyName ?? 'Walk-in customer',
-      detail: _statusText(invoice, docType) ?? _paymentLabel(invoice),
+      detail: _rowStatus(invoice, docType).label,
       amount: Money.of(invoice.grandTotal),
       amountColorize: false,
       balance: Money.of(invoice.balanceDue),
-      statusLabel: _statusText(invoice, docType) ?? _paymentLabel(invoice),
-      statusKind: _statusKindFor(invoice, docType),
+      statusLabel: _rowStatus(invoice, docType).label,
+      statusKind: _rowStatus(invoice, docType).kind,
       // The Status column already says it — a pill beside the balance
       // repeated the word and nudged the figure left of its header.
       showStatusChip: false,
@@ -939,6 +1007,7 @@ class _SaleTableRow extends ConsumerWidget {
         docId: invoice.id,
         number: invoice.number,
         status: invoice.status,
+        convertedToInvoiceId: invoice.convertedToInvoiceId,
         paymentStatus: invoice.paymentStatus,
         balanceDue: invoice.balanceDue,
       ),

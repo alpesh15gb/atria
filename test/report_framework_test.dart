@@ -126,12 +126,13 @@ void main() {
       final finished = {
         ...ReportCatalogue.inCategory(ReportCategory.transaction),
         ...ReportCatalogue.inCategory(ReportCategory.party),
+        ...ReportCatalogue.inCategory(ReportCategory.itemStock),
       };
       expect(
         ReportCatalogue.implemented.map((d) => d.spec.id).toSet(),
         finished.map((d) => d.spec.id).toSet(),
       );
-      expect(ReportCatalogue.implemented, hasLength(15));
+      expect(ReportCatalogue.implemented, hasLength(26));
     });
   });
 

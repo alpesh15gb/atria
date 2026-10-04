@@ -159,8 +159,57 @@ so nothing ships as a stub.
             - **Party Statement totals on `grandTotal`, deliberately and alone**,
               because what a party owes includes tax. It will not foot against
               the P&L and that is correct.
-      - [ ] **4c Item/Stock (11)** — five of them on the v11 costing. **Next.**
+      - [x] **4c Item/Stock (11).** Shipped. All eleven registered in
+            `ReportCatalogue`; sources in
+            `lib/core/reports/sources/item_stock/`; `StockDetail` gets a
+            bespoke `ReportDocumentView` (a running balance is not readable in
+            a grid). `test/report_item_test.dart` (22),
+            `test/item_common_test.dart`. Suite **990 / 0 failed**.
+            - **Three real defects, each revert-proven.**
+              `stock_detail` accumulated the running balance **only inside the
+              window**, so the opening balance — which *is* the sum of the
+              out-of-window rows — was skipped, and a June sale after a January
+              purchase reported a balance of −2. Every movement moves the
+              balance; the out-of-window rows are carried for exactly this.
+              `item_common.marginPercent` called `Rational.toDecimal()` with no
+              scale, which **throws** on a non-terminating ratio — 66.67% of
+              three-quarters was a crash, not a number. `toDecimal` also
+              *truncates*, so converting straight to 2 places gives 66.66 where
+              `Money.round2` gives 66.67; the fix converts at scale 6 then
+              rounds once.
+              `item_wise_discount`'s `gross` omitted the document allowance, so
+              `gross − discount ≠ net` on every row the reader was invited to
+              check.
+            - **The invoice-discount share is read back from the books, not
+              apportioned a second time.** `GstEngine` apportions the header
+              allowance for tax and then *discards* the per-line result — but
+              since `taxableValue = round2(base.taxable − share)`, the share is
+              recoverable exactly. Dividing again in the report means a second
+              apportionment that must agree with the first to the paisa, and the
+              bills that divide badly (three of the same thing — the commonest
+              bill there is) are precisely the ones that come out wrong.
+              The *base* comes from `GstEngine.computeLine`, not a second copy
+              of its arithmetic: a line discount can be a percentage, an
+              amount, or both with clamping, and inclusive lines **back-calculate**
+              `taxable`. Proven: with a naive `gross − discount` base an
+              inclusive line's share reads 280 instead of 100 — ₹100 of
+              discount inflated by the ₹180 of tax the customer paid on it.
+              - **`gross − discount == net` is an exclusive-line identity
+                only.** On an inclusive line the gross carries the tax, so it
+                reconciles to the taxable *through* the tax. Asserting it there
+                would be asserting the bug the delegation exists to avoid.
+            - **`ItemRepository` is write-only** — no `get`. Fixtures read
+              `db.select(db.items)`. Use a `patchItem(id, change)` helper: the
+              `put((await storedItem(id)).copyWith(…))` shape has two `await`s
+              and only one on a Future, which the analyzer rightly flags every
+              time.
+            - **Nothing in `lib/` writes `transfer_in`/`transfer_out`.** The
+              godowns table and `godownId` column exist (v11) and Stock Transfer
+              reads them, but there is no transfer entry UI. The test writes
+              movements straight to the table and says so — the missing piece
+              is the screen, not the report.
       - [ ] **4d GST (6).** GSTR-1/3B reuse `GstReturnBuilder`; GSTR-9 is new.
+            **Next.**
       - [ ] **4e Business Status + Taxes (8)** — 27EQ needs v12.
       - [ ] **4f Expense + Order + Loan (6)**.
 - [ ] **Phase 5 — retire the dashboard** to the menu + Overview entry.

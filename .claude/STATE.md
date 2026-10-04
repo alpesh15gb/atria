@@ -1,8 +1,9 @@
 # Project State
 
-_Last updated: 2026-10-05 (**reporting build, Phase 4b Party shipped**; the
-Print button fixed; Android + Windows debug builds green; Phases 0–3 shipped;
-the earlier six-phase build is complete)_
+_Last updated: 2026-10-05 (**reporting build, Phase 4c Item/Stock shipped** —
+26 of 47 reports done; suite 990 / 0 failed; the Print button fixed; Android +
+Windows debug builds green; Phases 0–3 shipped; the earlier six-phase build is
+complete)_
 
 ## Current objective
 
@@ -20,12 +21,31 @@ Six phases, full plan in
 | 1 | schema v11: costing, godown, party groups | **shipped** (`7da4eea`, `9931129`) |
 | 2 | schema v12: bank accounts, loans, TDS metadata | **shipped** (`ce845e1`) |
 | 3 | the framework (spec / engine / view / export / catalogue) | **shipped** (`2b483a4`) |
-| 4 | the 47 reports, one commit per category | **4a + 4b shipped**; next 4c Item/Stock (11) |
+| 4 | the 47 reports, one commit per category | **4a + 4b + 4c shipped**; next 4d GST (6) |
 | 5 | retire the dashboard to the menu + Overview | — |
 
-Also asked 2026-10-05, all three in hand: a **comparison against the top
-accounting apps** (in progress), **Android + Windows builds** (both green), and
-a **real check of the printing option** (found broken; fixed — see below).
+**Next exact action: Phase 4d — the six GST reports** (GSTR-1, GSTR-2A
+Reconciliation, GSTR-3B, GSTR-9, Sale Summary By HSN, SAC Report). GSTR-1 and
+3B reuse `GstReturnBuilder`; GSTR-9 is new. Read `report_gst_test.dart`'s
+predecessors in `test/report_transaction_test.dart` for the fixture idiom —
+sources go in `lib/core/reports/sources/gst/`, register in
+`ReportCatalogue._gst`, and the two return-shaped ones get
+`ReportLayout.document` views in `lib/features/reports/documents/`.
+
+Also asked 2026-10-05: a **comparison against the top accounting apps**
+(research complete, **not yet written up to the user** — see the caveat below),
+**Android + Windows builds** (both green), and a **real check of the printing
+option** (found broken; fixed).
+
+**Comparison caveat to pass on, not launder:** the research agent's WebSearch
+returned empty for every query in its environment, so every fact comes from a
+direct fetch of a vendor site/doc/store listing, and **all Reddit / user-review
+sentiment is UNVERIFIED.** Also: the first comparator list was wrong — WinApp
+(SML Infotech), Fello and Refill have no verifiable billing product, QBO India
+has been defunct since 1 Jul 2023, Posist became Restroworks (restaurant-only),
+`vyaparapp.com` and `busyaccountingsoftware.com` are parked domains (real sites
+are `vyaparapp.in` and `busy.in`). The real set is **TallyPrime, Vyapar, Zoho
+Books, Marg, Busy, Khatabook.**
 
 ### The earlier six-phase build — complete
 

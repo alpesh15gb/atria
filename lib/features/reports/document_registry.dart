@@ -4,6 +4,7 @@ import '../../core/reports/engine/report_result.dart';
 import 'documents/balance_sheet_document.dart';
 import 'documents/cash_flow_document.dart';
 import 'documents/profit_and_loss_document.dart';
+import 'documents/stock_detail_document.dart';
 import 'documents/trial_balance_document.dart';
 
 /// The bespoke body for a document-layout report, by catalogue id.
@@ -30,4 +31,5 @@ final Map<String, Widget? Function(BuildContext, ReportResult)> _builders = {
   'trial_balance': buildTrialBalance,
   'balance_sheet': buildBalanceSheet,
   'cash_flow': buildCashFlow,
+  'stock_detail': buildStockDetail,
 };

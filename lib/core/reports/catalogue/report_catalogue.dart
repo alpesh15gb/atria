@@ -4,6 +4,17 @@ import '../../database/app_database.dart';
 import '../engine/report_result.dart';
 import '../engine/report_runner.dart';
 import '../engine/report_source.dart';
+import '../sources/item_stock/item_category_pnl.dart';
+import '../sources/item_stock/item_detail.dart';
+import '../sources/item_stock/item_report_by_party.dart';
+import '../sources/item_stock/item_wise_discount.dart';
+import '../sources/item_stock/item_wise_pnl.dart';
+import '../sources/item_stock/low_stock_summary.dart';
+import '../sources/item_stock/sp_by_item_category.dart';
+import '../sources/item_stock/stock_by_item_category.dart';
+import '../sources/item_stock/stock_detail.dart';
+import '../sources/item_stock/stock_summary.dart';
+import '../sources/item_stock/stock_transfer.dart';
 import '../sources/party/all_parties.dart';
 import '../sources/party/party_report_by_item.dart';
 import '../sources/party/party_statement.dart';
@@ -227,50 +238,17 @@ class ReportCatalogue {
 
   // ---- Item/Stock (11) ----
   static final List<ReportDefinition> _itemStock = [
-    _placeholder('stock_summary', 'Stock summary', ReportCategory.itemStock),
-    _placeholder(
-      'item_report_by_party',
-      'Item Report By Party',
-      ReportCategory.itemStock,
-    ),
-    _placeholder('item_wise_pnl', 'Item Wise P&L', ReportCategory.itemStock),
-    _placeholder(
-      'item_category_pnl',
-      'Item Category Wise P&L',
-      ReportCategory.itemStock,
-    ),
-    _placeholder(
-      'low_stock_summary',
-      'Low Stock Summary',
-      ReportCategory.itemStock,
-    ),
-    _placeholder(
-      'stock_detail',
-      'Stock Detail',
-      ReportCategory.itemStock,
-      layout: ReportLayout.document,
-    ),
-    _placeholder('item_detail', 'Item Detail', ReportCategory.itemStock),
-    _placeholder(
-      'sp_by_item_category',
-      'Sale/Purchase Report By Item Category',
-      ReportCategory.itemStock,
-    ),
-    _placeholder(
-      'stock_by_item_category',
-      'Stock Summary Report By Item Category',
-      ReportCategory.itemStock,
-    ),
-    _placeholder(
-      'item_wise_discount',
-      'Item Wise Discount',
-      ReportCategory.itemStock,
-    ),
-    _placeholder(
-      'stock_transfer',
-      'Stock Transfer Report',
-      ReportCategory.itemStock,
-    ),
+    stockSummary,
+    itemReportByParty,
+    itemWisePnl,
+    itemCategoryPnl,
+    lowStockSummary,
+    stockDetail,
+    itemDetail,
+    spByItemCategory,
+    stockByItemCategory,
+    itemWiseDiscount,
+    stockTransfer,
   ];
 
   // ---- Business Status (2) ----

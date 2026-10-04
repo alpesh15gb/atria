@@ -5,6 +5,7 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../core/database/app_database.dart';
 import '../../core/navigation/nav_destinations.dart';
+import '../../core/state/member_session_controller.dart';
 import '../../core/responsive/breakpoints.dart';
 import '../../core/state/providers.dart';
 import '../../core/theme/app_radius.dart';
@@ -44,11 +45,15 @@ class _GlobalSearchDialogState extends ConsumerState<_GlobalSearchDialog> {
     super.dispose();
   }
 
-  /// Every page the app has, flattened out of the rail's sections.
+  /// Every page this member may open, flattened out of the rail's sections.
+  ///
+  /// Filtered, because global search is a navigation list: offering a result
+  /// that redirects straight back to Settings is worse than not offering it.
   List<NavSectionEntry> get _pages {
+    final session = ref.read(effectiveSessionProvider);
     final entries = <NavSectionEntry>[];
     for (final section in NavDestinations.sections) {
-      entries.addAll(section.entries);
+      entries.addAll(section.visibleTo(session));
     }
     return entries;
   }
@@ -117,8 +122,7 @@ class _GlobalSearchDialogState extends ConsumerState<_GlobalSearchDialog> {
           maxWidth: 620,
           // The space the inset leaves, floored at a field plus a couple of
           // rows and capped at the 520dp this panel has always been.
-          maxHeight:
-              (window.height - inset.vertical - 16).clamp(140.0, 520.0),
+          maxHeight: (window.height - inset.vertical - 16).clamp(140.0, 520.0),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -147,9 +151,10 @@ class _GlobalSearchDialogState extends ConsumerState<_GlobalSearchDialog> {
                 padding: const EdgeInsets.symmetric(vertical: 6),
                 children: [
                   if (pages.isNotEmpty) ...[
-                    _heading(context, _query.trim().isEmpty
-                        ? 'GO TO'
-                        : 'PAGES'),
+                    _heading(
+                      context,
+                      _query.trim().isEmpty ? 'GO TO' : 'PAGES',
+                    ),
                     for (final page in pages)
                       _ResultTile(
                         icon: page.icon,
@@ -209,10 +214,10 @@ class _GlobalSearchDialogState extends ConsumerState<_GlobalSearchDialog> {
       child: Text(
         label,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              letterSpacing: 1.1,
-              fontWeight: FontWeight.w700,
-            ),
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          letterSpacing: 1.1,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }
@@ -256,7 +261,8 @@ class _InvoiceResults extends ConsumerWidget {
               _ResultTile(
                 icon: PhosphorIconsRegular.receipt,
                 title: doc.partyName ?? 'Walk-in customer',
-                subtitle: '${doc.number}  ·  '
+                subtitle:
+                    '${doc.number}  ·  '
                     '${Formatters.money(Money.of(doc.grandTotal))}',
                 onTap: () => onOpen(doc.id),
               ),
@@ -361,9 +367,8 @@ class _NoFirm extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
       child: Text(
         'Choose a business first.',
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
+        style: Theme.of(context).textTheme.bodySmall
+            ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
       ),
     );
   }
@@ -381,9 +386,8 @@ class _NoMatch extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
       child: Text(
         'No $what match “$query”.',
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
+        style: Theme.of(context).textTheme.bodySmall
+            ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
       ),
     );
   }
@@ -441,9 +445,7 @@ class _ResultTile extends StatelessWidget {
               subtitle!,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: text.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
+              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
       onTap: onTap,
     );

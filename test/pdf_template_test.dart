@@ -47,8 +47,12 @@ void main() {
   }
 
   Future<(SalesInvoiceEntity, List<SalesInvoiceItemEntity>)> seedInvoice(
-      AppDatabase db, String firmId) async {
-    final invoice = await db.into(db.salesInvoices).insertReturning(
+    AppDatabase db,
+    String firmId,
+  ) async {
+    final invoice = await db
+        .into(db.salesInvoices)
+        .insertReturning(
           SalesInvoicesCompanion.insert(
             id: 'inv-1',
             firmId: firmId,
@@ -59,7 +63,9 @@ void main() {
             grandTotal: const Value(1180.0),
           ),
         );
-    final item = await db.into(db.salesInvoiceItems).insertReturning(
+    final item = await db
+        .into(db.salesInvoiceItems)
+        .insertReturning(
           SalesInvoiceItemsCompanion.insert(
             id: 'item-1',
             invoiceId: invoice.id,
@@ -77,50 +83,57 @@ void main() {
     final db = openMemory();
     final firmId = await seedFirm(db);
     final (invoice, items) = await seedInvoice(db, firmId);
-    final firm =
-        await (db.select(db.firms)..where((f) => f.id.equals(firmId))).getSingle();
+    final firm = await (db.select(
+      db.firms,
+    )..where((f) => f.id.equals(firmId))).getSingle();
     // The header prints the firm's name, so a template test against a blank
     // business would be testing half a page.
     expect(firm.name, 'Alpha Traders');
 
     for (final style in PdfTemplateStyle.all) {
-      final bytes = await InvoicePdf.forFirm(firm).build(
-        invoice: invoice,
-        items: items,
-      );
+      final bytes = await InvoicePdf.forFirm(firm)
+          .build(invoice: invoice, items: items);
       // A PDF always starts with %PDF-; anything else means the builder threw
       // and something swallowed it into an empty buffer.
-      expect(bytes.length, greaterThan(1000),
-          reason: '${style.id} produced ${bytes.length} bytes');
-      expect(String.fromCharCodes(bytes.take(5)), '%PDF-',
-          reason: '${style.id} is not a PDF');
+      expect(
+        bytes.length,
+        greaterThan(1000),
+        reason: '${style.id} produced ${bytes.length} bytes',
+      );
+      expect(
+        String.fromCharCodes(bytes.take(5)),
+        '%PDF-',
+        reason: '${style.id} is not a PDF',
+      );
     }
   });
 
-  test('the template stored on the firm is the one that builds the PDF',
-      () async {
-    final db = openMemory();
-    final firmId = await seedFirm(db, template: 'modern');
-    final firm =
-        await (db.select(db.firms)..where((f) => f.id.equals(firmId))).getSingle();
-    final (invoice, items) = await seedInvoice(db, firmId);
+  test(
+    'the template stored on the firm is the one that builds the PDF',
+    () async {
+      final db = openMemory();
+      final firmId = await seedFirm(db, template: 'modern');
+      final firm = await (db.select(
+        db.firms,
+      )..where((f) => f.id.equals(firmId))).getSingle();
+      final (invoice, items) = await seedInvoice(db, firmId);
 
-    expect(PdfTemplateStyle.resolve(firm.pdfTemplate).id, 'modern');
-    expect(InvoicePdf.forFirm(firm).style.id, 'modern');
+      expect(PdfTemplateStyle.resolve(firm.pdfTemplate).id, 'modern');
+      expect(InvoicePdf.forFirm(firm).style.id, 'modern');
 
-    final bytes = await InvoicePdf.forFirm(firm).build(
-      invoice: invoice,
-      items: items,
-    );
-    expect(bytes.length, greaterThan(1000));
-  });
+      final bytes = await InvoicePdf.forFirm(firm)
+          .build(invoice: invoice, items: items);
+      expect(bytes.length, greaterThan(1000));
+    },
+  );
 
   test('a firm with no stored template prints classic', () async {
     // The v8 default, and what every firm upgraded from an older build gets.
     final db = openMemory();
     final firmId = await seedFirm(db);
-    final firm =
-        await (db.select(db.firms)..where((f) => f.id.equals(firmId))).getSingle();
+    final firm = await (db.select(
+      db.firms,
+    )..where((f) => f.id.equals(firmId))).getSingle();
     expect(firm.pdfTemplate, 'classic');
     expect(InvoicePdf.forFirm(firm).style.id, 'classic');
   });
@@ -157,7 +170,9 @@ void main() {
       final first = AppDatabase.test(NativeDatabase(file));
       final firm = await first.firmRepository.create(name: 'Alpha Traders');
       final firmId = firm.id;
-      await first.into(first.payments).insert(
+      await first
+          .into(first.payments)
+          .insert(
             PaymentsCompanion.insert(
               id: 'pmt-1',
               firmId: firmId,
@@ -169,41 +184,66 @@ void main() {
             ),
           );
 
-      // 2. Roll it back to what a v7 file looked like. The v9 columns go too: the
-      //    migration chain runs from 7 all the way to current, so leaving them
-      //    in place makes the v9 step try to add a column that already exists
-      //    and the upgrade fails on a duplicate — which is a property of this
-      //    hand-rolled rollback, not of any real database.
+      // 2. Roll it back to what a v7 file looked like. The v9 and v10 columns go
+      //    too: the migration chain runs from 7 all the way to current, so
+      //    leaving them in place makes those steps try to add a column that
+      //    already exists and the upgrade fails on a duplicate — which is a
+      //    property of this hand-rolled rollback, not of any real database.
       await first.customStatement('ALTER TABLE firms DROP COLUMN pdf_template');
-      await first.customStatement('ALTER TABLE payments DROP COLUMN party_gstin');
+      await first.customStatement(
+        'ALTER TABLE payments DROP COLUMN party_gstin',
+      );
       await first.customStatement(
         'ALTER TABLE sales_invoices DROP COLUMN converted_to_invoice_id',
       );
       await first.customStatement(
         'ALTER TABLE sales_invoices DROP COLUMN converted_at',
       );
+      await first.customStatement(
+        'ALTER TABLE firm_members DROP COLUMN pin_hash',
+      );
+      await first.customStatement(
+        'ALTER TABLE firm_members DROP COLUMN pin_salt',
+      );
+      await first.customStatement(
+        'ALTER TABLE firm_members DROP COLUMN is_active',
+      );
       await first.customStatement('PRAGMA user_version = 7');
       await first.close();
 
-      // 3. Reopen: this runs the v7 -> v8 and v8 -> v9 upgrades for real.
+      // 3. Reopen: this runs the v7 -> v8, v8 -> v9 and v9 -> v10 upgrades for
+      //    real.
       final upgraded = AppDatabase.test(NativeDatabase(file));
       addTearDown(upgraded.close);
 
-      final upgradedFirm = await (upgraded.select(upgraded.firms)
-            ..where((f) => f.id.equals(firmId)))
-          .getSingle();
-      expect(upgradedFirm.name, 'Alpha Traders', reason: 'the row must survive');
-      expect(upgradedFirm.pdfTemplate, 'classic',
-          reason: 'an upgraded firm keeps printing what it always printed');
+      final upgradedFirm = await (upgraded.select(
+        upgraded.firms,
+      )..where((f) => f.id.equals(firmId))).getSingle();
+      expect(
+        upgradedFirm.name,
+        'Alpha Traders',
+        reason: 'the row must survive',
+      );
+      expect(
+        upgradedFirm.pdfTemplate,
+        'classic',
+        reason: 'an upgraded firm keeps printing what it always printed',
+      );
 
       final payment = await upgraded.select(upgraded.payments).getSingle();
       expect(payment.number, 'PMT-001');
       expect(payment.amount, 500.0);
-      expect(payment.partyGstin, isNull,
-          reason: 'a GSTIN that was never recorded must not be invented');
+      expect(
+        payment.partyGstin,
+        isNull,
+        reason: 'a GSTIN that was never recorded must not be invented',
+      );
 
-      expect(upgraded.schemaVersion, 9,
-          reason: 'the chain runs all the way to current, not just to 8');
+      expect(
+        upgraded.schemaVersion,
+        10,
+        reason: 'the chain runs all the way to current, not just to 8',
+      );
     });
   });
 }

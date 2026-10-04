@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../domain/member_role.dart';
 import '../navigation/nav_destinations.dart';
+import '../state/member_session_controller.dart';
 import '../state/providers.dart';
 import '../../features/dashboard/dashboard_screen.dart';
 import '../../features/expenses/expense_editor_screen.dart';
@@ -25,6 +27,7 @@ import '../../features/purchase/purchase_editor_screen.dart';
 import '../../features/purchase/purchase_list_screen.dart';
 import '../../core/sync/scan_seed.dart';
 import '../../features/recycle_bin/recycle_bin_screen.dart';
+import '../../features/settings/members_screen.dart';
 import '../../features/reports/gst_reports_screen.dart';
 import '../../features/reports/reports_screen.dart';
 import '../../features/sales/payment_reminders_screen.dart';
@@ -63,6 +66,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   final refresh = ValueNotifier<int>(0);
   ref.onDispose(refresh.dispose);
   ref.listen<void>(appInitializationProvider, (_, _) => refresh.value++);
+  // The member role guard below is a redirect, and a redirect only runs when
+  // something tells the router to re-evaluate — so a sign-in or sign-out has to
+  // pulse the same listenable. Without this, a deep link into /settings/members
+  // taken while signed in as an admin would stay open after switching to an
+  // accountant until the next navigation.
+  ref.listen<MemberSession>(
+    effectiveSessionProvider,
+    (_, _) => refresh.value++,
+  );
 
   // Where the platform asked to launch before we parked it on the splash.
   // Remembering it lets the redirect RESUME that route once the books have
@@ -152,276 +164,316 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           return AdaptiveNavShell(navigationShell: navigationShell);
         },
         branches: [
-          StatefulShellBranch(routes: [
-            GoRoute(
-              path: '/dashboard',
-              builder: (context, state) => const DashboardScreen(),
-            ),
-          ]),
-          StatefulShellBranch(routes: [
-            GoRoute(
-              path: '/sales',
-              builder: (context, state) => SalesListScreen(
-                // ?type= lands directly on a document type — the left rail's
-                // Sales dropdown deep-links here.
-                initialType: state.uri.queryParameters['type'],
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/dashboard',
+                builder: (context, state) => const DashboardScreen(),
               ),
-              routes: [
-                GoRoute(
-                  path: 'new',
-                  builder: (context, state) => SaleEditorScreen(
-                    docType: state.uri.queryParameters['type'] ?? 'invoice',
-                    // ?from=<id> seeds a new invoice from a quotation or
-                    // sales order — the convert flow.
-                    convertFromId: state.uri.queryParameters['from'],
-                    // ?party=<id> preselects the customer (Parties pane's
-                    // "New invoice" affordance).
-                    presetPartyId: state.uri.queryParameters['party'],
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/sales',
+                builder: (context, state) => SalesListScreen(
+                  // ?type= lands directly on a document type — the left rail's
+                  // Sales dropdown deep-links here.
+                  initialType: state.uri.queryParameters['type'],
+                ),
+                routes: [
+                  GoRoute(
+                    path: 'new',
+                    builder: (context, state) => SaleEditorScreen(
+                      docType: state.uri.queryParameters['type'] ?? 'invoice',
+                      // ?from=<id> seeds a new invoice from a quotation or
+                      // sales order — the convert flow.
+                      convertFromId: state.uri.queryParameters['from'],
+                      // ?party=<id> preselects the customer (Parties pane's
+                      // "New invoice" affordance).
+                      presetPartyId: state.uri.queryParameters['party'],
+                    ),
                   ),
-                ),
-                GoRoute(
-                  path: 'edit/:id',
-                  builder: (context, state) => SaleEditorScreen(
-                    docType: state.uri.queryParameters['type'] ?? 'invoice',
-                    editId: state.pathParameters['id'],
+                  GoRoute(
+                    path: 'edit/:id',
+                    builder: (context, state) => SaleEditorScreen(
+                      docType: state.uri.queryParameters['type'] ?? 'invoice',
+                      editId: state.pathParameters['id'],
+                    ),
                   ),
-                ),
-                GoRoute(
-                  path: 'detail/:id',
-                  builder: (context, state) =>
-                      SaleDetailScreen(id: state.pathParameters['id']!),
-                ),
-              ],
-            ),
-          ]),
-          StatefulShellBranch(routes: [
-            GoRoute(
-              path: '/items',
-              builder: (context, state) => const ItemsScreen(),
-              routes: [
-                GoRoute(
-                  path: 'new',
-                  builder: (context, state) => ItemEditorScreen(
-                    // ?from=<id> pre-fills the form from an existing item —
-                    // the duplicate flow.
-                    duplicateOfId: state.uri.queryParameters['from'],
+                  GoRoute(
+                    path: 'detail/:id',
+                    builder: (context, state) =>
+                        SaleDetailScreen(id: state.pathParameters['id']!),
                   ),
-                ),
-                GoRoute(
-                  path: 'edit/:id',
-                  builder: (context, state) => ItemEditorScreen(
-                    editId: state.pathParameters['id']!,
-                  ),
-                ),
-              ],
-            ),
-          ]),
-          StatefulShellBranch(routes: [
-            GoRoute(
-              path: '/parties',
-              builder: (context, state) => PartiesScreen(
-                // ?type=customer lands on the rail's Customers row, and
-                // ?type=supplier on Vendors — one screen, two QBO entries.
-                initialType: state.uri.queryParameters['type'],
+                ],
               ),
-              routes: [
-                GoRoute(
-                  path: 'new',
-                  // `type` preselects the party type — the purchase editor's
-                  // "Add new supplier" used to land on a customer form.
-                  builder: (context, state) => PartyEditorScreen(
-                    initialType: state.uri.queryParameters['type'],
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/items',
+                builder: (context, state) => const ItemsScreen(),
+                routes: [
+                  GoRoute(
+                    path: 'new',
+                    builder: (context, state) => ItemEditorScreen(
+                      // ?from=<id> pre-fills the form from an existing item —
+                      // the duplicate flow.
+                      duplicateOfId: state.uri.queryParameters['from'],
+                    ),
                   ),
-                ),
-                GoRoute(
-                  path: 'edit/:id',
-                  builder: (context, state) => PartyEditorScreen(
-                    editId: state.pathParameters['id']!,
+                  GoRoute(
+                    path: 'edit/:id',
+                    builder: (context, state) =>
+                        ItemEditorScreen(editId: state.pathParameters['id']!),
                   ),
-                ),
-                GoRoute(
-                  path: 'statement/:id',
-                  builder: (context, state) => PartyStatementScreen(
-                    partyId: state.pathParameters['id']!,
-                  ),
-                ),
-              ],
-            ),
-          ]),
-          StatefulShellBranch(routes: [
-            GoRoute(
-              path: '/reports',
-              builder: (context, state) => const ReportsScreen(),
-            ),
-          ]),
-          StatefulShellBranch(routes: [
-            GoRoute(
-              path: '/purchase',
-              builder: (context, state) => PurchaseListScreen(
-                initialType: state.uri.queryParameters['type'],
+                ],
               ),
-              routes: [
-                GoRoute(
-                  path: 'scan',
-                  builder: (context, state) => const BillScanScreen(),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/parties',
+                builder: (context, state) => PartiesScreen(
+                  // ?type=customer lands on the rail's Customers row, and
+                  // ?type=supplier on Vendors — one screen, two QBO entries.
+                  initialType: state.uri.queryParameters['type'],
                 ),
-                GoRoute(
-                  path: 'new',
-                  builder: (context, state) => PurchaseEditorScreen(
-                    // ?type=debit_note creates a purchase return;
-                    // ?from=<id> seeds a new bill from a purchase order —
-                    // the convert flow. The scan flow arrives via `extra`.
-                    docType: state.uri.queryParameters['type'] ?? 'bill',
-                    convertFromId: state.uri.queryParameters['from'],
-                    scanSeed: state.extra is ScannedBillSeed
-                        ? state.extra as ScannedBillSeed
-                        : null,
+                routes: [
+                  GoRoute(
+                    path: 'new',
+                    // `type` preselects the party type — the purchase editor's
+                    // "Add new supplier" used to land on a customer form.
+                    builder: (context, state) => PartyEditorScreen(
+                      initialType: state.uri.queryParameters['type'],
+                    ),
                   ),
-                ),
-                GoRoute(
-                  path: 'edit/:id',
-                  builder: (context, state) => PurchaseEditorScreen(
-                    editId: state.pathParameters['id']!,
-                    docType: state.uri.queryParameters['type'] ?? 'bill',
+                  GoRoute(
+                    path: 'edit/:id',
+                    builder: (context, state) =>
+                        PartyEditorScreen(editId: state.pathParameters['id']!),
                   ),
-                ),
-              ],
-            ),
-          ]),
-          StatefulShellBranch(routes: [
-            GoRoute(
-              path: '/statements',
-              builder: (context, state) => StatementOfAccountScreen(
-                // ?party=<id> preselects the party (deep link from Parties).
-                partyId: state.uri.queryParameters['party'],
+                  GoRoute(
+                    path: 'statement/:id',
+                    builder: (context, state) => PartyStatementScreen(
+                      partyId: state.pathParameters['id']!,
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ]),
-          StatefulShellBranch(routes: [
-            GoRoute(
-              path: '/payments',
-              builder: (context, state) => const PaymentsScreen(),
-            ),
-          ]),
-          StatefulShellBranch(routes: [
-            GoRoute(
-              path: '/expenses',
-              builder: (context, state) => const ExpensesScreen(),
-              routes: [
-                GoRoute(
-                  path: 'new',
-                  // The Expenses tab and the Other Income tab share this one
-                  // editor; the type decides which categories and labels it
-                  // shows. Without it, "Add Income" silently created an
-                  // expense in the default category.
-                  builder: (context, state) => ExpenseEditorScreen(
-                    type: state.uri.queryParameters['type'] ?? 'expense',
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/reports',
+                builder: (context, state) => const ReportsScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/purchase',
+                builder: (context, state) => PurchaseListScreen(
+                  initialType: state.uri.queryParameters['type'],
+                ),
+                routes: [
+                  GoRoute(
+                    path: 'scan',
+                    builder: (context, state) => const BillScanScreen(),
                   ),
-                ),
-                GoRoute(
-                  path: 'edit/:id',
-                  builder: (context, state) => ExpenseEditorScreen(
-                    type: state.uri.queryParameters['type'] ?? 'expense',
-                    editId: state.pathParameters['id'],
+                  GoRoute(
+                    path: 'new',
+                    builder: (context, state) => PurchaseEditorScreen(
+                      // ?type=debit_note creates a purchase return;
+                      // ?from=<id> seeds a new bill from a purchase order —
+                      // the convert flow. The scan flow arrives via `extra`.
+                      docType: state.uri.queryParameters['type'] ?? 'bill',
+                      convertFromId: state.uri.queryParameters['from'],
+                      scanSeed: state.extra is ScannedBillSeed
+                          ? state.extra as ScannedBillSeed
+                          : null,
+                    ),
                   ),
+                  GoRoute(
+                    path: 'edit/:id',
+                    builder: (context, state) => PurchaseEditorScreen(
+                      editId: state.pathParameters['id']!,
+                      docType: state.uri.queryParameters['type'] ?? 'bill',
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/statements',
+                builder: (context, state) => StatementOfAccountScreen(
+                  // ?party=<id> preselects the party (deep link from Parties).
+                  partyId: state.uri.queryParameters['party'],
                 ),
-              ],
-            ),
-          ]),
-          StatefulShellBranch(routes: [
-            GoRoute(
-              path: '/stock',
-              builder: (context, state) => const StockScreen(),
-            ),
-          ]),
-          StatefulShellBranch(routes: [
-            GoRoute(
-              path: '/gst-reports',
-              builder: (context, state) => const GstReportsScreen(),
-            ),
-          ]),
-          StatefulShellBranch(routes: [
-            GoRoute(
-              path: '/settings',
-              builder: (context, state) => const SettingsScreen(),
-              routes: [
-                GoRoute(
-                  path: 'firm',
-                  builder: (context, state) => const FirmSettingsScreen(),
-                ),
-                GoRoute(
-                  path: 'backup',
-                  builder: (context, state) => const BackupRestoreScreen(),
-                ),
-                GoRoute(
-                  path: 'vyapar-import',
-                  builder: (context, state) => const VyaparImportScreen(),
-                ),
-                GoRoute(
-                  path: 'printers',
-                  builder: (context, state) => const PrinterSettingsScreen(),
-                ),
-                GoRoute(
-                  path: 'recycle-bin',
-                  builder: (context, state) => const RecycleBinScreen(),
-                ),
-                GoRoute(
-                  path: 'period-lock',
-                  builder: (context, state) => const PeriodLockScreen(),
-                ),
-                GoRoute(
-                  path: 'audit-log',
-                  builder: (context, state) => const AuditLogScreen(),
-                ),
-                GoRoute(
-                  path: 'sign-in',
-                  builder: (context, state) => const SignInScreen(),
-                ),
-              ],
-            ),
-          ]),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/payments',
+                builder: (context, state) => const PaymentsScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/expenses',
+                builder: (context, state) => const ExpensesScreen(),
+                routes: [
+                  GoRoute(
+                    path: 'new',
+                    // The Expenses tab and the Other Income tab share this one
+                    // editor; the type decides which categories and labels it
+                    // shows. Without it, "Add Income" silently created an
+                    // expense in the default category.
+                    builder: (context, state) => ExpenseEditorScreen(
+                      type: state.uri.queryParameters['type'] ?? 'expense',
+                    ),
+                  ),
+                  GoRoute(
+                    path: 'edit/:id',
+                    builder: (context, state) => ExpenseEditorScreen(
+                      type: state.uri.queryParameters['type'] ?? 'expense',
+                      editId: state.pathParameters['id'],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/stock',
+                builder: (context, state) => const StockScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/gst-reports',
+                builder: (context, state) => const GstReportsScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/settings',
+                builder: (context, state) => const SettingsScreen(),
+                routes: [
+                  GoRoute(
+                    path: 'firm',
+                    builder: (context, state) => const FirmSettingsScreen(),
+                  ),
+                  GoRoute(
+                    path: 'backup',
+                    builder: (context, state) => const BackupRestoreScreen(),
+                  ),
+                  GoRoute(
+                    path: 'vyapar-import',
+                    builder: (context, state) => const VyaparImportScreen(),
+                  ),
+                  GoRoute(
+                    path: 'printers',
+                    builder: (context, state) => const PrinterSettingsScreen(),
+                  ),
+                  GoRoute(
+                    path: 'recycle-bin',
+                    builder: (context, state) => const RecycleBinScreen(),
+                  ),
+                  GoRoute(
+                    path: 'members',
+                    // Blocked, not just hidden. An accountant who cannot see this
+                    // destination in the nav can still reach it by URL, and a
+                    // restriction one address away is not a restriction — the
+                    // screen's own repository guards would refuse every write, so
+                    // the honest thing is to say so at the door instead of
+                    // showing a form that cannot save.
+                    redirect: (context, state) =>
+                        ProviderScope.containerOf(context)
+                            .read(effectiveSessionProvider)
+                            .allows(Permission.manageMasters)
+                        ? null
+                        : '/settings',
+                    builder: (context, state) => const MembersScreen(),
+                  ),
+                  GoRoute(
+                    path: 'period-lock',
+                    builder: (context, state) => const PeriodLockScreen(),
+                  ),
+                  GoRoute(
+                    path: 'audit-log',
+                    builder: (context, state) => const AuditLogScreen(),
+                  ),
+                  GoRoute(
+                    path: 'sign-in',
+                    builder: (context, state) => const SignInScreen(),
+                  ),
+                ],
+              ),
+            ],
+          ),
           // Appended after Settings so the twelve branch indexes above keep
           // their meaning: the mobile bottom bar and the rail both key off
           // them, and renumbering would move screens under the user's finger.
-          StatefulShellBranch(routes: [
-            GoRoute(
-              path: '/ledger',
-              builder: (context, state) => const ChartOfAccountsScreen(),
-              routes: [
-                GoRoute(
-                  path: 'journals',
-                  builder: (context, state) => const JournalListScreen(),
-                  routes: [
-                    GoRoute(
-                      path: 'new',
-                      builder: (context, state) =>
-                          const JournalEditorScreen(),
-                    ),
-                    GoRoute(
-                      path: 'edit/:id',
-                      builder: (context, state) => JournalEditorScreen(
-                        editId: state.pathParameters['id'],
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/ledger',
+                builder: (context, state) => const ChartOfAccountsScreen(),
+                routes: [
+                  GoRoute(
+                    path: 'journals',
+                    builder: (context, state) => const JournalListScreen(),
+                    routes: [
+                      GoRoute(
+                        path: 'new',
+                        builder: (context, state) =>
+                            const JournalEditorScreen(),
                       ),
-                    ),
-                  ],
-                ),
-                GoRoute(
-                  path: 'trial-balance',
-                  builder: (context, state) => const TrialBalanceScreen(),
-                ),
-                GoRoute(
-                  path: 'balance-sheet',
-                  builder: (context, state) => const BalanceSheetScreen(),
-                ),
-                GoRoute(
-                  path: 'account/:id',
-                  builder: (context, state) => AccountLedgerScreen(
-                    accountId: state.pathParameters['id']!,
+                      GoRoute(
+                        path: 'edit/:id',
+                        builder: (context, state) => JournalEditorScreen(
+                          editId: state.pathParameters['id'],
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            ),
-          ]),
+                  GoRoute(
+                    path: 'trial-balance',
+                    builder: (context, state) => const TrialBalanceScreen(),
+                  ),
+                  GoRoute(
+                    path: 'balance-sheet',
+                    builder: (context, state) => const BalanceSheetScreen(),
+                  ),
+                  GoRoute(
+                    path: 'account/:id',
+                    builder: (context, state) => AccountLedgerScreen(
+                      accountId: state.pathParameters['id']!,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ],
       ),
     ],
@@ -483,9 +535,7 @@ class BootRoute extends ConsumerWidget {
     if (initialization.hasError) {
       return _BootFailure(error: initialization.error!);
     }
-    return const Scaffold(
-      body: Center(child: CircularProgressIndicator()),
-    );
+    return const Scaffold(body: Center(child: CircularProgressIndicator()));
   }
 }
 
@@ -523,9 +573,9 @@ class _RouteNotFound extends ConsumerWidget {
                 '$location',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                      fontFamily: 'monospace',
-                    ),
+                  color: scheme.onSurfaceVariant,
+                  fontFamily: 'monospace',
+                ),
               ),
               const SizedBox(height: 24),
               FilledButton.icon(

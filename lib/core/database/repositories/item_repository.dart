@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 
 import '../../utils/id_utils.dart';
+import '../../domain/member_role.dart';
 import '../app_database.dart';
 import 'stock_movement_ids.dart';
 import 'sync_mixin.dart';
@@ -34,48 +35,59 @@ class ItemRepository with SyncQueueMixin {
     String? barcode,
     String? description,
   }) async {
+    db.assertPermission(Permission.manageMasters);
     final id = _newId();
     final now = DateTime.now();
     await db.transaction(() async {
-      await db.into(db.items).insert(ItemsCompanion.insert(
-            id: id,
-            firmId: firmId,
-            name: name,
-            sku: Value(sku),
-            hsn: Value(hsn),
-            categoryId: Value(categoryId),
-            unit: Value(unit),
-            salePrice: Value(salePrice),
-            purchasePrice: Value(purchasePrice),
-            wholesalePrice: Value(wholesalePrice),
-            mrp: Value(mrp),
-            gstRate: Value(gstRate),
-            cessRate: Value(cessRate),
-            taxMode: Value(taxMode),
-            isService: Value(isService),
-            stockType: Value(stockType),
-            openingStock: Value(openingStock),
-            // The opening balance is posted as a stock movement below, which
-            // sets currentStock from it. Seeding the column here too would
-            // double-count it (movement reads currentStock + openingStock).
-            currentStock: const Value(0),
-            lowStockAlert: Value(lowStockAlert),
-            barcode: Value(barcode),
-            description: Value(description),
-            createdAt: Value(now),
-            updatedAt: Value(now),
-          ));
+      await db
+          .into(db.items)
+          .insert(
+            ItemsCompanion.insert(
+              id: id,
+              firmId: firmId,
+              name: name,
+              sku: Value(sku),
+              hsn: Value(hsn),
+              categoryId: Value(categoryId),
+              unit: Value(unit),
+              salePrice: Value(salePrice),
+              purchasePrice: Value(purchasePrice),
+              wholesalePrice: Value(wholesalePrice),
+              mrp: Value(mrp),
+              gstRate: Value(gstRate),
+              cessRate: Value(cessRate),
+              taxMode: Value(taxMode),
+              isService: Value(isService),
+              stockType: Value(stockType),
+              openingStock: Value(openingStock),
+              // The opening balance is posted as a stock movement below, which
+              // sets currentStock from it. Seeding the column here too would
+              // double-count it (movement reads currentStock + openingStock).
+              currentStock: const Value(0),
+              lowStockAlert: Value(lowStockAlert),
+              barcode: Value(barcode),
+              description: Value(description),
+              createdAt: Value(now),
+              updatedAt: Value(now),
+            ),
+          );
       await enqueue(
-          firmId: firmId, entity: 'items', entityId: id, operation: 'insert');
+        firmId: firmId,
+        entity: 'items',
+        entityId: id,
+        operation: 'insert',
+      );
       if (stockType == 'tracked' && openingStock != 0) {
-        await _recordMovement(StockMovementInput(
-          itemId: id,
-          kind: 'opening',
-          quantity: openingStock,
-          source: 'opening_balance',
-          date: now,
-          notes: 'Opening stock',
-        ));
+        await _recordMovement(
+          StockMovementInput(
+            itemId: id,
+            kind: 'opening',
+            quantity: openingStock,
+            source: 'opening_balance',
+            date: now,
+            notes: 'Opening stock',
+          ),
+        );
       }
     });
     return (await getById(id))!;
@@ -114,11 +126,13 @@ class ItemRepository with SyncQueueMixin {
       ..orderBy([(t) => OrderingTerm(expression: t.name)]);
     if (search.trim().isNotEmpty) {
       final s = '%${search.trim().toLowerCase()}%';
-      query.where((t) =>
-          t.name.lower().like(s) |
-          t.sku.lower().like(s) |
-          t.hsn.lower().like(s) |
-          t.barcode.lower().like(s));
+      query.where(
+        (t) =>
+            t.name.lower().like(s) |
+            t.sku.lower().like(s) |
+            t.hsn.lower().like(s) |
+            t.barcode.lower().like(s),
+      );
     }
     if (categoryId != null) {
       query.where((t) => t.categoryId.equals(categoryId));
@@ -137,11 +151,13 @@ class ItemRepository with SyncQueueMixin {
     if (limit > 0) query.limit(limit);
     if (search.trim().isNotEmpty) {
       final s = '%${search.trim().toLowerCase()}%';
-      query.where((t) =>
-          t.name.lower().like(s) |
-          t.sku.lower().like(s) |
-          t.hsn.lower().like(s) |
-          t.barcode.lower().like(s));
+      query.where(
+        (t) =>
+            t.name.lower().like(s) |
+            t.sku.lower().like(s) |
+            t.hsn.lower().like(s) |
+            t.barcode.lower().like(s),
+      );
     }
     return query.watch();
   }
@@ -155,8 +171,10 @@ class ItemRepository with SyncQueueMixin {
   }
 
   Future<ItemEntity> update(ItemEntity item) async {
+    db.assertPermission(Permission.manageMasters);
     await db.transaction(() async {
-      await db.update(db.items)
+      await db
+          .update(db.items)
           .replace(item.copyWith(updatedAt: DateTime.now()));
       await enqueue(
         firmId: firmId,
@@ -172,49 +190,70 @@ class ItemRepository with SyncQueueMixin {
   /// keeps pointing at the row, which is exactly why items must never be
   /// hard-deleted while any history exists.
   Future<void> delete(String id) async {
+    db.assertPermission(Permission.manageMasters);
     await db.transaction(() async {
-      await (db.update(db.items)
-            ..where((t) => t.id.equals(id) & t.firmId.equals(firmId)))
-          .write(ItemsCompanion(
-        isDeleted: const Value(true),
-        deletedAt: Value(DateTime.now()),
-        updatedAt: Value(DateTime.now()),
-      ));
+      await (db.update(
+        db.items,
+      )..where((t) => t.id.equals(id) & t.firmId.equals(firmId))).write(
+        ItemsCompanion(
+          isDeleted: const Value(true),
+          deletedAt: Value(DateTime.now()),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
       await enqueue(
-          firmId: firmId, entity: 'items', entityId: id, operation: 'update');
+        firmId: firmId,
+        entity: 'items',
+        entityId: id,
+        operation: 'update',
+      );
     });
   }
 
   /// Undo a soft delete from the recycle bin.
   Future<void> restore(String id) async {
+    db.assertPermission(Permission.manageMasters);
     await db.transaction(() async {
-      await (db.update(db.items)
-            ..where((t) => t.id.equals(id) & t.firmId.equals(firmId)))
-          .write(ItemsCompanion(
-        isDeleted: const Value(false),
-        deletedAt: const Value(null),
-        updatedAt: Value(DateTime.now()),
-      ));
+      await (db.update(
+        db.items,
+      )..where((t) => t.id.equals(id) & t.firmId.equals(firmId))).write(
+        ItemsCompanion(
+          isDeleted: const Value(false),
+          deletedAt: const Value(null),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
       await enqueue(
-          firmId: firmId, entity: 'items', entityId: id, operation: 'update');
+        firmId: firmId,
+        entity: 'items',
+        entityId: id,
+        operation: 'update',
+      );
     });
   }
 
   /// Permanent delete — only reachable from the recycle bin. Refuses when
   /// stock history exists for the item.
   Future<void> deleteForever(String id) async {
+    db.assertPermission(Permission.purge);
     await db.transaction(() async {
       final history = db.select(db.stockMovements)
         ..where((t) => t.firmId.equals(firmId) & t.itemId.equals(id))
         ..limit(1);
       if (await history.getSingleOrNull() != null) {
         throw StateError(
-            'This item has stock history and cannot be removed permanently.');
+          'This item has stock history and cannot be removed permanently.',
+        );
       }
-      await (db.delete(db.items)
-          ..where((t) => t.id.equals(id) & t.firmId.equals(firmId))).go();
+      await (db.delete(
+        db.items,
+      )..where((t) => t.id.equals(id) & t.firmId.equals(firmId))).go();
       await enqueue(
-          firmId: firmId, entity: 'items', entityId: id, operation: 'delete');
+        firmId: firmId,
+        entity: 'items',
+        entityId: id,
+        operation: 'delete',
+      );
     });
   }
 
@@ -244,21 +283,25 @@ class ItemRepository with SyncQueueMixin {
     // in sales_repository): billing can precede the purchase entry.
     final newBalance = item.currentStock + input.quantity;
     final movementId = newStockMovementId();
-    await db.into(db.stockMovements).insert(StockMovementsCompanion.insert(
-          // Monotonic counter: several lines of one invoice post in the same
-          // microsecond, and the timestamp-only id collided on the PK.
-          id: movementId,
-          firmId: firmId,
-          itemId: input.itemId,
-          kind: input.kind,
-          quantity: input.quantity,
-          balanceAfter: Value(newBalance),
-          source: input.source,
-          sourceId: Value(input.sourceId),
-          sourceNumber: Value(input.sourceNumber),
-          date: input.date,
-          notes: Value(input.notes),
-        ));
+    await db
+        .into(db.stockMovements)
+        .insert(
+          StockMovementsCompanion.insert(
+            // Monotonic counter: several lines of one invoice post in the same
+            // microsecond, and the timestamp-only id collided on the PK.
+            id: movementId,
+            firmId: firmId,
+            itemId: input.itemId,
+            kind: input.kind,
+            quantity: input.quantity,
+            balanceAfter: Value(newBalance),
+            source: input.source,
+            sourceId: Value(input.sourceId),
+            sourceNumber: Value(input.sourceNumber),
+            date: input.date,
+            notes: Value(input.notes),
+          ),
+        );
     // Movements are the stock ledger of record; a restore must carry them.
     await enqueue(
       firmId: firmId,
@@ -266,7 +309,9 @@ class ItemRepository with SyncQueueMixin {
       entityId: movementId,
       operation: 'insert',
     );
-    await db.update(db.items).replace(
+    await db
+        .update(db.items)
+        .replace(
           item.copyWith(currentStock: newBalance, updatedAt: DateTime.now()),
         );
   }
@@ -288,20 +333,24 @@ class ItemRepository with SyncQueueMixin {
     DateTime? date,
     String? notes,
   }) async {
-    await _recordMovement(StockMovementInput(
-      itemId: itemId,
-      kind: kind,
-      quantity: quantity,
-      source: source,
-      sourceId: sourceId,
-      sourceNumber: sourceNumber,
-      date: date ?? DateTime.now(),
-      notes: notes,
-    ));
+    await _recordMovement(
+      StockMovementInput(
+        itemId: itemId,
+        kind: kind,
+        quantity: quantity,
+        source: source,
+        sourceId: sourceId,
+        sourceNumber: sourceNumber,
+        date: date ?? DateTime.now(),
+        notes: notes,
+      ),
+    );
   }
 
-  Stream<List<StockMovementEntity>> watchMovements(String itemId,
-      {int limit = 200}) {
+  Stream<List<StockMovementEntity>> watchMovements(
+    String itemId, {
+    int limit = 200,
+  }) {
     final query = db.select(db.stockMovements)
       ..where((t) => t.firmId.equals(firmId) & t.itemId.equals(itemId))
       ..orderBy([(t) => OrderingTerm.desc(t.date)])
@@ -323,8 +372,10 @@ class ItemRepository with SyncQueueMixin {
     return query.watch();
   }
 
-  Future<List<StockMovementEntity>> movements(String itemId,
-      {int limit = 500}) async {
+  Future<List<StockMovementEntity>> movements(
+    String itemId, {
+    int limit = 500,
+  }) async {
     final query = db.select(db.stockMovements)
       ..where((t) => t.firmId.equals(firmId) & t.itemId.equals(itemId))
       ..orderBy([(t) => OrderingTerm.desc(t.date)])
@@ -348,32 +399,45 @@ class ItemRepository with SyncQueueMixin {
 
   Future<List<ItemEntity>> lowStock() async {
     final query = db.select(db.items)
-      ..where((t) =>
-          t.firmId.equals(firmId) &
-          t.isDeleted.equals(false) &
-          t.isService.equals(false) &
-          t.stockType.equals('tracked') &
-          t.lowStockAlert.isBiggerThanValue(0) &
-          t.currentStock.isSmallerOrEqual(t.lowStockAlert))
+      ..where(
+        (t) =>
+            t.firmId.equals(firmId) &
+            t.isDeleted.equals(false) &
+            t.isService.equals(false) &
+            t.stockType.equals('tracked') &
+            t.lowStockAlert.isBiggerThanValue(0) &
+            t.currentStock.isSmallerOrEqual(t.lowStockAlert),
+      )
       ..orderBy([(t) => OrderingTerm(expression: t.name)]);
     return query.get();
   }
 
   // ---- Categories & units ----
 
-  Future<CategoryEntity> createCategory(String name, {String kind = 'item'}) async {
+  Future<CategoryEntity> createCategory(
+    String name, {
+    String kind = 'item',
+  }) async {
     final id = 'cat_${IdUtils.newId()}';
-    await db.into(db.categories).insert(CategoriesCompanion.insert(
-          id: id,
-          firmId: firmId,
-          name: name,
-          kind: Value(kind),
-        ));
+    await db
+        .into(db.categories)
+        .insert(
+          CategoriesCompanion.insert(
+            id: id,
+            firmId: firmId,
+            name: name,
+            kind: Value(kind),
+          ),
+        );
     await enqueue(
-        firmId: firmId, entity: 'categories', entityId: id, operation: 'insert');
-    return (db.select(db.categories)
-          ..where((t) => t.id.equals(id)))
-        .getSingle();
+      firmId: firmId,
+      entity: 'categories',
+      entityId: id,
+      operation: 'insert',
+    );
+    return (db.select(
+      db.categories,
+    )..where((t) => t.id.equals(id))).getSingle();
   }
 
   Future<List<CategoryEntity>> categories({String kind = 'item'}) async {
@@ -384,26 +448,38 @@ class ItemRepository with SyncQueueMixin {
   }
 
   Future<void> deleteCategory(String id) async {
-    await (db.delete(db.categories)
-        ..where((t) => t.id.equals(id) & t.firmId.equals(firmId))).go();
+    db.assertPermission(Permission.manageMasters);
+    await (db.delete(
+      db.categories,
+    )..where((t) => t.id.equals(id) & t.firmId.equals(firmId))).go();
     await enqueue(
-        firmId: firmId, entity: 'categories', entityId: id, operation: 'delete');
+      firmId: firmId,
+      entity: 'categories',
+      entityId: id,
+      operation: 'delete',
+    );
   }
 
   Future<UnitEntity> createUnit(String name, String symbol) async {
     final id = 'unt_${IdUtils.newId()}';
-    await db.into(db.units).insert(UnitsCompanion.insert(
-          id: id,
-          firmId: firmId,
-          name: name,
-          symbol: symbol,
-          isStandard: const Value(false),
-        ));
+    await db
+        .into(db.units)
+        .insert(
+          UnitsCompanion.insert(
+            id: id,
+            firmId: firmId,
+            name: name,
+            symbol: symbol,
+            isStandard: const Value(false),
+          ),
+        );
     await enqueue(
-        firmId: firmId, entity: 'units', entityId: id, operation: 'insert');
-    return (db.select(db.units)
-          ..where((t) => t.id.equals(id)))
-        .getSingle();
+      firmId: firmId,
+      entity: 'units',
+      entityId: id,
+      operation: 'insert',
+    );
+    return (db.select(db.units)..where((t) => t.id.equals(id))).getSingle();
   }
 
   Future<List<UnitEntity>> units() async {

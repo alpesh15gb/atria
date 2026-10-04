@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
+import '../domain/member_role.dart';
+
 /// A single top-level destination in the app shell — one per router branch.
 class NavDestination {
   final String label;
@@ -49,11 +51,20 @@ class NavSectionEntry {
   /// Index into [NavDestinations.all] when this row is a branch root.
   final int? branchIndex;
 
+  /// The permission a member must hold to see this destination.
+  ///
+  /// Null means everyone, which is every destination the app shipped before
+  /// local users existed. **Null must stay null on those**, because with the
+  /// feature off every session grants everything anyway — the filter only does
+  /// anything when a firm has opted in.
+  final Permission? requiresPermission;
+
   const NavSectionEntry({
     required this.label,
     required this.icon,
     required this.route,
     this.branchIndex,
+    this.requiresPermission,
   });
 }
 
@@ -61,6 +72,21 @@ class NavSectionEntry {
 class NavSection {
   final String title;
   final List<NavSectionEntry> entries;
+
+  /// The rows this member may see.
+  ///
+  /// One filter, applied by every consumer of [entries] — the rail, the
+  /// compact list and global search — because a destination hidden in two
+  /// places and visible in the third is not a hidden destination. Each row's
+  /// route is *also* redirected in `app_router`, since hiding a row is only a
+  /// courtesy and the deep link is the real door.
+  List<NavSectionEntry> visibleTo(MemberSession session) => entries
+      .where(
+        (e) =>
+            e.requiresPermission == null ||
+            session.allows(e.requiresPermission!),
+      )
+      .toList(growable: false);
 
   const NavSection({required this.title, required this.entries});
 }
@@ -125,7 +151,10 @@ class NavDestinations {
     routePath: '/purchase',
     children: [
       NavChild(label: 'Bills', route: '/purchase?type=bill'),
-      NavChild(label: 'Purchase orders', route: '/purchase?type=purchase_order'),
+      NavChild(
+        label: 'Purchase orders',
+        route: '/purchase?type=purchase_order',
+      ),
       NavChild(label: 'Debit notes', route: '/purchase?type=debit_note'),
     ],
   );
@@ -427,11 +456,24 @@ class NavDestinations {
           label: 'Recycle bin',
           icon: PhosphorIconsRegular.trash,
           route: '/settings/recycle-bin',
+          // Hidden for a role that cannot use it. Hiding is a courtesy, not the
+          // control — `app_router` redirects these three routes, so the deep
+          // link is closed too. The two have to agree: showing a destination
+          // that redirects away looks broken, and hiding one that can be
+          // reached leaves the restriction one tap of a URL away.
+          requiresPermission: Permission.purge,
         ),
         NavSectionEntry(
           label: 'Period lock',
           icon: PhosphorIconsRegular.lockSimple,
           route: '/settings/period-lock',
+          requiresPermission: Permission.managePeriodLock,
+        ),
+        NavSectionEntry(
+          label: 'Members',
+          icon: PhosphorIconsRegular.users,
+          route: '/settings/members',
+          requiresPermission: Permission.manageMasters,
         ),
         NavSectionEntry(
           label: 'Audit log',

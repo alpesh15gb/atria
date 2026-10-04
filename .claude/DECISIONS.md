@@ -1047,3 +1047,65 @@ at read time, far from the write that caused it. Two rules came out of it:
    database (`test/sync_restore_roundtrip_test.dart`), never by typing JSON.
    Hand-built payloads omit nullable columns, which is precisely the shape
    difference between a test that passes and a user whose restore fails.
+
+## Local users: an overlay, not a route, and a permission set that fails closed
+
+**Phase 5 (2026-10-04).** The feature the plan called "optional PIN + roles",
+and every structural choice below exists to satisfy one constraint: **off must be
+indistinguishable from today**. Not "off behaves similarly" — indistinguishable,
+such that nothing in the write path can tell the difference.
+
+- **Off = `MemberSession.off`, which grants every permission.** This is why the
+  session is a value read by the repositories rather than a set of enabled
+  checks scattered through them. An unconfigured install does not take a
+  different code path; it takes the same path with a session that permits
+  everything. `PermissionDeniedException` therefore cannot fire on a firm that
+  never opted in.
+- **Enforcement is in the repositories, beside `assertDateEditable`.** Not in
+  the UI, because a role enforced by hidden buttons is one API call away from
+  nothing. This is also what finally gives the always-null `actor` parameter
+  every repository already carried a caller.
+- **The gate is a modal overlay on `MaterialApp.router.builder`, not a route.**
+  The tempting alternative was the existing `resolveOnboardingRedirect`
+  chokepoint — pure, already tested, one place to reason about. It does not
+  work: its `refreshListenable` only pulses on `appInitializationProvider`, so
+  signing in would not re-run the redirect without adding a second notifier to
+  the router's root. An overlay sidesteps go_router entirely and leaves the boot
+  flow untouched, which is precisely what "off = unchanged" requires.
+- **Hiding nav entries is not access control.** An accountant must be blocked
+  from `/settings/members` by a `redirect` as well as by
+  `NavSectionEntry.requiresPermission` — otherwise the restriction is one URL
+  away from useless. `ProviderScope.containerOf(context)` is the way to read
+  state inside a `redirect`; there is no `ref`.
+- **`allows` fails closed.** An enabled session whose role is null returns
+  `false` for everything. Returning `true` — the obvious "unknown means
+  permitted" reading — hands a universal key to anyone whose role failed to
+  resolve, which is exactly the moment you least want one. This was a real bug,
+  caught by revert-proofing, and it never threw.
+- **A wrong PIN returns null; it does not throw.** A wrong guess is the expected
+  outcome of guessing, not an error condition. The repository's contract is
+  "who is this, if anyone" and the gate renders the failure.
+- **`staff` may manage masters but may not purge them.** A counter clerk who
+  cannot add a customer cannot sell to a new customer, which is not
+  day-to-day selling — it is a broken job. Deleting a master is separate
+  (`purge`) and stays with admin/accountant.
+- **The gate requires a member who can actually get in**: active *and*
+  `pinHash != null`. Otherwise flipping the switch before adding anybody, or a
+  roster whose only member has not chosen a PIN, produces a keypad nobody can
+  pass. The failure would lock a shop out of its own books, and nobody would
+  report it because they could not.
+- **PINs are salted and iterated (60 000 rounds), never stored.** And the
+  backup export drops the columns at the **column** level, not by settings key:
+  `firm_members` has no key column, and the first implementation emitted
+  `"pin_hash": null` rather than omitting the key — which still *names* the
+  secret in the file. Omission is the property; a null value is not omission.
+- **`signIn`/`signOut`/`disable` write both the controller state and
+  `AppDatabase.session`.** An overlay hidden over an app still filtering writes
+  by a stale role is the worst available outcome, so the two can never diverge.
+- **The session is deliberately not persisted across launches.** A PIN gate
+  that re-locks on relaunch without asking is a surprise, and this is a shop
+  counter, not a bank.
+
+**What this is not:** security. A 4-digit PIN with a local salt stops a
+casual passer-by at an unattended counter. It does not stop anyone with the
+database file, and the Settings copy does not claim otherwise.

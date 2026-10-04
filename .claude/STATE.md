@@ -1,6 +1,6 @@
 # Project State
 
-_Last updated: 2026-10-04 (Phase 3 shipped `8f9f1fc`; Phase 4 in progress)_
+_Last updated: 2026-10-04 (**all six phases shipped**; the build is complete)_
 
 ## Current objective
 
@@ -17,19 +17,111 @@ local PIN roles.** Ship one piece per commit. Full plan:
 | 2 | paid / balance / stamp + UPI QR fix | `bd860de` | **shipped** |
 | — | rename to Apex Books | `9afe494` | **shipped** |
 | 3 | bulk actions | `8f9f1fc` | **shipped** |
-| 4 | quotation lifecycle | — | **in progress** |
-| 5 | optional PIN roles | — | not started |
+| 4 | quotation lifecycle | `daddc02` | **shipped** |
+| 5 | optional PIN roles | — | **shipped (uncommitted as of this edit)** |
 
 ## Current implementation state
 
 - `flutter analyze lib/ test/` → clean.
-- `flutter test` → **674 passed / 1 skipped / 0 failed** (after Phase 4).
-- Windows debug builds; APK debug/release build (release APK is debug-key-signed,
-  `CN=Android Debug`, per `build.gradle.kts`'s deliberate fallback).
+- `flutter test` → **723 passed / 1 skipped / 0 failed** (after Phase 5).
+- Windows debug builds; APK debug **and** release build (release APK is
+  debug-key-signed, `CN=Android Debug`, per `build.gradle.kts`'s deliberate
+  fallback — 80.1 MB).
 - **No phone attached** (`adb devices` empty) — the sync fix is proven against a
   faithful fake server only, never on hardware.
+- **Not done: the manual pass.** The plan's Verification section ends "then
+  exercise each feature on both". Nobody has clicked a PIN gate, drawn a
+  quotation to `accepted`, or tapped a bulk Delete on real hardware. Every
+  phase below is verified by analyzer + suite + revert-proofing only.
 
-## Phase 4 — quotation lifecycle (in progress)
+## Phase 5 — optional local users and PIN roles (shipped)
+
+The last piece. **Off is indistinguishable from today**, and that is the whole
+design constraint, not a detail.
+
+- **Schema v10** (`schemaVersion => 10`). `firm_members` gains `pinHash`,
+  `pinSalt`, `isActive` (default 1) — additive, migration after the v9 block.
+  `test/pdf_template_test.dart` and
+  `test/quotation_lifecycle_migration_test.dart` both roll back far enough to
+  reach v10, so their pre-v10 rollbacks had to learn to drop the new columns.
+- **`lib/core/domain/member_role.dart`** — `MemberRole` (admin / accountant /
+  staff) × `Permission` (view, createSales, createPurchases, recordPayment,
+  manageMasters, managePeriodLock, print, export, purge). `MemberSession` carries
+  `enabled`/`memberId`/`name`/`role`/`signedInAs`.
+- **`lib/core/database/repositories/members_repository.dart`** — the roster.
+  `signIn` **returns null** on a wrong PIN rather than throwing: a wrong guess
+  is the expected outcome of a guess, not an error. Per-user salt + iterated
+  hash (`PinHasher`), 60 000 iterations.
+- **`lib/core/state/member_session_controller.dart`** — the switch
+  (`kLocalUsersEnabledKey`), the roster stream, and the one mutable holder of
+  the session. `signIn`/`signOut`/`disable` all write **both** the controller
+  state and `AppDatabase.session`, because the repositories read the latter and
+  an overlay hidden over an app still filtering writes is the worst outcome.
+- **Enforcement is in the repositories**, beside the existing
+  `db.assertDateEditable(...)` — never in the UI. Nine repositories gained
+  `assertPermission`, wrapping `softDelete`, `restore`, `purge`,
+  `markCancelled`, `markConverted`, re-send-all-books and backup restore. This is
+  what finally gives the always-null `actor` parameter a caller.
+- **The gate is a modal overlay** at `MaterialApp.router.builder`, not a route —
+  `resolveOnboardingRedirect`'s `refreshListenable` only pulses on
+  `appInitializationProvider`, and touching the router would break "off =
+  unchanged". `MemberGateOverlay` returns its child *untouched* when not visible.
+- **Deep routes are blocked too**, not just nav entries. Hiding the recycle bin
+  from an accountant is one URL away from useless, so `/settings/members` has a
+  `redirect` consulting the session, and `NavSectionEntry.requiresPermission`
+  drives both rails.
+- **`app_settings` export strips the PIN columns at the column level**, not by
+  key: `firm_members` has no key column, so `_neverExportedColumns` is checked
+  inside `_rowToMap`.
+- **`PinGate`** — name picker then a 3×4 keypad, 5 attempts, hardware-keyboard
+  support, `PopScope(canPop: false)` so the gate cannot be swiped away.
+- Tests: `test/member_roles_test.dart` (39) + `test/pin_gate_widget_test.dart`
+  (10). Every one revert-proofed.
+
+### Things not to re-learn (Phase 5)
+
+- **The drift data class is `FirmMemberEntity`, not `FirmMember`.** The table is
+  `firm_members`, so the default name collides with the domain `MemberRole`
+  vocabulary and `@DataClassName('FirmMemberEntity')` is the fix. Searching for
+  `FirmMember` in code that compiles fine is the tell.
+- **Omitting a key and writing `"pin_hash": null` are different things.** The
+  old `_rowToMap` used `cols.map`, which emitted the key with a null value — the
+  JSON still *named* the secret. It is now a `forEach` that skips
+  `_neverExportedColumns` keys entirely, and throws rather than guessing on an
+  unrecognised column expression.
+- **`testWidgets` + drift is a deadlock, not a slow test.** A `testWidgets`
+  body runs in a fake-async zone where drift's real futures never complete;
+  awaiting one hangs for the full 10-minute timeout with an empty log (the
+  output is buffered, so it looks like nothing is happening at all). Every DB
+  write must go through `tester.runAsync(...)`, and CPU-heavy awaited work — the
+  iterated PIN hash — needs a real-time `runAsync` delay before the assertion.
+  With that, the 10 gate tests run in 7 seconds.
+- **`perl -0pi -e 's/…/\n…/'` needs `\r?\n` on these files.** They are CRLF. A
+  bare `\n` anchor matches nothing and the regex silently no-ops — it cost
+  several minutes once.
+- **`JAVA_HOME` must be exported for APK builds**:
+  `export JAVA_HOME="C:\Program Files\Android\Android Studio\jbr"`. The Windows
+  build does not need it. If `build\windows` fails with `No target "atria"`
+  after a binary rename, delete the directory — a stale CMake cache, not a
+  broken tree.
+
+### Three real bugs the revert-proofing caught — all mine, all silent
+
+Worth recording because none of them threw:
+
+1. `MemberSession.allows` returned `true` for an **enabled session with a null
+   role** — a universal key handed to anyone whose role failed to resolve. Now
+   `false`. Fail closed.
+2. The `staff` role lacked `manageMasters`, so a counter clerk could not add a
+   customer and therefore could not sell to one. That is not "day-to-day
+   selling"; it is a broken job. Added — **but deleting a master is still a
+   separate permission** (`purge`) and is not in the staff set.
+3. `pinGateVisibleProvider` accepted an *active* member with no PIN, producing
+   a gate that offered a name nobody could get past. It now requires
+   `pinHash != null` alongside `isActive`, so flipping the switch before adding
+   anybody leaves a working app.
+
+## Phase 4 — quotation lifecycle (shipped `daddc02`)
 
 - **Schema v9** (`schemaVersion => 9`). Adds `salesInvoices.convertedToInvoiceId`
   and `convertedAt`, both nullable, migration at `app_database.dart` after the v8
@@ -540,41 +632,32 @@ Also fixed this day (earlier audit pass, tests in place):
 
 ## Exact next action
 
-**Phase 3 — bulk actions**, per the plan:
+**The six-phase build is complete.** Every phase is shipped, the suite is green
+at 723/1 skipped, analyzer is clean, and Windows + debug APK + release APK all
+build. Nothing in the plan is outstanding.
 
-1. Extract the 8 hand-rolled `showDialog` → `AlertDialog` confirmations
-   (`document_row_menu.dart:415`, `expenses_screen.dart:423`,
-   `recycle_bin_screen.dart:175`, `sale_detail_screen.dart:385`,
-   `items_screen.dart:397`, `parties_screen.dart:667`,
-   `settings_screen.dart:255`, `pos_screen.dart:230`) into one
-   `confirmDestructive(...)` **before** adding a fifth copy.
-2. `SelectionBar` for `AtriaListPage.toolbar` (`atria_list_page.dart:68`), plus
-   a selection prop on `TransactionRow` / `TransactionTableRow`. **The desktop
-   table hardcodes `SizedBox(width: 50)` + fixed flexes 8/8/16/12/9/9 in its
-   header *and* its totals** — a leading checkbox has to be accounted for in
-   all three or the columns drift. Reuse the selection-highlight treatment
-   from `parties_screen.dart:340-343` (`primaryContainer @ 0.55`), currently
-   trapped in a private widget.
-3. Actions: bulk PDF (call `InvoicePdf.build`/`PurchasePdf.build` per doc, then
-   share — precedent `sale_detail_screen.dart:276`), bulk CSV (extend
-   `csv_export.dart` with an id-filtered variant; every existing method is
-   whole-table), bulk delete = confirm with N named → `softDelete` each →
-   SnackBar with **Undo** calling `restore(id)`, precedent `pos_screen.dart:198-215`.
-4. "Select all" means "all loaded" — there is no pagination. Sales caps at 200
-   rows (`sales_list_screen.dart:225`); surface that rather than hide it.
+What is left is the work that needs a person, not a compiler:
 
-Then the standing backlog (below "Still open"), and:
-
-1. **Rebuild + install the app and re-import the real `.vyb`** to confirm the
-   line items now reach the server. The bug is fixed and regression-tested in
-   isolation; it has not been seen working against the real server yet.
-2. Fix the HIGH items: `UnsavedGuard` is dead on both nav rails (below), then
+1. **Exercise every new feature by hand on Windows and Android.** This is the
+   one item in the plan's Verification section that was never performed — no
+   one has signed in through a PIN gate, moved a quotation to `accepted`,
+   printed a purchase bill, or taken a bulk delete. Watch specifically for:
+   - the gate appearing when it should not (it is the highest-risk regression —
+     it would affect every existing install);
+   - a purchase PDF's tax split, which inverts relative to a sales invoice;
+   - the bulk-delete count matching the rows that actually changed.
+2. **Rebuild + install the app and re-import the real `.vyb`** to confirm the
+   line items now reach the server. Fixed and regression-tested against a
+   faithful fake (`ec7df48`); never seen against the real server.
+3. Fix the HIGH items: `UnsavedGuard` is dead on both nav rails, then
    invoice rate/discount have no validator (silent ₹0 lines).
-3. Fix the last MEDIUM: the payment editor's cheque-state invariant when the
-   mode changes (`payments_screen.dart` ~845–867). Add a test that flips
-   cheque→cash and cash→cheque and asserts `chequeStatus` is right.
-4. Release builds (`--release`): Windows + APK. APK needs a signing config.
-5. Decide on exports/SEZ as a post-launch feature.
+4. Fix the last MEDIUM: the payment editor's cheque-state invariant when the
+   mode changes (`payments_screen.dart` ~845–867).
+5. Release signing for the APK (still debug keys), and decide on exports/SEZ as
+   post-launch scope.
+
+Per-phase detail is in the sections above; the full open list is in
+`.claude/TODO.md`.
 
 ## ⚠️ Build toolchains are MISSING from this machine (2026-10-03)
 

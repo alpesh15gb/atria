@@ -5,6 +5,7 @@ import 'audit_repository.dart';
 import 'firm_repository.dart';
 import 'item_repository.dart';
 import 'ledger_repository.dart';
+import 'members_repository.dart';
 import 'party_repository.dart';
 import 'payment_repository.dart';
 import 'purchase_repository.dart';
@@ -24,6 +25,11 @@ extension DatabaseRepositories on AppDatabase {
 
   ItemRepository itemRepositoryFor(String firmId) =>
       ItemRepository(this, firmId);
+
+  /// The firm's local users. Optional — with `AppDatabase.session` off this is
+  /// simply unused, and nothing about the app changes.
+  MembersRepository membersRepositoryFor(String firmId) =>
+      MembersRepository(this, firmId);
 
   SalesRepository salesRepositoryFor(String firmId) =>
       SalesRepository(this, firmId);

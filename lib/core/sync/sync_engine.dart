@@ -7,6 +7,7 @@ import '../api/server_client.dart' show ServerRequestException;
 import '../api/sync_client.dart';
 import '../database/app_database.dart';
 import '../database/repositories/settings_repository.dart';
+import '../domain/member_role.dart';
 import '../state/auth_controller.dart';
 import 'pull_applier.dart';
 
@@ -194,6 +195,7 @@ class SyncEngine {
   ///
   /// Returns how many outbox rows were newly enqueued.
   Future<int> rejournalEverything({required String firmId}) async {
+    _db.assertPermission(Permission.sync);
     var enqueued = 0;
     // Rows that were quarantined and have now been put back in the drain.
     var revived = 0;
@@ -224,17 +226,20 @@ class SyncEngine {
       if (entity == 'firms') {
         sql = 'SELECT id FROM ${table.actualTableName} WHERE id = ?';
       } else if (hasFirm) {
-        sql = 'SELECT id FROM ${table.actualTableName} WHERE firm_id = ?'
+        sql =
+            'SELECT id FROM ${table.actualTableName} WHERE firm_id = ?'
             '${hasDeleted ? ' AND is_deleted = 0' : ''}';
       } else {
         switch (entity) {
           case 'sales_invoice_items':
-            sql = 'SELECT c.id FROM sales_invoice_items c '
+            sql =
+                'SELECT c.id FROM sales_invoice_items c '
                 'JOIN sales_invoices p ON p.id = c.invoice_id '
                 'WHERE p.firm_id = ? AND p.is_deleted = 0'
                 '${hasDeleted ? ' AND c.is_deleted = 0' : ''}';
           case 'purchase_bill_items':
-            sql = 'SELECT c.id FROM purchase_bill_items c '
+            sql =
+                'SELECT c.id FROM purchase_bill_items c '
                 'JOIN purchase_bills p ON p.id = c.bill_id '
                 'WHERE p.firm_id = ? AND p.is_deleted = 0'
                 '${hasDeleted ? ' AND c.is_deleted = 0' : ''}';
@@ -245,7 +250,8 @@ class SyncEngine {
             // voided voucher has its debit/credit lines re-journalled, and
             // receiving devices insert them under a deleted entry, which
             // corrupts the trial balance.
-            sql = 'SELECT c.id FROM journal_lines c '
+            sql =
+                'SELECT c.id FROM journal_lines c '
                 'JOIN journal_entries p ON p.id = c.entry_id '
                 'WHERE p.firm_id = ? AND p.is_deleted = 0';
           default:
@@ -264,10 +270,11 @@ class SyncEngine {
         // anything. A row already queued for this entity — from the first run,
         // or a still-pending ordinary change — is left as it is, which is
         // what keeps a re-run from double-sending the same row.
-        final already = await (_db.select(_db.syncQueue)
-              ..where((t) =>
-                  t.entity.equals(entity) & t.entityId.equals(entityId)))
-            .getSingleOrNull();
+        final already =
+            await (_db.select(_db.syncQueue)..where(
+                  (t) => t.entity.equals(entity) & t.entityId.equals(entityId),
+                ))
+                .getSingleOrNull();
         if (already != null) {
           // A row parked by [_quarantineUnsendable] is unsent but out of the
           // drain, so re-queuing it as a *new* row would do nothing (the
@@ -276,14 +283,18 @@ class SyncEngine {
           // back in the drain, which is the entire point of asking for a
           // re-send by hand.
           if (already.syncedAt == null && already.attempts >= maxAttempts) {
-            await (_db.update(_db.syncQueue)
-                  ..where((t) => t.id.equals(already.id)))
-                .write(const SyncQueueCompanion(attempts: Value(0), error: Value(null)));
+            await (_db.update(
+              _db.syncQueue,
+            )..where((t) => t.id.equals(already.id))).write(
+              const SyncQueueCompanion(attempts: Value(0), error: Value(null)),
+            );
             revived++;
           }
           continue;
         }
-        await _db.into(_db.syncQueue).insert(
+        await _db
+            .into(_db.syncQueue)
+            .insert(
               SyncQueueCompanion.insert(
                 // The run id is what makes this a *new* journal entry server
                 // side. Deterministic ids were silently deduplicated away,
@@ -300,9 +311,7 @@ class SyncEngine {
       }
     }
     if (revived > 0) {
-      debugPrint(
-        'atria sync: re-send revived $revived quarantined change(s)',
-      );
+      debugPrint('atria sync: re-send revived $revived quarantined change(s)');
     }
     return enqueued + revived;
   }
@@ -371,8 +380,9 @@ class SyncEngine {
           continue;
         }
 
-        final sameFirm =
-            batch.where((r) => r.firmId == firmId).toList(growable: false);
+        final sameFirm = batch
+            .where((r) => r.firmId == firmId)
+            .toList(growable: false);
 
         await _ensureFirmRegistered(firmId, accessToken);
 
@@ -398,7 +408,9 @@ class SyncEngine {
           changes.add(encoded);
           used += size;
         }
-        final ids = changes.map((c) => c['id'] as String).toList(growable: false);
+        final ids = changes
+            .map((c) => c['id'] as String)
+            .toList(growable: false);
 
         try {
           await _client.pushChanges(
@@ -441,7 +453,7 @@ class SyncEngine {
     } on ServerRequestException catch (failure) {
       error = failure.signedOut
           ? 'Apex Books no longer accepts this device\'s session. Sign in again to '
-              'resume syncing.'
+                'resume syncing.'
           : failure.message;
     } on Object catch (failure) {
       error = 'Sync stopped: $failure';
@@ -456,12 +468,7 @@ class SyncEngine {
       );
       await pruneSent();
     }
-    return SyncReport(
-      pushed: pushed,
-      pending: pending,
-      error: error,
-      at: at,
-    );
+    return SyncReport(pushed: pushed, pending: pending, error: error, at: at);
   }
 
   /// One full sync: push this device's outbox, then pull the firm's journal.
@@ -502,7 +509,7 @@ class SyncEngine {
       } on ServerRequestException catch (failure) {
         pullError = failure.signedOut
             ? 'Apex Books no longer accepts this device\'s session. Sign in again to '
-                'resume syncing.'
+                  'resume syncing.'
             : failure.message;
         // Only the token check can make this run "unreachable"; a 500 from a
         // server that answered has its own message and must keep it.
@@ -556,7 +563,7 @@ class SyncEngine {
         // simply has to wait.
         describe: token.temporarilyUnavailable
             ? 'Could not reach Apex Books, so nothing was restored. Check this '
-                'device is online and try again.'
+                  'device is online and try again.'
             : 'Your session has expired. Sign in again.',
       );
     }
@@ -587,16 +594,17 @@ class SyncEngine {
         await _settings.setInt('sync_cursor_$firmId', afterSeq);
       }
 
-      final firmRow = await (_db.select(_db.firms)
-            ..where((t) => t.id.equals(firmId)))
-          .getSingleOrNull();
+      final firmRow = await (_db.select(
+        _db.firms,
+      )..where((t) => t.id.equals(firmId))).getSingleOrNull();
       if (firmRow == null) {
         // The journal never carried this firm's insert — the original device
         // created it but never pushed (sync was off, or the server address
         // changed). Say so rather than opening books that look emptied.
         return RestoreReport(
           restored: false,
-          describe: 'The server has no books for that business yet. On the '
+          describe:
+              'The server has no books for that business yet. On the '
               'device that has them, turn sync on in Settings and press '
               '"Send now" first.',
         );
@@ -624,7 +632,10 @@ class SyncEngine {
             : failure.message,
       );
     } on Object catch (failure) {
-      return RestoreReport(restored: false, describe: 'Restore failed: $failure');
+      return RestoreReport(
+        restored: false,
+        describe: 'Restore failed: $failure',
+      );
     }
   }
 
@@ -632,8 +643,11 @@ class SyncEngine {
   /// a value only the sync flows touch.
   Future<String> _registeredFirmsWith(String firmId) async {
     final raw = await _settings.get(SettingsRepository.kSyncRegisteredFirms);
-    final existing =
-        (raw ?? '').split(',').map((id) => id.trim()).where(idNotEmpty).toSet();
+    final existing = (raw ?? '')
+        .split(',')
+        .map((id) => id.trim())
+        .where(idNotEmpty)
+        .toSet();
     existing.add(firmId);
     return existing.join(',');
   }
@@ -646,8 +660,7 @@ class SyncEngine {
     final ids = <String>{};
     final firmRows = await _db.select(_db.firms).get();
     ids.addAll(firmRows.map((f) => f.id));
-    final queued = await _db.select(_db.syncQueue)
-        .get();
+    final queued = await _db.select(_db.syncQueue).get();
     for (final row in queued) {
       final id = row.firmId;
       if (id != null && id.isNotEmpty) ids.add(id);
@@ -669,7 +682,7 @@ class SyncEngine {
         token.temporarilyUnavailable
             ? 'Could not reach Apex Books, so nothing was received.'
             : 'Apex Books no longer accepts this device\'s session. Sign in again '
-                'to resume syncing.',
+                  'to resume syncing.',
         signedOut: !token.temporarilyUnavailable,
       );
     }
@@ -738,16 +751,15 @@ class SyncEngine {
   /// The outbox grows on every single save — a shop writing fifty invoices a day
   /// adds hundreds of rows — so something has to cap it. Pruning only touches
   /// rows that are already marked sent, so it cannot lose an unsent change.
-  Future<int> pruneSent({
-    Duration keep = keepSentFor,
-    DateTime? now,
-  }) async {
+  Future<int> pruneSent({Duration keep = keepSentFor, DateTime? now}) async {
     final cutoff = (now ?? DateTime.now()).subtract(keep);
-    final deleted = await (_db.delete(_db.syncQueue)
-          ..where((t) =>
-              t.syncedAt.isNotNull() &
-              t.syncedAt.isSmallerThanValue(cutoff)))
-        .go();
+    final deleted =
+        await (_db.delete(_db.syncQueue)..where(
+              (t) =>
+                  t.syncedAt.isNotNull() &
+                  t.syncedAt.isSmallerThanValue(cutoff),
+            ))
+            .go();
     return deleted;
   }
 
@@ -819,9 +831,9 @@ class SyncEngine {
         .get();
     if (idRows.isEmpty) return const [];
     final ids = idRows.map((row) => row.data['id'] as String).toList();
-    final rows = await (_db.select(_db.syncQueue)
-          ..where((t) => t.id.isIn(ids)))
-        .get();
+    final rows = await (_db.select(
+      _db.syncQueue,
+    )..where((t) => t.id.isIn(ids))).get();
     final byId = {for (final row in rows) row.id: row};
     return [
       for (final id in ids)
@@ -841,8 +853,9 @@ class SyncEngine {
     final registered = _decodeFirmIds(raw);
     if (registered.contains(firmId)) return;
 
-    final firm = await (_db.select(_db.firms)..where((t) => t.id.equals(firmId)))
-        .getSingleOrNull();
+    final firm = await (_db.select(
+      _db.firms,
+    )..where((t) => t.id.equals(firmId))).getSingleOrNull();
     if (firm == null) {
       // The firm was purged locally but its outbox rows survive (the purge
       // deletes them, but a crash between the two steps is possible). Nothing
@@ -879,8 +892,7 @@ class SyncEngine {
   /// Measured on the encoded form rather than estimated from column types: the
   /// whole problem is that `notes`, `terms` and item names are unbounded TEXT,
   /// so a per-column guess is exactly the assumption that fails.
-  int _encodedSize(Map<String, Object?> encoded) =>
-      jsonEncode(encoded).length;
+  int _encodedSize(Map<String, Object?> encoded) => jsonEncode(encoded).length;
 
   /// One outbox row as the wire format.
   ///
@@ -925,7 +937,9 @@ class SyncEngine {
     final rows = await _db
         .customSelect(
           'SELECT * FROM ${table.actualTableName} WHERE $where LIMIT 1',
-          variables: [for (final _ in primaryKey) Variable.withString(entityId)],
+          variables: [
+            for (final _ in primaryKey) Variable.withString(entityId),
+          ],
           readsFrom: {table},
         )
         .get();
@@ -1001,10 +1015,12 @@ class SyncEngine {
   ) async {
     if (ids.isEmpty) return const [];
     final query = _db.select(_db.syncQueue)
-      ..where((t) =>
-          t.firmId.equals(firmId) &
-          t.attempts.isBiggerOrEqualValue(maxAttempts) &
-          t.id.isIn(ids));
+      ..where(
+        (t) =>
+            t.firmId.equals(firmId) &
+            t.attempts.isBiggerOrEqualValue(maxAttempts) &
+            t.id.isIn(ids),
+      );
     return query.get();
   }
 

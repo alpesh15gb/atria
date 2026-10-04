@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/router/app_router.dart';
 import 'core/state/providers.dart';
+import 'features/settings/pin_gate.dart';
 import 'core/theme/app_theme.dart';
 
 /// How often an open app syncs on its own.
@@ -166,10 +167,7 @@ class _AtriaAppState extends ConsumerState<AtriaApp>
       darkTheme: AppTheme.dark(),
       themeMode: themeMode,
       locale: const Locale('en', 'IN'),
-      supportedLocales: const [
-        Locale('en', 'IN'),
-        Locale('en'),
-      ],
+      supportedLocales: const [Locale('en', 'IN'), Locale('en')],
       // One router for the app's whole lifetime. The boot splash is now the
       // `/boot` route inside it (see [appRouterProvider]); swapping the
       // routerConfig between a splash router and the real one used to strand
@@ -178,7 +176,19 @@ class _AtriaAppState extends ConsumerState<AtriaApp>
       // go_router's default "The route /onboarding/firm-setup does not exist"
       // page appeared before the real router ever mounted.
       routerConfig: ref.watch(appRouterProvider),
-      // NOTE: there is deliberately no `builder` here any more.
+      // The optional PIN gate, over the whole app.
+      //
+      // A `builder`, not a route, and the comment below explains why the app
+      // has no `builder` at all — read that first, because the two are easy to
+      // confuse. That note is about *scaling text*; this is about gating, and
+      // the gate deliberately does not wrap the router in a way that could
+      // interfere with it: `MemberGateOverlay` returns the child untouched
+      // unless the firm has opted into local users, so with the feature off —
+      // which is every existing install — this costs one provider read and
+      // changes nothing about what is on screen.
+      builder: (context, child) =>
+          MemberGateOverlay(child: child ?? const SizedBox.shrink()),
+      // NOTE: no `builder` is used to re-wrap every route.
       //
       // The app used to re-wrap every route in
       // `MediaQuery(textScaler: …clamp(maxScaleFactor: 1.15))`. That cap was

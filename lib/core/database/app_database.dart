@@ -6,6 +6,7 @@ import 'package:drift/native.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../domain/member_role.dart';
 import 'tables/firms.dart';
 import 'tables/items.dart';
 import 'tables/ledger.dart';
@@ -49,7 +50,37 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.test(super.e);
 
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
+
+  /// Who is operating, for local-user permissions.
+  ///
+  /// **Defaults to [MemberSession.off], and that default is the feature.** With
+  /// no session set, [assertPermission] grants everything, so a firm that
+  /// never turned local users on behaves exactly as it always has — no gate,
+  /// no picker, no check. There is no "enable" code path that has to be
+  /// remembered; the opt-in is what sets this.
+  ///
+  /// A field rather than a constructor argument because the database outlives
+  /// any one screen, and a repository is handed `this.db` at construction —
+  /// the alternative is threading a session through eleven repositories and
+  /// every factory that builds them.
+  MemberSession session = MemberSession.off;
+
+  /// The permission check every repository write goes through.
+  ///
+  /// Beside [assertDateEditable] on purpose, and for the same reason: a guard
+  /// the UI can forget is not a guard. A repository method is reachable from
+  /// sync, from a background job and from a test, none of which pass through
+  /// a button.
+  void assertPermission(Permission permission) {
+    if (!session.allows(permission)) {
+      throw PermissionDeniedException(
+        permission,
+        role: session.role,
+        memberName: session.name,
+      );
+    }
+  }
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -166,6 +197,15 @@ class AppDatabase extends _$AppDatabase {
       if (from < 9) {
         await m.addColumn(salesInvoices, salesInvoices.convertedToInvoiceId);
         await m.addColumn(salesInvoices, salesInvoices.convertedAt);
+      }
+      // v10: optional local PINs. All nullable with a default, so every
+      // existing member row migrates in place and keeps working — a member
+      // with no PIN cannot sign in, and a firm that never turned local users
+      // on is unaffected.
+      if (from < 10) {
+        await m.addColumn(firmMembers, firmMembers.pinHash);
+        await m.addColumn(firmMembers, firmMembers.pinSalt);
+        await m.addColumn(firmMembers, firmMembers.isActive);
       }
     },
   );

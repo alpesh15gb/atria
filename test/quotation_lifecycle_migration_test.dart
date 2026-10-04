@@ -73,17 +73,28 @@ void main() {
           legacyConverted.copyWith(status: DocumentStatus.legacyConvertedValue),
         );
 
-    // 2. Roll it back to what a v8 file looked like.
+    // 2. Roll it back to what a v8 file looked like. The v10 columns go too:
+    //    the chain runs from 8 all the way to current, so leaving them in place
+    //    makes the v10 step fail on a duplicate column.
     await first.customStatement(
       'ALTER TABLE sales_invoices DROP COLUMN converted_to_invoice_id',
     );
     await first.customStatement(
       'ALTER TABLE sales_invoices DROP COLUMN converted_at',
     );
+    await first.customStatement(
+      'ALTER TABLE firm_members DROP COLUMN pin_hash',
+    );
+    await first.customStatement(
+      'ALTER TABLE firm_members DROP COLUMN pin_salt',
+    );
+    await first.customStatement(
+      'ALTER TABLE firm_members DROP COLUMN is_active',
+    );
     await first.customStatement('PRAGMA user_version = 8');
     await first.close();
 
-    // 3. Reopen: this runs the v8 -> v9 upgrade for real.
+    // 3. Reopen: this runs the v8 -> v9 and v9 -> v10 upgrades for real.
     final upgraded = AppDatabase.test(NativeDatabase(file));
     addTearDown(upgraded.close);
 
@@ -122,6 +133,6 @@ void main() {
       reason: 'cancelling it would wipe the only record that it was invoiced',
     );
 
-    expect(upgraded.schemaVersion, 9);
+    expect(upgraded.schemaVersion, 10);
   });
 }

@@ -3128,6 +3128,43 @@ class $FirmMembersTable extends FirmMembers
     requiredDuringInsert: false,
     defaultValue: currentDateAndTime,
   );
+  static const VerificationMeta _pinHashMeta = const VerificationMeta(
+    'pinHash',
+  );
+  @override
+  late final GeneratedColumn<String> pinHash = GeneratedColumn<String>(
+    'pin_hash',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _pinSaltMeta = const VerificationMeta(
+    'pinSalt',
+  );
+  @override
+  late final GeneratedColumn<String> pinSalt = GeneratedColumn<String>(
+    'pin_salt',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _isActiveMeta = const VerificationMeta(
+    'isActive',
+  );
+  @override
+  late final GeneratedColumn<bool> isActive = GeneratedColumn<bool>(
+    'is_active',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_active" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -3137,6 +3174,9 @@ class $FirmMembersTable extends FirmMembers
     role,
     userId,
     createdAt,
+    pinHash,
+    pinSalt,
+    isActive,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -3195,6 +3235,24 @@ class $FirmMembersTable extends FirmMembers
         createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
       );
     }
+    if (data.containsKey('pin_hash')) {
+      context.handle(
+        _pinHashMeta,
+        pinHash.isAcceptableOrUnknown(data['pin_hash']!, _pinHashMeta),
+      );
+    }
+    if (data.containsKey('pin_salt')) {
+      context.handle(
+        _pinSaltMeta,
+        pinSalt.isAcceptableOrUnknown(data['pin_salt']!, _pinSaltMeta),
+      );
+    }
+    if (data.containsKey('is_active')) {
+      context.handle(
+        _isActiveMeta,
+        isActive.isAcceptableOrUnknown(data['is_active']!, _isActiveMeta),
+      );
+    }
     return context;
   }
 
@@ -3232,6 +3290,18 @@ class $FirmMembersTable extends FirmMembers
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
       )!,
+      pinHash: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}pin_hash'],
+      ),
+      pinSalt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}pin_salt'],
+      ),
+      isActive: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_active'],
+      )!,
     );
   }
 
@@ -3250,6 +3320,24 @@ class FirmMemberEntity extends DataClass
   final String role;
   final String? userId;
   final DateTime createdAt;
+
+  /// Salted hash of this member's PIN. Null means no PIN is set, and — since
+  /// the whole feature is opt-in — no PIN is set on a firm that never turned
+  /// it on.
+  ///
+  /// Never the PIN itself, and never exported: see `SettingsRepository`'s
+  /// `_neverExportedColumns`. A PIN is a password, and a backup file is
+  /// something people email to themselves.
+  final String? pinHash;
+
+  /// Per-member random salt, so two members with the same PIN do not produce
+  /// the same hash and a stolen file cannot be attacked with precomputed
+  /// digests.
+  final String? pinSalt;
+
+  /// A deactivated member cannot sign in and keeps their history, rather than
+  /// being deleted — audit rows reference them.
+  final bool isActive;
   const FirmMemberEntity({
     required this.id,
     required this.firmId,
@@ -3258,6 +3346,9 @@ class FirmMemberEntity extends DataClass
     required this.role,
     this.userId,
     required this.createdAt,
+    this.pinHash,
+    this.pinSalt,
+    required this.isActive,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -3273,6 +3364,13 @@ class FirmMemberEntity extends DataClass
       map['user_id'] = Variable<String>(userId);
     }
     map['created_at'] = Variable<DateTime>(createdAt);
+    if (!nullToAbsent || pinHash != null) {
+      map['pin_hash'] = Variable<String>(pinHash);
+    }
+    if (!nullToAbsent || pinSalt != null) {
+      map['pin_salt'] = Variable<String>(pinSalt);
+    }
+    map['is_active'] = Variable<bool>(isActive);
     return map;
   }
 
@@ -3289,6 +3387,13 @@ class FirmMemberEntity extends DataClass
           ? const Value.absent()
           : Value(userId),
       createdAt: Value(createdAt),
+      pinHash: pinHash == null && nullToAbsent
+          ? const Value.absent()
+          : Value(pinHash),
+      pinSalt: pinSalt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(pinSalt),
+      isActive: Value(isActive),
     );
   }
 
@@ -3305,6 +3410,9 @@ class FirmMemberEntity extends DataClass
       role: serializer.fromJson<String>(json['role']),
       userId: serializer.fromJson<String?>(json['userId']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      pinHash: serializer.fromJson<String?>(json['pinHash']),
+      pinSalt: serializer.fromJson<String?>(json['pinSalt']),
+      isActive: serializer.fromJson<bool>(json['isActive']),
     );
   }
   @override
@@ -3318,6 +3426,9 @@ class FirmMemberEntity extends DataClass
       'role': serializer.toJson<String>(role),
       'userId': serializer.toJson<String?>(userId),
       'createdAt': serializer.toJson<DateTime>(createdAt),
+      'pinHash': serializer.toJson<String?>(pinHash),
+      'pinSalt': serializer.toJson<String?>(pinSalt),
+      'isActive': serializer.toJson<bool>(isActive),
     };
   }
 
@@ -3329,6 +3440,9 @@ class FirmMemberEntity extends DataClass
     String? role,
     Value<String?> userId = const Value.absent(),
     DateTime? createdAt,
+    Value<String?> pinHash = const Value.absent(),
+    Value<String?> pinSalt = const Value.absent(),
+    bool? isActive,
   }) => FirmMemberEntity(
     id: id ?? this.id,
     firmId: firmId ?? this.firmId,
@@ -3337,6 +3451,9 @@ class FirmMemberEntity extends DataClass
     role: role ?? this.role,
     userId: userId.present ? userId.value : this.userId,
     createdAt: createdAt ?? this.createdAt,
+    pinHash: pinHash.present ? pinHash.value : this.pinHash,
+    pinSalt: pinSalt.present ? pinSalt.value : this.pinSalt,
+    isActive: isActive ?? this.isActive,
   );
   FirmMemberEntity copyWithCompanion(FirmMembersCompanion data) {
     return FirmMemberEntity(
@@ -3347,6 +3464,9 @@ class FirmMemberEntity extends DataClass
       role: data.role.present ? data.role.value : this.role,
       userId: data.userId.present ? data.userId.value : this.userId,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      pinHash: data.pinHash.present ? data.pinHash.value : this.pinHash,
+      pinSalt: data.pinSalt.present ? data.pinSalt.value : this.pinSalt,
+      isActive: data.isActive.present ? data.isActive.value : this.isActive,
     );
   }
 
@@ -3359,14 +3479,27 @@ class FirmMemberEntity extends DataClass
           ..write('email: $email, ')
           ..write('role: $role, ')
           ..write('userId: $userId, ')
-          ..write('createdAt: $createdAt')
+          ..write('createdAt: $createdAt, ')
+          ..write('pinHash: $pinHash, ')
+          ..write('pinSalt: $pinSalt, ')
+          ..write('isActive: $isActive')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode =>
-      Object.hash(id, firmId, name, email, role, userId, createdAt);
+  int get hashCode => Object.hash(
+    id,
+    firmId,
+    name,
+    email,
+    role,
+    userId,
+    createdAt,
+    pinHash,
+    pinSalt,
+    isActive,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -3377,7 +3510,10 @@ class FirmMemberEntity extends DataClass
           other.email == this.email &&
           other.role == this.role &&
           other.userId == this.userId &&
-          other.createdAt == this.createdAt);
+          other.createdAt == this.createdAt &&
+          other.pinHash == this.pinHash &&
+          other.pinSalt == this.pinSalt &&
+          other.isActive == this.isActive);
 }
 
 class FirmMembersCompanion extends UpdateCompanion<FirmMemberEntity> {
@@ -3388,6 +3524,9 @@ class FirmMembersCompanion extends UpdateCompanion<FirmMemberEntity> {
   final Value<String> role;
   final Value<String?> userId;
   final Value<DateTime> createdAt;
+  final Value<String?> pinHash;
+  final Value<String?> pinSalt;
+  final Value<bool> isActive;
   final Value<int> rowid;
   const FirmMembersCompanion({
     this.id = const Value.absent(),
@@ -3397,6 +3536,9 @@ class FirmMembersCompanion extends UpdateCompanion<FirmMemberEntity> {
     this.role = const Value.absent(),
     this.userId = const Value.absent(),
     this.createdAt = const Value.absent(),
+    this.pinHash = const Value.absent(),
+    this.pinSalt = const Value.absent(),
+    this.isActive = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   FirmMembersCompanion.insert({
@@ -3407,6 +3549,9 @@ class FirmMembersCompanion extends UpdateCompanion<FirmMemberEntity> {
     this.role = const Value.absent(),
     this.userId = const Value.absent(),
     this.createdAt = const Value.absent(),
+    this.pinHash = const Value.absent(),
+    this.pinSalt = const Value.absent(),
+    this.isActive = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        firmId = Value(firmId),
@@ -3419,6 +3564,9 @@ class FirmMembersCompanion extends UpdateCompanion<FirmMemberEntity> {
     Expression<String>? role,
     Expression<String>? userId,
     Expression<DateTime>? createdAt,
+    Expression<String>? pinHash,
+    Expression<String>? pinSalt,
+    Expression<bool>? isActive,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -3429,6 +3577,9 @@ class FirmMembersCompanion extends UpdateCompanion<FirmMemberEntity> {
       if (role != null) 'role': role,
       if (userId != null) 'user_id': userId,
       if (createdAt != null) 'created_at': createdAt,
+      if (pinHash != null) 'pin_hash': pinHash,
+      if (pinSalt != null) 'pin_salt': pinSalt,
+      if (isActive != null) 'is_active': isActive,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -3441,6 +3592,9 @@ class FirmMembersCompanion extends UpdateCompanion<FirmMemberEntity> {
     Value<String>? role,
     Value<String?>? userId,
     Value<DateTime>? createdAt,
+    Value<String?>? pinHash,
+    Value<String?>? pinSalt,
+    Value<bool>? isActive,
     Value<int>? rowid,
   }) {
     return FirmMembersCompanion(
@@ -3451,6 +3605,9 @@ class FirmMembersCompanion extends UpdateCompanion<FirmMemberEntity> {
       role: role ?? this.role,
       userId: userId ?? this.userId,
       createdAt: createdAt ?? this.createdAt,
+      pinHash: pinHash ?? this.pinHash,
+      pinSalt: pinSalt ?? this.pinSalt,
+      isActive: isActive ?? this.isActive,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -3479,6 +3636,15 @@ class FirmMembersCompanion extends UpdateCompanion<FirmMemberEntity> {
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
+    if (pinHash.present) {
+      map['pin_hash'] = Variable<String>(pinHash.value);
+    }
+    if (pinSalt.present) {
+      map['pin_salt'] = Variable<String>(pinSalt.value);
+    }
+    if (isActive.present) {
+      map['is_active'] = Variable<bool>(isActive.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -3495,6 +3661,9 @@ class FirmMembersCompanion extends UpdateCompanion<FirmMemberEntity> {
           ..write('role: $role, ')
           ..write('userId: $userId, ')
           ..write('createdAt: $createdAt, ')
+          ..write('pinHash: $pinHash, ')
+          ..write('pinSalt: $pinSalt, ')
+          ..write('isActive: $isActive, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -21818,6 +21987,9 @@ typedef $$FirmMembersTableCreateCompanionBuilder =
       Value<String> role,
       Value<String?> userId,
       Value<DateTime> createdAt,
+      Value<String?> pinHash,
+      Value<String?> pinSalt,
+      Value<bool> isActive,
       Value<int> rowid,
     });
 typedef $$FirmMembersTableUpdateCompanionBuilder =
@@ -21829,6 +22001,9 @@ typedef $$FirmMembersTableUpdateCompanionBuilder =
       Value<String> role,
       Value<String?> userId,
       Value<DateTime> createdAt,
+      Value<String?> pinHash,
+      Value<String?> pinSalt,
+      Value<bool> isActive,
       Value<int> rowid,
     });
 
@@ -21873,6 +22048,21 @@ class $$FirmMembersTableFilterComposer
 
   ColumnFilters<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get pinHash => $composableBuilder(
+    column: $table.pinHash,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get pinSalt => $composableBuilder(
+    column: $table.pinSalt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isActive => $composableBuilder(
+    column: $table.isActive,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -21920,6 +22110,21 @@ class $$FirmMembersTableOrderingComposer
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get pinHash => $composableBuilder(
+    column: $table.pinHash,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get pinSalt => $composableBuilder(
+    column: $table.pinSalt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isActive => $composableBuilder(
+    column: $table.isActive,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$FirmMembersTableAnnotationComposer
@@ -21951,6 +22156,15 @@ class $$FirmMembersTableAnnotationComposer
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get pinHash =>
+      $composableBuilder(column: $table.pinHash, builder: (column) => column);
+
+  GeneratedColumn<String> get pinSalt =>
+      $composableBuilder(column: $table.pinSalt, builder: (column) => column);
+
+  GeneratedColumn<bool> get isActive =>
+      $composableBuilder(column: $table.isActive, builder: (column) => column);
 }
 
 class $$FirmMembersTableTableManager
@@ -21991,6 +22205,9 @@ class $$FirmMembersTableTableManager
                 Value<String> role = const Value.absent(),
                 Value<String?> userId = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
+                Value<String?> pinHash = const Value.absent(),
+                Value<String?> pinSalt = const Value.absent(),
+                Value<bool> isActive = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => FirmMembersCompanion(
                 id: id,
@@ -22000,6 +22217,9 @@ class $$FirmMembersTableTableManager
                 role: role,
                 userId: userId,
                 createdAt: createdAt,
+                pinHash: pinHash,
+                pinSalt: pinSalt,
+                isActive: isActive,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -22011,6 +22231,9 @@ class $$FirmMembersTableTableManager
                 Value<String> role = const Value.absent(),
                 Value<String?> userId = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
+                Value<String?> pinHash = const Value.absent(),
+                Value<String?> pinSalt = const Value.absent(),
+                Value<bool> isActive = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => FirmMembersCompanion.insert(
                 id: id,
@@ -22020,6 +22243,9 @@ class $$FirmMembersTableTableManager
                 role: role,
                 userId: userId,
                 createdAt: createdAt,
+                pinHash: pinHash,
+                pinSalt: pinSalt,
+                isActive: isActive,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

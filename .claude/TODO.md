@@ -30,7 +30,7 @@ new tests proven to fail against reverted code) before its commit.
       `test/app_data_dir_migration_test.dart` (10). **Left as `Atria` on
       purpose:** Dart package name, `Atria*` classes, `atria_*.dart` filenames,
       the `.atriabak` constant, the server's `ATRIA_*` env vars.
-- [ ] **Phase 3 — bulk actions.** In progress; commit when the suite is green.
+- [x] **Phase 3 — bulk actions.** Shipped `8f9f1fc`.
       - [x] `confirmDestructive` extracted (**11** call sites, not 8).
       - [x] `BulkSelection` + `bulkSoftDelete`/`bulkRestore` in
             `lib/core/bulk/bulk_actions.dart`.
@@ -66,17 +66,29 @@ new tests proven to fail against reverted code) before its commit.
         throws bare `Exception`, not `PeriodLockedException` — **pre-existing,
         still open**, see below.
       - The stream cache key did gain the filter, as it must.
-- [ ] **Phase 5 — optional local PIN + roles.** Off must be indistinguishable
-      from today. Off = no gate, no picker, every permission granted. Enforce in
-      the repositories next to `assertDateEditable`, never in the UI. The gate
-      is a **modal overlay on `MaterialApp.router.builder`**, not a router route
-      — `resolveOnboardingRedirect`'s `refreshListenable` only pulses on
-      `appInitializationProvider`. **`_neverExported` in
-      `settings_repository.dart:155-172` is key-based and `firm_members` has no
-      key column**, so the PIN hash/salt need a column-level strip on export.
-      The `actor` param every repository already takes is always null, so a
-      guard keyed on it is off until Phase 5 gives it a caller.
-      - Copy must not oversell a 4-digit PIN as security.
+- [x] **Phase 5 — optional local PIN + roles.** Shipped. Off is
+      indistinguishable from today: `MemberSession.off` grants every
+      permission, so nothing in the write path can tell "off" from "no such
+      feature". Schema v10 adds `pinHash`/`pinSalt`/`isActive`;
+      `MembersRepository` salts and iterates per user and **returns null** on a
+      wrong PIN rather than throwing; enforcement lives in **nine
+      repositories** beside `assertDateEditable`, never in the UI; the gate is
+      a **modal overlay on `MaterialApp.router.builder`**, not a route, and
+      returns its child untouched when off. Deep routes are blocked by a
+      `redirect` too — hiding nav entries is one URL away from useless.
+      `test/member_roles_test.dart` (39) + `test/pin_gate_widget_test.dart`
+      (10); every one revert-proofed. Suite **723 / 1 skipped**.
+      - The export strip had to become **column-level**: `_neverExported` is
+        key-based and `firm_members` has no key column. The first version wrote
+        `"pin_hash": null` — omitting the key is the point, and naming it in the
+        JSON is not omitting it.
+      - `signIn`/`signOut`/`disable` each write **both** the controller state and
+        `AppDatabase.session`. An overlay hidden over an app that is still
+        filtering writes by a stale role is the worst outcome available.
+      - Copy does not oversell a 4-digit PIN as security.
+      - [ ] **Manual pass still owed** — no one has signed in through the gate
+            or exercised a role on hardware. The highest-risk regression is the
+            gate appearing for a firm that never asked for one.
 
 ## Open
 

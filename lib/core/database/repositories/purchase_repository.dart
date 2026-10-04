@@ -3,6 +3,7 @@ import 'package:drift/drift.dart';
 
 import '../../engine/gst_engine.dart';
 import '../../utils/money.dart';
+import '../../domain/member_role.dart';
 import '../app_database.dart';
 import 'repository_extensions.dart';
 import 'sales_repository.dart';
@@ -36,24 +37,27 @@ class PurchaseLineDraft {
   });
 
   TaxLine toTaxLine() => TaxLine(
-        id: id,
-        itemId: itemId,
-        name: name,
-        hsn: hsn,
-        quantity: quantity,
-        unit: unit,
-        rate: rate,
-        discountPercent: discountPercent ?? Money.zero,
-        gstRate: gstRate,
-        cessRate: cessRate,
-        taxMode: taxMode,
-      );
+    id: id,
+    itemId: itemId,
+    name: name,
+    hsn: hsn,
+    quantity: quantity,
+    unit: unit,
+    rate: rate,
+    discountPercent: discountPercent ?? Money.zero,
+    gstRate: gstRate,
+    cessRate: cessRate,
+    taxMode: taxMode,
+  );
 
   /// Writes the resolved per-line tax figures. These columns back the bill's
   /// line table and its PDF, so leaving them out renders every saved line as
   /// ₹0.00 taxable / ₹0.00 total.
   PurchaseBillItemsCompanion toCompanion(
-      String billId, int order, ComputedLine? computed) {
+    String billId,
+    int order,
+    ComputedLine? computed,
+  ) {
     return PurchaseBillItemsCompanion.insert(
       id: id,
       billId: billId,
@@ -100,6 +104,7 @@ class PurchaseDraft {
   final Decimal? invoiceDiscountAmount;
   final Decimal? shippingCharge;
   final Decimal? otherCharges;
+
   /// TDS percentage deducted at source on this bill. Null/zero means none.
   final Decimal? tdsRate;
 
@@ -107,8 +112,7 @@ class PurchaseDraft {
   /// are nullable and default to zero here for readers that need a [Decimal].
   Decimal get invoiceDiscountPercentValue =>
       invoiceDiscountPercent ?? Money.zero;
-  Decimal get invoiceDiscountAmountValue =>
-      invoiceDiscountAmount ?? Money.zero;
+  Decimal get invoiceDiscountAmountValue => invoiceDiscountAmount ?? Money.zero;
   Decimal get shippingChargeValue => shippingCharge ?? Money.zero;
   Decimal get otherChargesValue => otherCharges ?? Money.zero;
   final bool applyRoundOff;
@@ -152,9 +156,15 @@ class PurchaseRepository with SyncQueueMixin {
 
   final String firmId;
 
-  Future<PurchaseBillEntity> save(PurchaseDraft draft,
-      {bool affectStock = true, String? createdBy}) async {
-    final split = draft.isInterState ? GstSplit.interState : GstSplit.intraState;
+  Future<PurchaseBillEntity> save(
+    PurchaseDraft draft, {
+    bool affectStock = true,
+    String? createdBy,
+  }) async {
+    db.assertPermission(Permission.createPurchases);
+    final split = draft.isInterState
+        ? GstSplit.interState
+        : GstSplit.intraState;
     final result = GstEngine.computeDocument(
       lines: draft.lines.map((l) => l.toTaxLine()).toList(),
       split: split,
@@ -171,9 +181,9 @@ class PurchaseRepository with SyncQueueMixin {
     );
     final grandTotal =
         result.grandTotal +
-            draft.shippingChargeValue +
-            draft.otherChargesValue -
-            tds;
+        draft.shippingChargeValue +
+        draft.otherChargesValue -
+        tds;
     final now = DateTime.now();
 
     await db.transaction(() async {
@@ -193,9 +203,9 @@ class PurchaseRepository with SyncQueueMixin {
 
       if (isEdit) {
         await db.reverseStockForSource(firmId, draft.id);
-        await (db.delete(db.purchaseBillItems)
-              ..where((t) => t.billId.equals(draft.id)))
-            .go();
+        await (db.delete(
+          db.purchaseBillItems,
+        )..where((t) => t.billId.equals(draft.id))).go();
       }
 
       final paidAmount = existing?.paidAmount ?? 0.0;
@@ -240,10 +250,12 @@ class PurchaseRepository with SyncQueueMixin {
         reverseCharge: Value(draft.reverseCharge),
         subTotal: Value(result.subTotal.toDouble()),
         itemDiscount: Value(result.itemDiscountTotal.toDouble()),
-        invoiceDiscountPercent:
-            Value(draft.invoiceDiscountPercentValue.toDouble()),
-        invoiceDiscountAmount:
-            Value(draft.invoiceDiscountAmountValue.toDouble()),
+        invoiceDiscountPercent: Value(
+          draft.invoiceDiscountPercentValue.toDouble(),
+        ),
+        invoiceDiscountAmount: Value(
+          draft.invoiceDiscountAmountValue.toDouble(),
+        ),
         shippingCharge: Value(draft.shippingChargeValue.toDouble()),
         otherCharges: Value(draft.otherChargesValue.toDouble()),
         taxableValue: Value(result.taxableValue.toDouble()),
@@ -269,8 +281,15 @@ class PurchaseRepository with SyncQueueMixin {
       }
 
       for (var i = 0; i < draft.lines.length; i++) {
-        await db.into(db.purchaseBillItems).insert(draft.lines[i]
-            .toCompanion(draft.id, i, result.lineFor(draft.lines[i].id)));
+        await db
+            .into(db.purchaseBillItems)
+            .insert(
+              draft.lines[i].toCompanion(
+                draft.id,
+                i,
+                result.lineFor(draft.lines[i].id),
+              ),
+            );
       }
 
       // Journal the line rows themselves — see the twin comment in
@@ -330,6 +349,7 @@ class PurchaseRepository with SyncQueueMixin {
   /// the UI that hides the action, so a second delete reversed the reversal
   /// and doubled the stock back in.
   Future<void> softDelete(String id, {String? actor}) async {
+    db.assertPermission(Permission.softDelete);
     await db.transaction(() async {
       final bill = await getById(id);
       if (bill == null) return;
@@ -346,15 +366,19 @@ class PurchaseRepository with SyncQueueMixin {
         ),
       );
       await enqueue(
-          firmId: firmId, entity: 'purchase_bills', entityId: id,
-          operation: 'delete');
+        firmId: firmId,
+        entity: 'purchase_bills',
+        entityId: id,
+        operation: 'delete',
+      );
       await db.auditRepository.log(
         action: 'delete',
         entity: 'purchase_bills',
         firmId: firmId,
         actor: actor,
         entityId: id,
-        summary: 'Deleted ${bill.docType} ${bill.number}'
+        summary:
+            'Deleted ${bill.docType} ${bill.number}'
             ' for ${bill.partyName ?? "supplier"}',
       );
     });
@@ -368,13 +392,15 @@ class PurchaseRepository with SyncQueueMixin {
   /// Refuses a bill that is not in the bin — re-posting a live bill's stock
   /// added its quantity a second time, with no state check at all.
   Future<void> restore(String id, {String? actor}) async {
+    db.assertPermission(Permission.softDelete);
     await db.transaction(() async {
       final bill = await getById(id);
       if (bill == null) return;
       if (!bill.isDeleted) {
         throw StateError(
-            '${_docLabel(bill)} is not in the recycle bin — there is nothing '
-            'to restore.');
+          '${_docLabel(bill)} is not in the recycle bin — there is nothing '
+          'to restore.',
+        );
       }
       await db.assertDateEditable(firmId, bill.billDate);
       await (db.update(db.purchaseBills)..where((t) => t.id.equals(id))).write(
@@ -386,8 +412,9 @@ class PurchaseRepository with SyncQueueMixin {
       );
       if (bill.docType != 'purchase_order' && bill.status != 'cancelled') {
         final sign = bill.docType == 'debit_note' ? -1.0 : 1.0;
-        final kind =
-            bill.docType == 'debit_note' ? 'purchase_return' : 'purchase';
+        final kind = bill.docType == 'debit_note'
+            ? 'purchase_return'
+            : 'purchase';
         final items = await itemsFor(id);
         final itemRepo = db.itemRepositoryFor(firmId);
         for (final l in items) {
@@ -405,8 +432,11 @@ class PurchaseRepository with SyncQueueMixin {
         }
       }
       await enqueue(
-          firmId: firmId, entity: 'purchase_bills', entityId: id,
-          operation: 'update');
+        firmId: firmId,
+        entity: 'purchase_bills',
+        entityId: id,
+        operation: 'update',
+      );
       await db.auditRepository.log(
         action: 'restore',
         entity: 'purchase_bills',
@@ -429,21 +459,23 @@ class PurchaseRepository with SyncQueueMixin {
   /// Hard-deletes a recycled bill's rows (stock ledger history persists).
   /// Refuses live documents and locked-period dates.
   Future<void> purge(String id) async {
+    db.assertPermission(Permission.purge);
     await db.transaction(() async {
       final bill = await getById(id);
       if (bill == null) return;
       if (!bill.isDeleted) {
         throw StateError(
-            'Move this bill to the recycle bin before deleting it '
-            'permanently.');
+          'Move this bill to the recycle bin before deleting it '
+          'permanently.',
+        );
       }
       await db.assertDateEditable(firmId, bill.billDate);
-      await (db.delete(db.purchaseBillItems)
-            ..where((t) => t.billId.equals(id)))
-          .go();
-      await (db.delete(db.purchaseBills)
-            ..where((t) => t.id.equals(id) & t.firmId.equals(firmId)))
-          .go();
+      await (db.delete(
+        db.purchaseBillItems,
+      )..where((t) => t.billId.equals(id))).go();
+      await (db.delete(
+        db.purchaseBills,
+      )..where((t) => t.id.equals(id) & t.firmId.equals(firmId))).go();
       await db.auditRepository.log(
         action: 'purge',
         entity: 'purchase_bills',
@@ -462,8 +494,11 @@ class PurchaseRepository with SyncQueueMixin {
       final bill = await getById(id);
       if (bill == null) return;
       await db.assertDateEditable(firmId, bill.billDate);
-      await db.update(db.purchaseBills)
-          .replace(bill.copyWith(status: 'converted', updatedAt: DateTime.now()));
+      await db
+          .update(db.purchaseBills)
+          .replace(
+            bill.copyWith(status: 'converted', updatedAt: DateTime.now()),
+          );
       await enqueue(
         firmId: firmId,
         entity: 'purchase_bills',
@@ -497,13 +532,15 @@ class PurchaseRepository with SyncQueueMixin {
     int limit = 500,
   }) async {
     final query = db.select(db.purchaseBills)
-      ..where((t) =>
-          t.firmId.equals(firmId) &
-          t.docType.equals(docType) &
-          t.isDeleted.equals(false))
+      ..where(
+        (t) =>
+            t.firmId.equals(firmId) &
+            t.docType.equals(docType) &
+            t.isDeleted.equals(false),
+      )
       ..orderBy([
         (t) => OrderingTerm.desc(t.billDate),
-        (t) => OrderingTerm(expression: t.number)
+        (t) => OrderingTerm(expression: t.number),
       ]);
     if (partyId != null) {
       query.where((t) => t.partyId.equals(partyId));
@@ -516,8 +553,9 @@ class PurchaseRepository with SyncQueueMixin {
     }
     if (search.trim().isNotEmpty) {
       final s = '%${search.trim().toLowerCase()}%';
-      query.where((t) =>
-          t.number.lower().like(s) | t.partyName.lower().like(s));
+      query.where(
+        (t) => t.number.lower().like(s) | t.partyName.lower().like(s),
+      );
     }
     query.limit(limit);
     return query.get();
@@ -531,13 +569,13 @@ class PurchaseRepository with SyncQueueMixin {
     int limit = 100,
   }) {
     final query = db.select(db.purchaseBills)
-      ..where((t) =>
-          t.firmId.equals(firmId) &
-          t.docType.equals(docType) &
-          t.isDeleted.equals(false))
-      ..orderBy([
-        (t) => OrderingTerm.desc(t.billDate),
-      ]);
+      ..where(
+        (t) =>
+            t.firmId.equals(firmId) &
+            t.docType.equals(docType) &
+            t.isDeleted.equals(false),
+      )
+      ..orderBy([(t) => OrderingTerm.desc(t.billDate)]);
     if (partyId != null) {
       query.where((t) => t.partyId.equals(partyId));
     }
@@ -561,7 +599,8 @@ class PurchaseRepository with SyncQueueMixin {
       if (doc == null) return;
       if (doc.isDeleted || doc.status == 'cancelled') {
         throw StateError(
-            'Cannot record a payment against a cancelled or deleted bill.');
+          'Cannot record a payment against a cancelled or deleted bill.',
+        );
       }
       await db.assertDateEditable(firmId, date ?? doc.billDate);
       if (amount > doc.balanceDue + 0.001) {
@@ -573,12 +612,16 @@ class PurchaseRepository with SyncQueueMixin {
         grandTotal: doc.grandTotal,
         paidAmount: paid,
       );
-      await db.update(db.purchaseBills).replace(doc.copyWith(
-            paidAmount: paid,
-            balanceDue: settlement.balance,
-            paymentStatus: settlement.status,
-            updatedAt: DateTime.now(),
-          ));
+      await db
+          .update(db.purchaseBills)
+          .replace(
+            doc.copyWith(
+              paidAmount: paid,
+              balanceDue: settlement.balance,
+              paymentStatus: settlement.status,
+              updatedAt: DateTime.now(),
+            ),
+          );
       await enqueue(
         firmId: firmId,
         entity: 'purchase_bills',

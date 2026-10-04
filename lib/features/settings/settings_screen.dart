@@ -14,6 +14,7 @@ import '../../core/constants/indian_states.dart';
 import '../../core/database/app_database.dart';
 import '../../core/database/repositories/repository_extensions.dart';
 import '../../core/database/repositories/settings_repository.dart';
+import '../../core/domain/member_role.dart';
 import '../../core/responsive/breakpoints.dart';
 import '../../core/services/csv_export.dart';
 import '../../core/state/auth_controller.dart';
@@ -384,6 +385,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (_purging) return;
     setState(() => _purging = true);
     final messenger = ScaffoldMessenger.maybeOf(context);
+    // Checked here as well as inside each purge, because the loop below catches
+    // per row: without this the refusal would be counted as N rows that "could
+    // not be deleted" rather than one accurate reason.
+    try {
+      ref.read(appDatabaseProvider).assertPermission(Permission.purge);
+    } on PermissionDeniedException catch (error) {
+      messenger?.showSnackBar(SnackBar(content: Text(error.message)));
+      setState(() => _purging = false);
+      return;
+    }
     var purged = 0;
     var locked = 0;
     var refused = 0;

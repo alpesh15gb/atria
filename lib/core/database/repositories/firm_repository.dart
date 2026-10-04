@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 
 import '../../engine/document_numbering.dart';
 import '../../utils/id_utils.dart';
+import '../../domain/member_role.dart';
 import '../app_database.dart';
 import 'repository_extensions.dart';
 import 'sync_mixin.dart';
@@ -28,37 +29,43 @@ class FirmRepository with SyncQueueMixin {
   }) async {
     final id = _uuid;
     final now = DateTime.now();
-    await db.into(db.firms).insert(FirmsCompanion.insert(
-          id: id,
-          name: name,
-          legalName: Value(legalName),
-          gstin: Value(gstin?.toUpperCase().trim()),
-          pan: Value(pan?.toUpperCase().trim()),
-          stateCode: Value(stateCode),
-          addressLine1: Value(addressLine1),
-          city: Value(city),
-          pincode: Value(pincode),
-          phone: Value(phone),
-          email: Value(email),
-          isDefault: Value(makeDefault),
-          createdAt: Value(now),
-          updatedAt: Value(now),
-        ));
+    await db
+        .into(db.firms)
+        .insert(
+          FirmsCompanion.insert(
+            id: id,
+            name: name,
+            legalName: Value(legalName),
+            gstin: Value(gstin?.toUpperCase().trim()),
+            pan: Value(pan?.toUpperCase().trim()),
+            stateCode: Value(stateCode),
+            addressLine1: Value(addressLine1),
+            city: Value(city),
+            pincode: Value(pincode),
+            phone: Value(phone),
+            email: Value(email),
+            isDefault: Value(makeDefault),
+            createdAt: Value(now),
+            updatedAt: Value(now),
+          ),
+        );
     final firm = await getById(id);
     await enqueue(
-        firmId: id, entity: 'firms', entityId: id, operation: 'insert');
+      firmId: id,
+      entity: 'firms',
+      entityId: id,
+      operation: 'insert',
+    );
     return firm!;
   }
 
   Future<FirmEntity?> getById(String id) async {
-    final query = db.select(db.firms)
-      ..where((t) => t.id.equals(id));
+    final query = db.select(db.firms)..where((t) => t.id.equals(id));
     return query.getSingleOrNull();
   }
 
   Stream<FirmEntity?> watchById(String id) {
-    final query = db.select(db.firms)
-      ..where((t) => t.id.equals(id));
+    final query = db.select(db.firms)..where((t) => t.id.equals(id));
     return query.watchSingleOrNull();
   }
 
@@ -86,7 +93,9 @@ class FirmRepository with SyncQueueMixin {
 
   Future<FirmEntity> update(FirmEntity firm) async {
     await db.transaction(() async {
-      await db.update(db.firms).replace(firm.copyWith(updatedAt: DateTime.now()));
+      await db
+          .update(db.firms)
+          .replace(firm.copyWith(updatedAt: DateTime.now()));
       await enqueue(
         firmId: firm.id,
         entity: 'firms',
@@ -111,7 +120,9 @@ class FirmRepository with SyncQueueMixin {
       if (target != null && !target.isDefault) {
         await db
             .update(db.firms)
-            .replace(target.copyWith(isDefault: true, updatedAt: DateTime.now()));
+            .replace(
+              target.copyWith(isDefault: true, updatedAt: DateTime.now()),
+            );
       }
     });
   }
@@ -134,6 +145,7 @@ class FirmRepository with SyncQueueMixin {
   /// the firm's own trail has just gone, and this row is the record that it
   /// did. A firm-scoped row would point at a business that no longer exists.
   Future<void> purge(String id) async {
+    db.assertPermission(Permission.deleteBusiness);
     // Read the name first; after the delete there is nothing left to name it
     // by, and "Business 018f2a3b… was deleted" is a worse audit line than the
     // name the person recognises.
@@ -145,7 +157,8 @@ class FirmRepository with SyncQueueMixin {
       action: 'purge',
       entity: 'firms',
       entityId: id,
-      summary: 'Business "${firm?.name ?? id}" and all its data were deleted '
+      summary:
+          'Business "${firm?.name ?? id}" and all its data were deleted '
           'from this device',
     );
   }
@@ -199,17 +212,22 @@ class FirmRepository with SyncQueueMixin {
           seq = 0;
         }
         final next = seq + 1;
-        final withSeq = _withSequence(working, docType, next)
-            .copyWith(updatedAt: DateTime.now());
+        final withSeq = _withSequence(
+          working,
+          docType,
+          next,
+        ).copyWith(updatedAt: DateTime.now());
 
-        final updated = await (db.update(db.firms)
-              ..where((t) =>
-                  t.id.equals(firm.id) &
-                  t.sequenceFy.equalsNullable(storedFy) &
-                  // Guard on the sequence we read: if another transaction
-                  // already bumped it, our WHERE matches nothing.
-                  _sequenceEquals(t, docType, storedSeq)))
-            .write(withSeq);
+        final updated =
+            await (db.update(db.firms)..where(
+                  (t) =>
+                      t.id.equals(firm.id) &
+                      t.sequenceFy.equalsNullable(storedFy) &
+                      // Guard on the sequence we read: if another transaction
+                      // already bumped it, our WHERE matches nothing.
+                      _sequenceEquals(t, docType, storedSeq),
+                ))
+                .write(withSeq);
         if (updated == 0) return null; // raced — retry with fresh state
         return _withSequence(working, docType, next);
       });
@@ -231,21 +249,23 @@ class FirmRepository with SyncQueueMixin {
 
   /// Expression matching the current sequence value for [docType]. Uses the
   /// generated `$FirmsTable` alias type so the column getters resolve.
-  Expression<bool> _sequenceEquals($FirmsTable t, DocSequence docType,
-          int value) =>
-      switch (docType) {
-        DocSequence.invoice => t.invoiceSequence.equals(value),
-        DocSequence.quotation => t.quotationSequence.equals(value),
-        DocSequence.salesOrder => t.salesOrderSequence.equals(value),
-        DocSequence.purchase => t.purchaseSequence.equals(value),
-        DocSequence.paymentIn => t.paymentInSequence.equals(value),
-        DocSequence.paymentOut => t.paymentOutSequence.equals(value),
-        DocSequence.expense => t.expenseSequence.equals(value),
-        DocSequence.creditNote => t.creditNoteSequence.equals(value),
-        DocSequence.debitNote => t.debitNoteSequence.equals(value),
-        DocSequence.deliveryNote => t.deliveryNoteSequence.equals(value),
-        DocSequence.purchaseOrder => t.purchaseOrderSequence.equals(value),
-      };
+  Expression<bool> _sequenceEquals(
+    $FirmsTable t,
+    DocSequence docType,
+    int value,
+  ) => switch (docType) {
+    DocSequence.invoice => t.invoiceSequence.equals(value),
+    DocSequence.quotation => t.quotationSequence.equals(value),
+    DocSequence.salesOrder => t.salesOrderSequence.equals(value),
+    DocSequence.purchase => t.purchaseSequence.equals(value),
+    DocSequence.paymentIn => t.paymentInSequence.equals(value),
+    DocSequence.paymentOut => t.paymentOutSequence.equals(value),
+    DocSequence.expense => t.expenseSequence.equals(value),
+    DocSequence.creditNote => t.creditNoteSequence.equals(value),
+    DocSequence.debitNote => t.debitNoteSequence.equals(value),
+    DocSequence.deliveryNote => t.deliveryNoteSequence.equals(value),
+    DocSequence.purchaseOrder => t.purchaseOrderSequence.equals(value),
+  };
 
   String _prefixFor(FirmEntity firm, DocSequence docType) {
     switch (docType) {
@@ -353,61 +373,70 @@ Future<void> eraseFirmRows(AppDatabase db, String firmId) async {
   await db.transaction(() async {
     // Line items first. They reference their document rather than the firm, so
     // leaving them to a cascade is the one place the chain has two links.
-    final invoiceIds = (await (db.select(db.salesInvoices)
-              ..where((t) => t.firmId.equals(firmId)))
-            .get())
-        .map((row) => row.id)
-        .toList();
-    final billIds = (await (db.select(db.purchaseBills)
-              ..where((t) => t.firmId.equals(firmId)))
-            .get())
-        .map((row) => row.id)
-        .toList();
+    final invoiceIds =
+        (await (db.select(
+              db.salesInvoices,
+            )..where((t) => t.firmId.equals(firmId))).get())
+            .map((row) => row.id)
+            .toList();
+    final billIds =
+        (await (db.select(
+              db.purchaseBills,
+            )..where((t) => t.firmId.equals(firmId))).get())
+            .map((row) => row.id)
+            .toList();
     // Journal lines hang off their voucher the same way an invoice line hangs
     // off its invoice — neither carries a firm id of its own.
-    final journalIds = (await (db.select(db.journalEntries)
-              ..where((t) => t.firmId.equals(firmId)))
-            .get())
-        .map((row) => row.id)
-        .toList();
+    final journalIds =
+        (await (db.select(
+              db.journalEntries,
+            )..where((t) => t.firmId.equals(firmId))).get())
+            .map((row) => row.id)
+            .toList();
 
     if (journalIds.isNotEmpty) {
-      await (db.delete(db.journalLines)
-            ..where((t) => t.entryId.isIn(journalIds)))
-          .go();
+      await (db.delete(
+        db.journalLines,
+      )..where((t) => t.entryId.isIn(journalIds))).go();
     }
 
     if (invoiceIds.isNotEmpty) {
-      await (db.delete(db.salesInvoiceItems)
-            ..where((t) => t.invoiceId.isIn(invoiceIds)))
-          .go();
+      await (db.delete(
+        db.salesInvoiceItems,
+      )..where((t) => t.invoiceId.isIn(invoiceIds))).go();
     }
     if (billIds.isNotEmpty) {
-      await (db.delete(db.purchaseBillItems)
-            ..where((t) => t.billId.isIn(billIds)))
-          .go();
+      await (db.delete(
+        db.purchaseBillItems,
+      )..where((t) => t.billId.isIn(billIds))).go();
     }
 
-    await (db.delete(db.salesInvoices)..where((t) => t.firmId.equals(firmId)))
-        .go();
-    await (db.delete(db.purchaseBills)..where((t) => t.firmId.equals(firmId)))
-        .go();
+    await (db.delete(
+      db.salesInvoices,
+    )..where((t) => t.firmId.equals(firmId))).go();
+    await (db.delete(
+      db.purchaseBills,
+    )..where((t) => t.firmId.equals(firmId))).go();
     await (db.delete(db.payments)..where((t) => t.firmId.equals(firmId))).go();
     await (db.delete(db.expenses)..where((t) => t.firmId.equals(firmId))).go();
-    await (db.delete(db.stockMovements)..where((t) => t.firmId.equals(firmId)))
-        .go();
+    await (db.delete(
+      db.stockMovements,
+    )..where((t) => t.firmId.equals(firmId))).go();
     await (db.delete(db.items)..where((t) => t.firmId.equals(firmId))).go();
     await (db.delete(db.parties)..where((t) => t.firmId.equals(firmId))).go();
-    await (db.delete(db.categories)..where((t) => t.firmId.equals(firmId)))
-        .go();
+    await (db.delete(
+      db.categories,
+    )..where((t) => t.firmId.equals(firmId))).go();
     await (db.delete(db.units)..where((t) => t.firmId.equals(firmId))).go();
-    await (db.delete(db.firmMembers)..where((t) => t.firmId.equals(firmId)))
-        .go();
-    await (db.delete(db.appSettings)..where((t) => t.firmId.equals(firmId)))
-        .go();
-    await (db.delete(db.journalEntries)
-          ..where((t) => t.firmId.equals(firmId)))
-        .go();
+    await (db.delete(
+      db.firmMembers,
+    )..where((t) => t.firmId.equals(firmId))).go();
+    await (db.delete(
+      db.appSettings,
+    )..where((t) => t.firmId.equals(firmId))).go();
+    await (db.delete(
+      db.journalEntries,
+    )..where((t) => t.firmId.equals(firmId))).go();
     await (db.delete(db.accounts)..where((t) => t.firmId.equals(firmId))).go();
     await (db.delete(db.syncQueue)..where((t) => t.firmId.equals(firmId))).go();
     await (db.delete(db.auditLogs)..where((t) => t.firmId.equals(firmId))).go();

@@ -5,6 +5,7 @@ import 'package:drift/drift.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../../domain/member_role.dart';
 import '../app_database.dart';
 import '../../constants/app_constants.dart';
 import '../../utils/file_names.dart';
@@ -19,9 +20,11 @@ class SettingsRepository with SyncQueueMixin {
 
   Future<String?> get(String key, {String? firmId}) async {
     final query = db.select(db.appSettings)
-      ..where((t) =>
-          t.key.equals(key) &
-          (firmId == null ? t.firmId.isNull() : t.firmId.equals(firmId)))
+      ..where(
+        (t) =>
+            t.key.equals(key) &
+            (firmId == null ? t.firmId.isNull() : t.firmId.equals(firmId)),
+      )
       // Order + limit so a duplicate row (see [set]) can never make this a
       // multi-row query — getSingleOrNull() throws on more than one row.
       ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])
@@ -30,7 +33,11 @@ class SettingsRepository with SyncQueueMixin {
     return row?.value;
   }
 
-  Future<bool> getBool(String key, {String? firmId, bool fallback = false}) async {
+  Future<bool> getBool(
+    String key, {
+    String? firmId,
+    bool fallback = false,
+  }) async {
     final v = await get(key, firmId: firmId);
     if (v == null) return fallback;
     return v == 'true' || v == '1';
@@ -49,12 +56,15 @@ class SettingsRepository with SyncQueueMixin {
     // next read would then hit getSingleOrNull() and throw. Delete the
     // existing row(s) for this key first, inside one transaction.
     await db.transaction(() async {
-      await (db.delete(db.appSettings)
-            ..where((t) =>
+      await (db.delete(db.appSettings)..where(
+            (t) =>
                 t.key.equals(key) &
-                (firmId == null ? t.firmId.isNull() : t.firmId.equals(firmId))))
+                (firmId == null ? t.firmId.isNull() : t.firmId.equals(firmId)),
+          ))
           .go();
-      await db.into(db.appSettings).insert(
+      await db
+          .into(db.appSettings)
+          .insert(
             SettingEntity(
               key: key,
               firmId: firmId,
@@ -73,9 +83,11 @@ class SettingsRepository with SyncQueueMixin {
 
   Future<void> remove(String key, {String? firmId}) async {
     final query = db.delete(db.appSettings)
-      ..where((t) =>
-          t.key.equals(key) &
-          (firmId == null ? t.firmId.isNull() : t.firmId.equals(firmId)));
+      ..where(
+        (t) =>
+            t.key.equals(key) &
+            (firmId == null ? t.firmId.isNull() : t.firmId.equals(firmId)),
+      );
     await query.go();
   }
 
@@ -85,12 +97,15 @@ class SettingsRepository with SyncQueueMixin {
   static const String kOnboardingDone = 'onboarding_done';
   static const String kSeededDemo = 'seeded_demo';
   static const String kSyncEnabled = 'sync_enabled';
+
   /// When the outbox last drained successfully, ISO-8601 UTC.
   static const String kSyncLastPushedAt = 'sync_last_pushed_at';
+
   /// When the last full sync (push + pull) completed, ISO-8601 UTC. Kept
   /// apart from [kSyncLastPushedAt] because a pull can succeed after a push
   /// that failed, and "last synced" should mean both directions.
   static const String kSyncLastSyncedAt = 'sync_last_synced_at';
+
   /// Per-firm pull cursors, `sync_cursor_<firmId>` -> highest applied seq.
   /// Managed by SyncEngine; documented here so the key family stays findable.
   /// Comma-separated ids of the firms this device has registered on the server.
@@ -106,13 +121,16 @@ class SettingsRepository with SyncQueueMixin {
   /// Overrides the built-in production address. Global: the server a person
   /// signs in to is not a per-firm choice.
   static const String kApiBaseUrl = 'api_base_url';
+
   /// Stable id for this install, minted once and never changed — refresh
   /// tokens are bound to it.
   static const String kDeviceId = 'device_id';
+
   /// Human label shown in the device list, captured once.
   static const String kDeviceName = 'device_name';
   static const String kLastBackupAt = 'last_backup_at';
   static const String kUserName = 'user_name';
+
   /// The signed-in account's address. See [ServerSession].
   static const String kUserEmail = 'user_email';
   static const String kFirstRun = 'first_run';
@@ -130,6 +148,7 @@ class SettingsRepository with SyncQueueMixin {
   /// is what makes it a change in one place rather than a hunt.
   static const String kAccessToken = 'access_token';
   static const String kRefreshToken = 'refresh_token';
+
   /// ISO-8601 UTC instant, so an expired token is not mistaken for a session.
   static const String kAccessTokenExpiresAt = 'access_token_expires_at';
 }
@@ -182,14 +201,44 @@ class BackupRepository {
   /// variable is a bug: throw instead of silently exporting null.
   Map<String, Object?> _rowToMap(Insertable entity) {
     final cols = entity.toColumns(true);
-    return cols.map((key, expr) {
-      if (expr is Variable) return MapEntry(key, _jsonSafe(expr.value));
-      if (expr is Constant) return MapEntry(key, _jsonSafe(expr.value));
+    // Built in a loop rather than with `cols.map`, because a stripped column
+    // must be *absent* from the map, not present with a null value. The two
+    // look the same to `jsonEncode` and are not the same at all: `"pin_hash":
+    // null` still names the field, so an attacker reading the file learns
+    // which build wrote it and where to aim, and a hand-edited file could carry
+    // a value that later merges back in.
+    final out = <String, Object?>{};
+    cols.forEach((key, expr) {
+      // Dropped on the way out, before the value is even read. This is a
+      // column-level strip rather than an entry in [_neverExported] because
+      // that set is keyed by *settings key*, and `firm_members` has no key
+      // column — it is a table, not a key/value store. A PIN hash is a
+      // password, and a backup file is something people mail to themselves and
+      // paste into cloud storage; the member's name, email and role are part
+      // of the books, the credentials are not.
+      if (_neverExportedColumns.contains(key)) return;
+      if (expr is Variable) {
+        out[key] = _jsonSafe(expr.value);
+        return;
+      }
+      if (expr is Constant) {
+        out[key] = _jsonSafe(expr.value);
+        return;
+      }
       throw StateError(
-          'Backup: unsupported column expression for "$key" — refusing to '
-          'export it as null.');
+        'Backup: unsupported column expression for "$key" — refusing to '
+        'export it as null.',
+      );
     });
+    return out;
   }
+
+  /// Columns stripped from every exported row, whatever table it is in.
+  ///
+  /// The complement of [_neverExported]: that set removes whole settings
+  /// *rows* by key, this one removes individual *columns* by name. Both are
+  /// needed — the session keys are rows, the PIN material is columns.
+  static const Set<String> _neverExportedColumns = {'pin_hash', 'pin_salt'};
 
   /// JSON cannot encode [DateTime]/[Uint8List] — convert to strings.
   Object? _jsonSafe(Object? v) {
@@ -204,69 +253,72 @@ class BackupRepository {
         : await (db.select(db.firms)..where((t) => t.id.equals(firmId))).get();
     final firmIds = firms.map((f) => f.id).toSet();
 
-    final parties = await (db.select(db.parties)
-          ..where((t) => t.firmId.isIn(firmIds)))
-        .get();
-    final categories = await (db.select(db.categories)
-          ..where((t) => t.firmId.isIn(firmIds)))
-        .get();
-    final units = await (db.select(db.units)
-          ..where((t) => t.firmId.isIn(firmIds)))
-        .get();
-    final items = await (db.select(db.items)
-          ..where((t) => t.firmId.isIn(firmIds)))
-        .get();
-    final stockMovements = await (db.select(db.stockMovements)
-          ..where((t) => t.firmId.isIn(firmIds)))
-        .get();
-    final sales = await (db.select(db.salesInvoices)
-          ..where((t) => t.firmId.isIn(firmIds)))
-        .get();
-    final salesItems = await (db.select(db.salesInvoiceItems)
-          ..where((t) => t.invoiceId.isIn(sales.map((s) => s.id).toSet())))
-        .get();
-    final purchases = await (db.select(db.purchaseBills)
-          ..where((t) => t.firmId.isIn(firmIds)))
-        .get();
-    final purchaseItems = await (db.select(db.purchaseBillItems)
-          ..where((t) => t.billId.isIn(purchases.map((s) => s.id).toSet())))
-        .get();
-    final payments = await (db.select(db.payments)
-          ..where((t) => t.firmId.isIn(firmIds)))
-        .get();
-    final expenses = await (db.select(db.expenses)
-          ..where((t) => t.firmId.isIn(firmIds)))
-        .get();
-    final members = await (db.select(db.firmMembers)
-          ..where((t) => t.firmId.isIn(firmIds)))
-        .get();
+    final parties = await (db.select(
+      db.parties,
+    )..where((t) => t.firmId.isIn(firmIds))).get();
+    final categories = await (db.select(
+      db.categories,
+    )..where((t) => t.firmId.isIn(firmIds))).get();
+    final units = await (db.select(
+      db.units,
+    )..where((t) => t.firmId.isIn(firmIds))).get();
+    final items = await (db.select(
+      db.items,
+    )..where((t) => t.firmId.isIn(firmIds))).get();
+    final stockMovements = await (db.select(
+      db.stockMovements,
+    )..where((t) => t.firmId.isIn(firmIds))).get();
+    final sales = await (db.select(
+      db.salesInvoices,
+    )..where((t) => t.firmId.isIn(firmIds))).get();
+    final salesItems = await (db.select(
+      db.salesInvoiceItems,
+    )..where((t) => t.invoiceId.isIn(sales.map((s) => s.id).toSet()))).get();
+    final purchases = await (db.select(
+      db.purchaseBills,
+    )..where((t) => t.firmId.isIn(firmIds))).get();
+    final purchaseItems = await (db.select(
+      db.purchaseBillItems,
+    )..where((t) => t.billId.isIn(purchases.map((s) => s.id).toSet()))).get();
+    final payments = await (db.select(
+      db.payments,
+    )..where((t) => t.firmId.isIn(firmIds))).get();
+    final expenses = await (db.select(
+      db.expenses,
+    )..where((t) => t.firmId.isIn(firmIds))).get();
+    final members = await (db.select(
+      db.firmMembers,
+    )..where((t) => t.firmId.isIn(firmIds))).get();
     // The ledger is part of the books: without these four keys a restore onto a
     // new device lost every journal voucher and the whole chart of accounts,
     // and a restore over existing data left the previous firms' accounts and
     // journals behind as orphans pointing at a firm that no longer exists.
-    final accounts = await (db.select(db.accounts)
-          ..where((t) => t.firmId.isIn(firmIds)))
-        .get();
-    final journalEntries = await (db.select(db.journalEntries)
-          ..where((t) => t.firmId.isIn(firmIds)))
-        .get();
+    final accounts = await (db.select(
+      db.accounts,
+    )..where((t) => t.firmId.isIn(firmIds))).get();
+    final journalEntries = await (db.select(
+      db.journalEntries,
+    )..where((t) => t.firmId.isIn(firmIds))).get();
     // Lines hang off their voucher rather than the firm, the same way an
     // invoice line hangs off its invoice.
-    final journalLines = await (db.select(db.journalLines)
-          ..where((t) =>
-              t.entryId.isIn(journalEntries.map((e) => e.id).toSet())))
-        .get();
-    final auditLogs = await (db.select(db.auditLogs)
-          ..where((t) => t.firmId.isIn(firmIds)))
-        .get();
+    final journalLines =
+        await (db.select(db.journalLines)..where(
+              (t) => t.entryId.isIn(journalEntries.map((e) => e.id).toSet()),
+            ))
+            .get();
+    final auditLogs = await (db.select(
+      db.auditLogs,
+    )..where((t) => t.firmId.isIn(firmIds))).get();
     // Firm-scoped settings travel with the books; the global rows carry the
     // sign-in session, which must never reach a shareable file — see
     // [_neverExported].
-    final settings = await (db.select(db.appSettings)
-          ..where((t) =>
-              (t.firmId.isIn(firmIds) | t.firmId.isNull()) &
-              t.key.isNotIn(_neverExported)))
-        .get();
+    final settings =
+        await (db.select(db.appSettings)..where(
+              (t) =>
+                  (t.firmId.isIn(firmIds) | t.firmId.isNull()) &
+                  t.key.isNotIn(_neverExported),
+            ))
+            .get();
 
     return {
       'app': AppConstants.appName,
@@ -274,31 +326,41 @@ class BackupRepository {
       'exportedAt': DateTime.now().toIso8601String(),
       'firms': firms.map((e) => _rowToMap(e.toCompanion(true))).toList(),
       'parties': parties.map((e) => _rowToMap(e.toCompanion(true))).toList(),
-      'categories':
-          categories.map((e) => _rowToMap(e.toCompanion(true))).toList(),
+      'categories': categories
+          .map((e) => _rowToMap(e.toCompanion(true)))
+          .toList(),
       'units': units.map((e) => _rowToMap(e.toCompanion(true))).toList(),
       'items': items.map((e) => _rowToMap(e.toCompanion(true))).toList(),
-      'stock_movements':
-          stockMovements.map((e) => _rowToMap(e.toCompanion(true))).toList(),
-      'sales_invoices':
-          sales.map((e) => _rowToMap(e.toCompanion(true))).toList(),
-      'sales_invoice_items':
-          salesItems.map((e) => _rowToMap(e.toCompanion(true))).toList(),
-      'purchase_bills':
-          purchases.map((e) => _rowToMap(e.toCompanion(true))).toList(),
-      'purchase_bill_items':
-          purchaseItems.map((e) => _rowToMap(e.toCompanion(true))).toList(),
+      'stock_movements': stockMovements
+          .map((e) => _rowToMap(e.toCompanion(true)))
+          .toList(),
+      'sales_invoices': sales
+          .map((e) => _rowToMap(e.toCompanion(true)))
+          .toList(),
+      'sales_invoice_items': salesItems
+          .map((e) => _rowToMap(e.toCompanion(true)))
+          .toList(),
+      'purchase_bills': purchases
+          .map((e) => _rowToMap(e.toCompanion(true)))
+          .toList(),
+      'purchase_bill_items': purchaseItems
+          .map((e) => _rowToMap(e.toCompanion(true)))
+          .toList(),
       'payments': payments.map((e) => _rowToMap(e.toCompanion(true))).toList(),
       'expenses': expenses.map((e) => _rowToMap(e.toCompanion(true))).toList(),
-      'firm_members':
-          members.map((e) => _rowToMap(e.toCompanion(true))).toList(),
+      'firm_members': members
+          .map((e) => _rowToMap(e.toCompanion(true)))
+          .toList(),
       'accounts': accounts.map((e) => _rowToMap(e.toCompanion(true))).toList(),
-      'journal_entries':
-          journalEntries.map((e) => _rowToMap(e.toCompanion(true))).toList(),
-      'journal_lines':
-          journalLines.map((e) => _rowToMap(e.toCompanion(true))).toList(),
-      'audit_logs':
-          auditLogs.map((e) => _rowToMap(e.toCompanion(true))).toList(),
+      'journal_entries': journalEntries
+          .map((e) => _rowToMap(e.toCompanion(true)))
+          .toList(),
+      'journal_lines': journalLines
+          .map((e) => _rowToMap(e.toCompanion(true)))
+          .toList(),
+      'audit_logs': auditLogs
+          .map((e) => _rowToMap(e.toCompanion(true)))
+          .toList(),
       'settings': settings.map((e) => _rowToMap(e.toCompanion(true))).toList(),
     };
   }
@@ -311,10 +373,15 @@ class BackupRepository {
     if (!backupDir.existsSync()) {
       backupDir.createSync(recursive: true);
     }
-    final name = fileName ??
+    final name =
+        fileName ??
         'apexbooks-backup-${DateTime.now().toIso8601String().split('T').first}';
-    final file = File(p.join(backupDir.path,
-        '${sanitizeFileName(name, fallback: 'apexbooks-backup')}.json'));
+    final file = File(
+      p.join(
+        backupDir.path,
+        '${sanitizeFileName(name, fallback: 'apexbooks-backup')}.json',
+      ),
+    );
     await file.writeAsString(jsonEncode(data), flush: true);
     return file.path;
   }
@@ -325,6 +392,10 @@ class BackupRepository {
   /// Throws [FormatException] WITHOUT touching the database when [json] is
   /// not an Apex Books backup — validation must run before any destructive write.
   Future<int> importFromJson(Map<String, dynamic> json) async {
+    // Checked before validation, and both before the transaction: a restore
+    // replaces every firm's data, so it is the single most destructive write
+    // in the app and the one most worth refusing by role.
+    db.assertPermission(Permission.restoreBackup);
     validateBackupJson(json);
 
     var count = 0;
@@ -338,11 +409,15 @@ class BackupRepository {
       count += await _restore(db.items, json['items']);
       count += await _restore(db.stockMovements, json['stock_movements']);
       count += await _restore(db.salesInvoices, json['sales_invoices']);
-      count +=
-          await _restore(db.salesInvoiceItems, json['sales_invoice_items']);
+      count += await _restore(
+        db.salesInvoiceItems,
+        json['sales_invoice_items'],
+      );
       count += await _restore(db.purchaseBills, json['purchase_bills']);
-      count +=
-          await _restore(db.purchaseBillItems, json['purchase_bill_items']);
+      count += await _restore(
+        db.purchaseBillItems,
+        json['purchase_bill_items'],
+      );
       count += await _restore(db.payments, json['payments']);
       count += await _restore(db.expenses, json['expenses']);
       count += await _restore(db.firmMembers, json['firm_members']);
@@ -355,8 +430,11 @@ class BackupRepository {
       // A backup taken before the session keys were filtered out of the export
       // still carries them, and writing them back is the same hole in reverse:
       // it would sign this device in as whoever made the file.
-      count += await _restore(db.appSettings, json['settings'],
-          skipKeys: _neverExported);
+      count += await _restore(
+        db.appSettings,
+        json['settings'],
+        skipKeys: _neverExported,
+      );
     });
     return count;
   }
@@ -371,24 +449,28 @@ class BackupRepository {
     const acceptedMarkers = {'Apex Books', 'atria'};
     if (!acceptedMarkers.contains(json['app'])) {
       throw const FormatException(
-          'This file is not an Apex Books backup (missing the "app" '
-          'marker). Nothing was restored.');
+        'This file is not an Apex Books backup (missing the "app" '
+        'marker). Nothing was restored.',
+      );
     }
     final version = json['version'];
     if (version is! int) {
       throw const FormatException(
-          'Backup file has no readable version. Nothing was restored.');
+        'Backup file has no readable version. Nothing was restored.',
+      );
     }
     if (version > _version) {
       throw FormatException(
-          'This backup was created by a newer version of Apex Books '
-          '(backup v$version, app v$_version). Update the app and try '
-          'again. Nothing was restored.');
+        'This backup was created by a newer version of Apex Books '
+        '(backup v$version, app v$_version). Update the app and try '
+        'again. Nothing was restored.',
+      );
     }
     final firms = json['firms'];
     if (firms is! List || firms.isEmpty) {
       throw const FormatException(
-          'The backup contains no firms to restore. Nothing was restored.');
+        'The backup contains no firms to restore. Nothing was restored.',
+      );
     }
     final ids = firms
         .whereType<Map>()
@@ -397,7 +479,8 @@ class BackupRepository {
         .toSet();
     if (ids.isEmpty) {
       throw const FormatException(
-          'The backup\'s firm rows have no ids. Nothing was restored.');
+        'The backup\'s firm rows have no ids. Nothing was restored.',
+      );
     }
   }
 
@@ -408,8 +491,11 @@ class BackupRepository {
   /// other table is inserted whole. A missing or malformed section restores
   /// nothing and is not an error, which is how a v1/v2 backup (written before
   /// the ledger keys existed) still restores correctly.
-  Future<int> _restore(TableInfo table, dynamic rows,
-      {Set<String>? skipKeys}) async {
+  Future<int> _restore(
+    TableInfo table,
+    dynamic rows, {
+    Set<String>? skipKeys,
+  }) async {
     if (rows is! List) return 0;
     // Restoring from plain JSON means we have raw column values, not a
     // companion, so the insert is written as parameterized SQL. `OR REPLACE`
@@ -427,6 +513,14 @@ class BackupRepository {
       if (skipKeys != null && skipKeys.contains(values['key'])) continue;
       final vars = <Variable>[];
       for (final col in columns) {
+        // Stripped on the way in as well as on the way out. The export is the
+        // belt; this is the braces — a backup written by a build that did not
+        // strip yet, or a file edited by hand, would otherwise write somebody's
+        // PIN hash straight back onto a row and leave it there.
+        if (_neverExportedColumns.contains(col)) {
+          vars.add(const Variable(null));
+          continue;
+        }
         vars.add(Variable(_sqlValue(columnsByName[col], values[col])));
       }
       await db.customInsert(sql, variables: vars, updates: {table});

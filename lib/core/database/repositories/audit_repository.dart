@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:drift/drift.dart';
 
+import '../../domain/member_role.dart';
 import '../../utils/id_utils.dart';
 import '../app_database.dart';
 import 'settings_repository.dart';
@@ -22,20 +23,24 @@ class AuditRepository {
     String? summary,
     Map<String, Object?>? details,
   }) async {
-    await db.into(db.auditLogs).insert(AuditLogsCompanion.insert(
-          // Must not be derived from the clock alone. Windows reports time in
-          // coarse ticks, so two entries written back to back (a bulk import,
-          // the demo seeder) came out with the same id and the second one hit
-          // the primary key.
-          id: 'aud_${IdUtils.newId()}',
-          firmId: Value(firmId),
-          actor: Value(actor),
-          action: action,
-          entity: entity,
-          entityId: Value(entityId),
-          summary: Value(summary),
-          details: Value(details == null ? null : jsonEncode(details)),
-        ));
+    await db
+        .into(db.auditLogs)
+        .insert(
+          AuditLogsCompanion.insert(
+            // Must not be derived from the clock alone. Windows reports time in
+            // coarse ticks, so two entries written back to back (a bulk import,
+            // the demo seeder) came out with the same id and the second one hit
+            // the primary key.
+            id: 'aud_${IdUtils.newId()}',
+            firmId: Value(firmId),
+            actor: Value(actor),
+            action: action,
+            entity: entity,
+            entityId: Value(entityId),
+            summary: Value(summary),
+            details: Value(details == null ? null : jsonEncode(details)),
+          ),
+        );
   }
 
   Future<void> simple({
@@ -98,15 +103,26 @@ class PeriodLock {
     return DateTime.tryParse(raw);
   }
 
-  Future<void> lockThrough(DateTime date, {String? firmId}) =>
-      _settings.set(
-        kBooksLockedUpto,
-        DateTime(date.year, date.month, date.day).toIso8601String(),
-        firmId: firmId,
-      );
+  /// Freezes books through [date], in either direction.
+  ///
+  /// Guarded, because moving the lock is the one write that unlocks every
+  /// other guard: a role that cannot edit a locked document can become able to
+  /// by rolling the boundary back. Checked before the write, for the same
+  /// reason the document guards are — the session is in-memory, so a refusal
+  /// has nothing to roll back.
+  Future<void> lockThrough(DateTime date, {String? firmId}) async {
+    _settings.db.assertPermission(Permission.managePeriodLock);
+    await _settings.set(
+      kBooksLockedUpto,
+      DateTime(date.year, date.month, date.day).toIso8601String(),
+      firmId: firmId,
+    );
+  }
 
-  Future<void> unlock({String? firmId}) =>
-      _settings.remove(kBooksLockedUpto, firmId: firmId);
+  Future<void> unlock({String? firmId}) async {
+    _settings.db.assertPermission(Permission.managePeriodLock);
+    await _settings.remove(kBooksLockedUpto, firmId: firmId);
+  }
 
   /// Throws [PeriodLockedException] when [date] falls inside the locked
   /// period. Repositories call this before any write whose document date

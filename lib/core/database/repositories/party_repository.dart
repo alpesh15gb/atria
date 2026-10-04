@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 
 import '../../utils/id_utils.dart';
+import '../../domain/member_role.dart';
 import '../app_database.dart';
 import 'repository_extensions.dart';
 import 'sync_mixin.dart';
@@ -34,32 +35,37 @@ class PartyRepository with SyncQueueMixin {
     int? creditDays,
     String? notes,
   }) async {
+    db.assertPermission(Permission.manageMasters);
     final id = _newId();
     final now = DateTime.now();
-    await db.into(db.parties).insert(PartiesCompanion.insert(
-          id: id,
-          firmId: firmId,
-          name: name,
-          type: type,
-          gstin: Value(gstin?.toUpperCase().trim()),
-          pan: Value(pan?.toUpperCase().trim()),
-          gstType: Value(gstType),
-          contactPerson: Value(contactPerson),
-          phone: Value(phone),
-          email: Value(email),
-          addressLine1: Value(addressLine1),
-          addressLine2: Value(addressLine2),
-          city: Value(city),
-          stateCode: Value(stateCode),
-          pincode: Value(pincode),
-          openingBalance: Value(openingBalance),
-          openingBalanceType: Value(openingBalanceType),
-          creditLimit: Value(creditLimit),
-          creditDays: Value(creditDays),
-          notes: Value(notes),
-          createdAt: Value(now),
-          updatedAt: Value(now),
-        ));
+    await db
+        .into(db.parties)
+        .insert(
+          PartiesCompanion.insert(
+            id: id,
+            firmId: firmId,
+            name: name,
+            type: type,
+            gstin: Value(gstin?.toUpperCase().trim()),
+            pan: Value(pan?.toUpperCase().trim()),
+            gstType: Value(gstType),
+            contactPerson: Value(contactPerson),
+            phone: Value(phone),
+            email: Value(email),
+            addressLine1: Value(addressLine1),
+            addressLine2: Value(addressLine2),
+            city: Value(city),
+            stateCode: Value(stateCode),
+            pincode: Value(pincode),
+            openingBalance: Value(openingBalance),
+            openingBalanceType: Value(openingBalanceType),
+            creditLimit: Value(creditLimit),
+            creditDays: Value(creditDays),
+            notes: Value(notes),
+            createdAt: Value(now),
+            updatedAt: Value(now),
+          ),
+        );
     await db.auditRepository.log(
       action: 'create',
       entity: 'parties',
@@ -68,7 +74,11 @@ class PartyRepository with SyncQueueMixin {
       summary: 'Created party $name',
     );
     await enqueue(
-        firmId: firmId, entity: 'parties', entityId: id, operation: 'insert');
+      firmId: firmId,
+      entity: 'parties',
+      entityId: id,
+      operation: 'insert',
+    );
     return (await getById(id))!;
   }
 
@@ -107,7 +117,11 @@ class PartyRepository with SyncQueueMixin {
     if (search.trim().isNotEmpty) {
       final s = '%${search.trim().toLowerCase()}%';
       query.where(
-          (t) => t.name.lower().like(s) | t.phone.lower().like(s) | t.gstin.lower().like(s));
+        (t) =>
+            t.name.lower().like(s) |
+            t.phone.lower().like(s) |
+            t.gstin.lower().like(s),
+      );
     }
     if (limit > 0) query.limit(limit);
     return query.get();
@@ -128,10 +142,12 @@ class PartyRepository with SyncQueueMixin {
       // GSTIN is searched here for the same reason it is in [all]: the list
       // screen's own hint says "Search name, phone or GSTIN", and a supplier
       // is far more often looked up by the number printed on an invoice.
-      query.where((t) =>
-          t.name.lower().like(s) |
-          t.phone.lower().like(s) |
-          t.gstin.lower().like(s));
+      query.where(
+        (t) =>
+            t.name.lower().like(s) |
+            t.phone.lower().like(s) |
+            t.gstin.lower().like(s),
+      );
     }
     return query.watch();
   }
@@ -151,6 +167,7 @@ class PartyRepository with SyncQueueMixin {
   Stream<List<PartyEntity>> watchSuppliers() => watchAll(type: 'supplier');
 
   Future<PartyEntity> update(PartyEntity party) async {
+    db.assertPermission(Permission.manageMasters);
     await db.transaction(() async {
       await db
           .update(db.parties)
@@ -176,15 +193,18 @@ class PartyRepository with SyncQueueMixin {
   /// every list, but documents that reference it keep reading its snapshot
   /// columns (partyName etc. on the invoice rows).
   Future<void> delete(String id) async {
+    db.assertPermission(Permission.softDelete);
     await db.transaction(() async {
       final party = await getById(id);
-      await (db.update(db.parties)
-            ..where((t) => t.id.equals(id) & t.firmId.equals(firmId)))
-          .write(PartiesCompanion(
-        isDeleted: const Value(true),
-        deletedAt: Value(DateTime.now()),
-        updatedAt: Value(DateTime.now()),
-      ));
+      await (db.update(
+        db.parties,
+      )..where((t) => t.id.equals(id) & t.firmId.equals(firmId))).write(
+        PartiesCompanion(
+          isDeleted: const Value(true),
+          deletedAt: Value(DateTime.now()),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
       await db.auditRepository.log(
         action: 'delete',
         entity: 'parties',
@@ -193,21 +213,28 @@ class PartyRepository with SyncQueueMixin {
         summary: 'Deleted party ${party?.name ?? id}',
       );
       await enqueue(
-          firmId: firmId, entity: 'parties', entityId: id, operation: 'update');
+        firmId: firmId,
+        entity: 'parties',
+        entityId: id,
+        operation: 'update',
+      );
     });
   }
 
   /// Undo a soft delete from the recycle bin.
   Future<void> restore(String id) async {
+    db.assertPermission(Permission.softDelete);
     await db.transaction(() async {
       final party = await getById(id);
-      await (db.update(db.parties)
-            ..where((t) => t.id.equals(id) & t.firmId.equals(firmId)))
-          .write(PartiesCompanion(
-        isDeleted: const Value(false),
-        deletedAt: const Value(null),
-        updatedAt: Value(DateTime.now()),
-      ));
+      await (db.update(
+        db.parties,
+      )..where((t) => t.id.equals(id) & t.firmId.equals(firmId))).write(
+        PartiesCompanion(
+          isDeleted: const Value(false),
+          deletedAt: const Value(null),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
       await db.auditRepository.log(
         action: 'restore',
         entity: 'parties',
@@ -216,7 +243,11 @@ class PartyRepository with SyncQueueMixin {
         summary: 'Restored party ${party?.name ?? id}',
       );
       await enqueue(
-          firmId: firmId, entity: 'parties', entityId: id, operation: 'update');
+        firmId: firmId,
+        entity: 'parties',
+        entityId: id,
+        operation: 'update',
+      );
     });
   }
 
@@ -225,6 +256,7 @@ class PartyRepository with SyncQueueMixin {
   /// payments, expenses' vendor link is by name only, but payments carry a
   /// partyId), so a purge can never leave dangling party references.
   Future<void> deleteForever(String id) async {
+    db.assertPermission(Permission.purge);
     await db.transaction(() async {
       Future<bool> usedIn(
         TableInfo table,
@@ -239,22 +271,34 @@ class PartyRepository with SyncQueueMixin {
       }
 
       final salesUsed = await usedIn(
-          db.salesInvoices, db.salesInvoices.partyId,
-          db.salesInvoices.firmId.equals(firmId));
+        db.salesInvoices,
+        db.salesInvoices.partyId,
+        db.salesInvoices.firmId.equals(firmId),
+      );
       final purchaseUsed = await usedIn(
-          db.purchaseBills, db.purchaseBills.partyId,
-          db.purchaseBills.firmId.equals(firmId));
+        db.purchaseBills,
+        db.purchaseBills.partyId,
+        db.purchaseBills.firmId.equals(firmId),
+      );
       final paymentsUsed = await usedIn(
-          db.payments, db.payments.partyId,
-          db.payments.firmId.equals(firmId));
+        db.payments,
+        db.payments.partyId,
+        db.payments.firmId.equals(firmId),
+      );
       if (salesUsed || purchaseUsed || paymentsUsed) {
         throw StateError(
-            'This party is used on recorded documents and cannot be removed.');
+          'This party is used on recorded documents and cannot be removed.',
+        );
       }
-      await (db.delete(db.parties)
-          ..where((t) => t.id.equals(id) & t.firmId.equals(firmId))).go();
+      await (db.delete(
+        db.parties,
+      )..where((t) => t.id.equals(id) & t.firmId.equals(firmId))).go();
       await enqueue(
-          firmId: firmId, entity: 'parties', entityId: id, operation: 'delete');
+        firmId: firmId,
+        entity: 'parties',
+        entityId: id,
+        operation: 'delete',
+      );
       await db.auditRepository.log(
         action: 'purge',
         entity: 'parties',
@@ -273,62 +317,69 @@ class PartyRepository with SyncQueueMixin {
   Future<double> outstandingFor(String partyId) async {
     final sales = db.selectOnly(db.salesInvoices)
       ..addColumns([db.salesInvoices.balanceDue.sum()])
-      ..where(db.salesInvoices.firmId.equals(firmId) &
-          db.salesInvoices.partyId.equals(partyId) &
-          db.salesInvoices.docType.equals('invoice') &
-          db.salesInvoices.isDeleted.equals(false) &
-          db.salesInvoices.status.equals('cancelled').not());
+      ..where(
+        db.salesInvoices.firmId.equals(firmId) &
+            db.salesInvoices.partyId.equals(partyId) &
+            db.salesInvoices.docType.equals('invoice') &
+            db.salesInvoices.isDeleted.equals(false) &
+            db.salesInvoices.status.equals('cancelled').not(),
+      );
     final salesRow = await sales.getSingle();
-    final salesDue =
-        salesRow.read(db.salesInvoices.balanceDue.sum()) ?? 0.0;
+    final salesDue = salesRow.read(db.salesInvoices.balanceDue.sum()) ?? 0.0;
 
     final creditNotes = db.selectOnly(db.salesInvoices)
       ..addColumns([db.salesInvoices.grandTotal.sum()])
-      ..where(db.salesInvoices.firmId.equals(firmId) &
-          db.salesInvoices.partyId.equals(partyId) &
-          db.salesInvoices.docType.equals('credit_note') &
-          db.salesInvoices.isDeleted.equals(false) &
-          db.salesInvoices.status.equals('cancelled').not());
+      ..where(
+        db.salesInvoices.firmId.equals(firmId) &
+            db.salesInvoices.partyId.equals(partyId) &
+            db.salesInvoices.docType.equals('credit_note') &
+            db.salesInvoices.isDeleted.equals(false) &
+            db.salesInvoices.status.equals('cancelled').not(),
+      );
     final cnRow = await creditNotes.getSingle();
-    final cnTotal =
-        cnRow.read(db.salesInvoices.grandTotal.sum()) ?? 0.0;
+    final cnTotal = cnRow.read(db.salesInvoices.grandTotal.sum()) ?? 0.0;
 
     final purchases = db.selectOnly(db.purchaseBills)
       ..addColumns([db.purchaseBills.balanceDue.sum()])
-      ..where(db.purchaseBills.firmId.equals(firmId) &
-          db.purchaseBills.partyId.equals(partyId) &
-          db.purchaseBills.docType.equals('bill') &
-          db.purchaseBills.isDeleted.equals(false) &
-          db.purchaseBills.status.equals('cancelled').not());
+      ..where(
+        db.purchaseBills.firmId.equals(firmId) &
+            db.purchaseBills.partyId.equals(partyId) &
+            db.purchaseBills.docType.equals('bill') &
+            db.purchaseBills.isDeleted.equals(false) &
+            db.purchaseBills.status.equals('cancelled').not(),
+      );
     final purchaseRow = await purchases.getSingle();
     final purchaseDue =
         purchaseRow.read(db.purchaseBills.balanceDue.sum()) ?? 0.0;
 
     final debitNotes = db.selectOnly(db.purchaseBills)
       ..addColumns([db.purchaseBills.grandTotal.sum()])
-      ..where(db.purchaseBills.firmId.equals(firmId) &
-          db.purchaseBills.partyId.equals(partyId) &
-          db.purchaseBills.docType.equals('debit_note') &
-          db.purchaseBills.isDeleted.equals(false) &
-          db.purchaseBills.status.equals('cancelled').not());
+      ..where(
+        db.purchaseBills.firmId.equals(firmId) &
+            db.purchaseBills.partyId.equals(partyId) &
+            db.purchaseBills.docType.equals('debit_note') &
+            db.purchaseBills.isDeleted.equals(false) &
+            db.purchaseBills.status.equals('cancelled').not(),
+      );
     final dnRow = await debitNotes.getSingle();
-    final dnTotal =
-        dnRow.read(db.purchaseBills.grandTotal.sum()) ?? 0.0;
+    final dnTotal = dnRow.read(db.purchaseBills.grandTotal.sum()) ?? 0.0;
 
     final unlinkedPayments = db.select(db.payments)
-      ..where((t) =>
-          t.firmId.equals(firmId) &
-          t.partyId.equals(partyId) &
-          t.linkedInvoiceId.isNull() &
-          // `isDeleted` is filtered here for the same reason every sibling
-          // query above filters it: binned a payment must stop counting the
-          // moment it is binned (see PaymentRepository's softDelete contract at
-          // payment_repository.dart:208-211). It was the only query in this
-          // method that omitted it, so a binned advance kept reducing the
-          // party's outstanding — the one figure in the app that must never be
-          // wrong.
-          t.isDeleted.equals(false) &
-          (t.chequeStatus.isNull() | t.chequeStatus.equals('bounced').not()));
+      ..where(
+        (t) =>
+            t.firmId.equals(firmId) &
+            t.partyId.equals(partyId) &
+            t.linkedInvoiceId.isNull() &
+            // `isDeleted` is filtered here for the same reason every sibling
+            // query above filters it: binned a payment must stop counting the
+            // moment it is binned (see PaymentRepository's softDelete contract at
+            // payment_repository.dart:208-211). It was the only query in this
+            // method that omitted it, so a binned advance kept reducing the
+            // party's outstanding — the one figure in the app that must never be
+            // wrong.
+            t.isDeleted.equals(false) &
+            (t.chequeStatus.isNull() | t.chequeStatus.equals('bounced').not()),
+      );
     final pList = await unlinkedPayments.get();
     var unlinkedIn = 0.0;
     var unlinkedOut = 0.0;
@@ -343,8 +394,8 @@ class PartyRepository with SyncQueueMixin {
     final party = await getById(partyId);
     double opening = 0;
     if (party != null) {
-      opening = party.openingBalance *
-          (party.openingBalanceType == 'dr' ? 1 : -1);
+      opening =
+          party.openingBalance * (party.openingBalanceType == 'dr' ? 1 : -1);
     }
     return opening +
         (salesDue - cnTotal - unlinkedIn) -
@@ -373,12 +424,14 @@ class PartyRepository with SyncQueueMixin {
   /// never sends.
   Stream<void> watchOutstandingChanges() async* {
     yield* db
-        .tableUpdates(TableUpdateQuery.onAllTables([
-          db.parties,
-          db.salesInvoices,
-          db.purchaseBills,
-          db.payments,
-        ]))
+        .tableUpdates(
+          TableUpdateQuery.onAllTables([
+            db.parties,
+            db.salesInvoices,
+            db.purchaseBills,
+            db.payments,
+          ]),
+        )
         .map((_) {});
   }
 

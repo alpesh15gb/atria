@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 
+import '../../domain/member_role.dart';
 import '../../utils/id_utils.dart';
 import '../app_database.dart';
 import 'repository_extensions.dart';
@@ -14,6 +15,8 @@ class PaymentRepository with SyncQueueMixin {
 
   final String firmId;
 
+  // Checked before the transaction, not inside it. The session is in-memory,
+  // so a refusal has nothing to read and nothing to roll back.
   Future<PaymentEntity> create({
     required String type, // payment_in | payment_out
     required String number,
@@ -32,35 +35,40 @@ class PaymentRepository with SyncQueueMixin {
     // Callbacks to keep the linked document's balances in sync.
     Future<void> Function(String linkedId, double amount)? onLinked,
   }) async {
+    db.assertPermission(Permission.recordPayment);
     final id = 'pay_${IdUtils.newId()}';
     await db.transaction(() async {
       await db.assertDateEditable(firmId, date);
-      await db.into(db.payments).insert(PaymentsCompanion.insert(
-            id: id,
-            firmId: firmId,
-            type: type,
-            number: number,
-            partyId: Value(partyId),
-            partyName: Value(partyName),
-            amount: amount,
-            date: date,
-            mode: Value(mode),
-            reference: Value(reference),
-            clearanceDate: Value(clearanceDate),
-            // A cheque starts its life in hand. Recorded here rather than left
-            // to the caller so every path that records a cheque — the payments
-            // screen, a POS settlement, an import — produces the same starting
-            // state, and the deposit/clear/bounce actions have something to act
-            // on.
-            chequeStatus: Value(mode == 'cheque' ? 'pending' : null),
-            linkedInvoiceId: Value(linkedInvoiceId),
-            linkedInvoiceNumber: Value(linkedInvoiceNumber),
-            bankAccount: Value(bankAccount),
-            notes: Value(notes),
-            sequence: Value(sequence),
-            createdAt: Value(DateTime.now()),
-            updatedAt: Value(DateTime.now()),
-          ));
+      await db
+          .into(db.payments)
+          .insert(
+            PaymentsCompanion.insert(
+              id: id,
+              firmId: firmId,
+              type: type,
+              number: number,
+              partyId: Value(partyId),
+              partyName: Value(partyName),
+              amount: amount,
+              date: date,
+              mode: Value(mode),
+              reference: Value(reference),
+              clearanceDate: Value(clearanceDate),
+              // A cheque starts its life in hand. Recorded here rather than left
+              // to the caller so every path that records a cheque — the payments
+              // screen, a POS settlement, an import — produces the same starting
+              // state, and the deposit/clear/bounce actions have something to act
+              // on.
+              chequeStatus: Value(mode == 'cheque' ? 'pending' : null),
+              linkedInvoiceId: Value(linkedInvoiceId),
+              linkedInvoiceNumber: Value(linkedInvoiceNumber),
+              bankAccount: Value(bankAccount),
+              notes: Value(notes),
+              sequence: Value(sequence),
+              createdAt: Value(DateTime.now()),
+              updatedAt: Value(DateTime.now()),
+            ),
+          );
       if (onLinked != null && linkedInvoiceId != null) {
         await onLinked(linkedInvoiceId, amount);
       }
@@ -85,6 +93,7 @@ class PaymentRepository with SyncQueueMixin {
   /// before and after the change, so both links (an edit can re-point the
   /// link) are recomputed from the live rows.
   Future<void> update(PaymentEntity payment, {String? actor}) async {
+    db.assertPermission(Permission.recordPayment);
     await db.transaction(() async {
       await db.assertDateEditable(firmId, payment.date);
       final original = await getById(payment.id);
@@ -120,31 +129,32 @@ class PaymentRepository with SyncQueueMixin {
           ? 'pending'
           : payment.chequeStatus;
 
-      await (db.update(db.payments)
-            ..where(
-                (t) => t.id.equals(payment.id) & t.firmId.equals(firmId)))
-          .write(PaymentsCompanion(
-        type: Value(payment.type),
-        partyId: Value(payment.partyId),
-        partyName: Value(payment.partyName),
-        amount: Value(payment.amount),
-        date: Value(payment.date),
-        mode: Value(payment.mode),
-        reference: Value(payment.reference),
-        // The lifecycle columns move together with `chequeStatus`: a cheque
-        // that becomes cash carries no deposit stamp, no bounce reason, and a
-        // cash payment turned cheque carries none of them either.
-        clearanceDate: Value(resetChequeState ? null : payment.clearanceDate),
-        chequeStatus: Value(chequeStatus),
-        depositedAt: Value(resetChequeState ? null : payment.depositedAt),
-        bouncedAt: Value(resetChequeState ? null : payment.bouncedAt),
-        bounceReason: Value(resetChequeState ? null : payment.bounceReason),
-        linkedInvoiceId: Value(payment.linkedInvoiceId),
-        linkedInvoiceNumber: Value(payment.linkedInvoiceNumber),
-        bankAccount: Value(payment.bankAccount),
-        notes: Value(payment.notes),
-        updatedAt: Value(DateTime.now()),
-      ));
+      await (db.update(
+        db.payments,
+      )..where((t) => t.id.equals(payment.id) & t.firmId.equals(firmId))).write(
+        PaymentsCompanion(
+          type: Value(payment.type),
+          partyId: Value(payment.partyId),
+          partyName: Value(payment.partyName),
+          amount: Value(payment.amount),
+          date: Value(payment.date),
+          mode: Value(payment.mode),
+          reference: Value(payment.reference),
+          // The lifecycle columns move together with `chequeStatus`: a cheque
+          // that becomes cash carries no deposit stamp, no bounce reason, and a
+          // cash payment turned cheque carries none of them either.
+          clearanceDate: Value(resetChequeState ? null : payment.clearanceDate),
+          chequeStatus: Value(chequeStatus),
+          depositedAt: Value(resetChequeState ? null : payment.depositedAt),
+          bouncedAt: Value(resetChequeState ? null : payment.bouncedAt),
+          bounceReason: Value(resetChequeState ? null : payment.bounceReason),
+          linkedInvoiceId: Value(payment.linkedInvoiceId),
+          linkedInvoiceNumber: Value(payment.linkedInvoiceNumber),
+          bankAccount: Value(payment.bankAccount),
+          notes: Value(payment.notes),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
       await enqueue(
         firmId: firmId,
         entity: 'payments',
@@ -163,7 +173,8 @@ class PaymentRepository with SyncQueueMixin {
         firmId: firmId,
         actor: actor,
         entityId: payment.id,
-        summary: 'Edited ${payment.type} ${payment.number} '
+        summary:
+            'Edited ${payment.type} ${payment.number} '
             '(${payment.partyName ?? "no party"})',
       );
     });
@@ -218,20 +229,27 @@ class PaymentRepository with SyncQueueMixin {
   }
 
   /// Party ledger: all payments for a party, newest first.
-  Future<List<PaymentEntity>> forParty(String partyId,
-      {int limit = 1000}) async {
+  Future<List<PaymentEntity>> forParty(
+    String partyId, {
+    int limit = 1000,
+  }) async {
     final query = db.select(db.payments)
-      ..where((t) =>
-          t.firmId.equals(firmId) &
-          t.partyId.equals(partyId) &
-          t.isDeleted.equals(false))
+      ..where(
+        (t) =>
+            t.firmId.equals(firmId) &
+            t.partyId.equals(partyId) &
+            t.isDeleted.equals(false),
+      )
       ..orderBy([(t) => OrderingTerm.desc(t.date)])
       ..limit(limit);
     return query.get();
   }
 
-  Future<double> totalForType(String type,
-      {DateTime? from, DateTime? to}) async {
+  Future<double> totalForType(
+    String type, {
+    DateTime? from,
+    DateTime? to,
+  }) async {
     final rows = await list(type: type, from: from, to: to, limit: 1000000);
     var total = 0.0;
     for (final r in rows) {
@@ -245,6 +263,7 @@ class PaymentRepository with SyncQueueMixin {
   /// recomputed (the payment must stop counting the moment it is binned) —
   /// and again on restore.
   Future<void> softDelete(String id, {String? actor}) async {
+    db.assertPermission(Permission.softDelete);
     await db.transaction(() async {
       final query = db.select(db.payments)
         ..where((t) => t.id.equals(id) & t.firmId.equals(firmId));
@@ -262,14 +281,19 @@ class PaymentRepository with SyncQueueMixin {
       // or the invoice keeps showing Paid with a bin holding its payment.
       await _recomputeLinkedDoc(payment);
       await enqueue(
-          firmId: firmId, entity: 'payments', entityId: id, operation: 'delete');
+        firmId: firmId,
+        entity: 'payments',
+        entityId: id,
+        operation: 'delete',
+      );
       await db.auditRepository.log(
         action: 'delete',
         entity: 'payments',
         firmId: firmId,
         actor: actor,
         entityId: id,
-        summary: 'Deleted ${payment.type} ${payment.number} '
+        summary:
+            'Deleted ${payment.type} ${payment.number} '
             '(${payment.partyName ?? "no party"})',
       );
     });
@@ -278,6 +302,7 @@ class PaymentRepository with SyncQueueMixin {
   /// Restores a soft-deleted payment and re-applies its effect on the
   /// linked document's balances.
   Future<void> restore(String id, {String? actor}) async {
+    db.assertPermission(Permission.softDelete);
     await db.transaction(() async {
       final query = db.select(db.payments)
         ..where((t) => t.id.equals(id) & t.firmId.equals(firmId));
@@ -293,7 +318,11 @@ class PaymentRepository with SyncQueueMixin {
       );
       await _recomputeLinkedDoc(payment);
       await enqueue(
-          firmId: firmId, entity: 'payments', entityId: id, operation: 'update');
+        firmId: firmId,
+        entity: 'payments',
+        entityId: id,
+        operation: 'update',
+      );
       await db.auditRepository.log(
         action: 'restore',
         entity: 'payments',
@@ -316,15 +345,18 @@ class PaymentRepository with SyncQueueMixin {
     if (linkId == null || linkId.isEmpty) return;
 
     // Only payments that still count (not binned) feed the totals.
-    final live = await (db.select(db.payments)
-          ..where((t) =>
-              t.firmId.equals(firmId) &
-              t.linkedInvoiceId.equals(linkId) &
-              t.isDeleted.equals(false)))
-        .get();
-    final invoice = await (db.select(db.salesInvoices)
-          ..where((t) => t.id.equals(linkId) & t.firmId.equals(firmId)))
-        .getSingleOrNull();
+    final live =
+        await (db.select(db.payments)..where(
+              (t) =>
+                  t.firmId.equals(firmId) &
+                  t.linkedInvoiceId.equals(linkId) &
+                  t.isDeleted.equals(false),
+            ))
+            .get();
+    final invoice =
+        await (db.select(db.salesInvoices)
+              ..where((t) => t.id.equals(linkId) & t.firmId.equals(firmId)))
+            .getSingleOrNull();
     var paid = 0.0;
     // How a linked payment moves the document's balance depends on which
     // side of the books the document sits on: a payment_in is a receipt
@@ -349,32 +381,41 @@ class PaymentRepository with SyncQueueMixin {
     paid = paid < 0 ? 0 : paid;
     if (invoice != null) {
       final balance = invoice.grandTotal - paid;
-      final status =
-          balance <= 0.001 ? 'paid' : (paid > 0.001 ? 'partial' : 'unpaid');
-      await (db.update(db.salesInvoices)..where((t) => t.id.equals(linkId)))
-          .write(SalesInvoicesCompanion(
-        paidAmount: Value(paid),
-        balanceDue: Value(balance < 0 ? 0 : balance),
-        paymentStatus: Value(status),
-        updatedAt: Value(DateTime.now()),
-      ));
+      final status = balance <= 0.001
+          ? 'paid'
+          : (paid > 0.001 ? 'partial' : 'unpaid');
+      await (db.update(
+        db.salesInvoices,
+      )..where((t) => t.id.equals(linkId))).write(
+        SalesInvoicesCompanion(
+          paidAmount: Value(paid),
+          balanceDue: Value(balance < 0 ? 0 : balance),
+          paymentStatus: Value(status),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
       return;
     }
 
-    final bill = await (db.select(db.purchaseBills)
-          ..where((t) => t.id.equals(linkId) & t.firmId.equals(firmId)))
-        .getSingleOrNull();
+    final bill =
+        await (db.select(db.purchaseBills)
+              ..where((t) => t.id.equals(linkId) & t.firmId.equals(firmId)))
+            .getSingleOrNull();
     if (bill != null) {
       final balance = bill.grandTotal - paid;
-      final status =
-          balance <= 0.001 ? 'paid' : (paid > 0.001 ? 'partial' : 'unpaid');
-      await (db.update(db.purchaseBills)..where((t) => t.id.equals(linkId)))
-          .write(PurchaseBillsCompanion(
-        paidAmount: Value(paid),
-        balanceDue: Value(balance < 0 ? 0 : balance),
-        paymentStatus: Value(status),
-        updatedAt: Value(DateTime.now()),
-      ));
+      final status = balance <= 0.001
+          ? 'paid'
+          : (paid > 0.001 ? 'partial' : 'unpaid');
+      await (db.update(
+        db.purchaseBills,
+      )..where((t) => t.id.equals(linkId))).write(
+        PurchaseBillsCompanion(
+          paidAmount: Value(paid),
+          balanceDue: Value(balance < 0 ? 0 : balance),
+          paymentStatus: Value(status),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
     }
   }
 
@@ -388,10 +429,12 @@ class PaymentRepository with SyncQueueMixin {
   /// bank has cleared.
   Stream<List<PaymentEntity>> watchUnclearedCheques() {
     final query = db.select(db.payments)
-      ..where((t) =>
-          t.firmId.equals(firmId) &
-          t.isDeleted.equals(false) &
-          t.chequeStatus.isIn(const ['pending', 'deposited']))
+      ..where(
+        (t) =>
+            t.firmId.equals(firmId) &
+            t.isDeleted.equals(false) &
+            t.chequeStatus.isIn(const ['pending', 'deposited']),
+      )
       ..orderBy([(t) => OrderingTerm.asc(t.date)]);
     return query.watch();
   }
@@ -399,10 +442,12 @@ class PaymentRepository with SyncQueueMixin {
   /// Cheques the bank returned unpaid.
   Stream<List<PaymentEntity>> watchBouncedCheques() {
     final query = db.select(db.payments)
-      ..where((t) =>
-          t.firmId.equals(firmId) &
-          t.isDeleted.equals(false) &
-          t.chequeStatus.equals('bounced'))
+      ..where(
+        (t) =>
+            t.firmId.equals(firmId) &
+            t.isDeleted.equals(false) &
+            t.chequeStatus.equals('bounced'),
+      )
       ..orderBy([(t) => OrderingTerm.desc(t.date)]);
     return query.watch();
   }
@@ -472,7 +517,8 @@ class PaymentRepository with SyncQueueMixin {
         updatedAt: Value(DateTime.now()),
       ),
       when: date,
-      summary: 'Cheque bounced: ${reason.trim().isEmpty ? 'no reason given' : reason.trim()}',
+      summary:
+          'Cheque bounced: ${reason.trim().isEmpty ? 'no reason given' : reason.trim()}',
     );
   }
 
@@ -513,26 +559,27 @@ class PaymentRepository with SyncQueueMixin {
   /// written before [create] seeded one) is treated as `pending`, which is what
   /// the "in hand" bucket already assumes.
   static Set<String> legalChequeTransitionsFrom(String? currentStatus) =>
-      _legalChequeTransitions[currentStatus ?? 'pending'] ??
-      const <String>{};
+      _legalChequeTransitions[currentStatus ?? 'pending'] ?? const <String>{};
 
   /// The message shown when a move is refused, saying what the cheque actually
   /// is and what to do instead. Verbatim text, because it is shown to the user.
-  static String _illegalChequeMove(String from, String to) =>
-      switch ('$from>$to') {
-        'cleared>bounced' =>
-          'This cheque has already cleared, so its money is in the bank. '
-              'If the bank has actually reversed it, edit the payment instead '
-              'of marking it bounced.',
-        'cleared>deposited' =>
-          'This cheque has already cleared. It no longer needs depositing.',
-        'bounced>cleared' =>
-          'This cheque was returned by the bank. Record it as deposited again '
-              'once it is re-presented — clearing it here would book money that '
-              'never arrived.',
-        'bounced>bounced' => 'This cheque is already marked bounced.',
-        _ => 'A cheque that is $from cannot be marked $to.',
-      };
+  static String _illegalChequeMove(
+    String from,
+    String to,
+  ) => switch ('$from>$to') {
+    'cleared>bounced' =>
+      'This cheque has already cleared, so its money is in the bank. '
+          'If the bank has actually reversed it, edit the payment instead '
+          'of marking it bounced.',
+    'cleared>deposited' =>
+      'This cheque has already cleared. It no longer needs depositing.',
+    'bounced>cleared' =>
+      'This cheque was returned by the bank. Record it as deposited again '
+          'once it is re-presented — clearing it here would book money that '
+          'never arrived.',
+    'bounced>bounced' => 'This cheque is already marked bounced.',
+    _ => 'A cheque that is $from cannot be marked $to.',
+  };
 
   /// The shared body of the three transitions above.
   ///
@@ -549,6 +596,9 @@ class PaymentRepository with SyncQueueMixin {
     required DateTime? when,
     required String summary,
   }) async {
+    // A bounce reopens a document's balance, so this moves money as surely as
+    // recording the cheque did — same permission as the write that created it.
+    db.assertPermission(Permission.recordPayment);
     await db.transaction(() async {
       final query = db.select(db.payments)
         ..where((t) => t.id.equals(id) & t.firmId.equals(firmId));
@@ -556,7 +606,8 @@ class PaymentRepository with SyncQueueMixin {
       if (payment == null) return;
       if (payment.mode != 'cheque') {
         throw StateError(
-            'Only a cheque has a deposit, clearance or bounce to record.');
+          'Only a cheque has a deposit, clearance or bounce to record.',
+        );
       }
       final from = payment.chequeStatus ?? 'pending';
       if (!legalChequeTransitionsFrom(from).contains(status)) {
@@ -576,18 +627,22 @@ class PaymentRepository with SyncQueueMixin {
       );
       // Recomputed whatever the new state is: a bounce releases the document,
       // and a clear (or a re-deposit after a bounce) puts it back.
-      await _recomputeLinkedDoc(payment.copyWith(
-        chequeStatus: Value(status),
-        clearanceDate:
-            Value(status == 'cleared' ? at : payment.clearanceDate),
-      ));
+      await _recomputeLinkedDoc(
+        payment.copyWith(
+          chequeStatus: Value(status),
+          clearanceDate: Value(
+            status == 'cleared' ? at : payment.clearanceDate,
+          ),
+        ),
+      );
       await db.auditRepository.log(
         action: 'update',
         entity: 'payments',
         firmId: firmId,
         actor: actor,
         entityId: id,
-        summary: '$summary — ${payment.type} ${payment.number} '
+        summary:
+            '$summary — ${payment.type} ${payment.number} '
             '(${payment.partyName ?? "no party"})',
       );
     });
@@ -603,6 +658,7 @@ class PaymentRepository with SyncQueueMixin {
 
   /// Hard-deletes a recycled payment.
   Future<void> deleteForever(String id) async {
+    db.assertPermission(Permission.purge);
     await db.transaction(() async {
       final query = db.select(db.payments)
         ..where((t) => t.id.equals(id) & t.firmId.equals(firmId));
@@ -610,19 +666,21 @@ class PaymentRepository with SyncQueueMixin {
       if (payment == null) return;
       if (!payment.isDeleted) {
         throw StateError(
-            'Move this payment to the recycle bin before deleting it '
-            'permanently.');
+          'Move this payment to the recycle bin before deleting it '
+          'permanently.',
+        );
       }
       await db.assertDateEditable(firmId, payment.date);
-      await (db.delete(db.payments)
-            ..where((t) => t.id.equals(id) & t.firmId.equals(firmId)))
-          .go();
+      await (db.delete(
+        db.payments,
+      )..where((t) => t.id.equals(id) & t.firmId.equals(firmId))).go();
       await db.auditRepository.log(
         action: 'purge',
         entity: 'payments',
         firmId: firmId,
         entityId: id,
-        summary: 'Permanently deleted payment '
+        summary:
+            'Permanently deleted payment '
             '${payment.number} (${payment.partyName ?? "no party"})',
       );
     });
@@ -651,26 +709,31 @@ class ExpenseRepository with SyncQueueMixin {
     String? notes,
     int sequence = 0,
   }) async {
+    db.assertPermission(Permission.createPurchases);
     final id = 'exp_${IdUtils.newId()}';
     await db.transaction(() async {
       await db.assertDateEditable(firmId, date);
-      await db.into(db.expenses).insert(ExpensesCompanion.insert(
-            id: id,
-            firmId: firmId,
-            type: Value(type),
-            number: number,
-            category: category,
-            amount: amount,
-            date: date,
-            mode: Value(mode),
-            vendorName: Value(vendorName),
-            reference: Value(reference),
-            gstAmount: Value(gstAmount),
-            notes: Value(notes),
-            sequence: Value(sequence),
-            createdAt: Value(DateTime.now()),
-            updatedAt: Value(DateTime.now()),
-          ));
+      await db
+          .into(db.expenses)
+          .insert(
+            ExpensesCompanion.insert(
+              id: id,
+              firmId: firmId,
+              type: Value(type),
+              number: number,
+              category: category,
+              amount: amount,
+              date: date,
+              mode: Value(mode),
+              vendorName: Value(vendorName),
+              reference: Value(reference),
+              gstAmount: Value(gstAmount),
+              notes: Value(notes),
+              sequence: Value(sequence),
+              createdAt: Value(DateTime.now()),
+              updatedAt: Value(DateTime.now()),
+            ),
+          );
       await enqueue(
         firmId: firmId,
         entity: 'expenses',
@@ -695,10 +758,12 @@ class ExpenseRepository with SyncQueueMixin {
     int limit = 500,
   }) async {
     final query = db.select(db.expenses)
-      ..where((t) =>
-          t.firmId.equals(firmId) &
-          t.type.equals(type) &
-          t.isDeleted.equals(false))
+      ..where(
+        (t) =>
+            t.firmId.equals(firmId) &
+            t.type.equals(type) &
+            t.isDeleted.equals(false),
+      )
       ..orderBy([(t) => OrderingTerm.desc(t.date)]);
     if (category != null) {
       query.where((t) => t.category.equals(category));
@@ -720,10 +785,12 @@ class ExpenseRepository with SyncQueueMixin {
     int limit = 100,
   }) {
     final query = db.select(db.expenses)
-      ..where((t) =>
-          t.firmId.equals(firmId) &
-          t.type.equals(type) &
-          t.isDeleted.equals(false))
+      ..where(
+        (t) =>
+            t.firmId.equals(firmId) &
+            t.type.equals(type) &
+            t.isDeleted.equals(false),
+      )
       ..orderBy([(t) => OrderingTerm.desc(t.date)]);
     if (from != null) {
       query.where((t) => t.date.isBiggerOrEqualValue(from));
@@ -735,8 +802,11 @@ class ExpenseRepository with SyncQueueMixin {
     return query.watch();
   }
 
-  Future<double> totalForType(String type,
-      {DateTime? from, DateTime? to}) async {
+  Future<double> totalForType(
+    String type, {
+    DateTime? from,
+    DateTime? to,
+  }) async {
     final rows = await list(type: type, from: from, to: to, limit: 1000000);
     var total = 0.0;
     for (final r in rows) {
@@ -763,6 +833,7 @@ class ExpenseRepository with SyncQueueMixin {
   /// taken from the entity as-is, so the caller decides via `copyWith(Value(...))`
   /// whether clearing a field writes NULL.
   Future<ExpenseEntity> update(ExpenseEntity expense) async {
+    db.assertPermission(Permission.createPurchases);
     await db.transaction(() async {
       await db.assertDateEditable(firmId, expense.date);
       await db
@@ -780,6 +851,7 @@ class ExpenseRepository with SyncQueueMixin {
 
   /// Soft-deletes into the document recycle bin (audited, lock-aware).
   Future<void> softDelete(String id, {String? actor}) async {
+    db.assertPermission(Permission.softDelete);
     await db.transaction(() async {
       final query = db.select(db.expenses)
         ..where((t) => t.id.equals(id) & t.firmId.equals(firmId));
@@ -794,14 +866,19 @@ class ExpenseRepository with SyncQueueMixin {
         ),
       );
       await enqueue(
-          firmId: firmId, entity: 'expenses', entityId: id, operation: 'delete');
+        firmId: firmId,
+        entity: 'expenses',
+        entityId: id,
+        operation: 'delete',
+      );
       await db.auditRepository.log(
         action: 'delete',
         entity: 'expenses',
         firmId: firmId,
         actor: actor,
         entityId: id,
-        summary: 'Deleted ${expense.type} ${expense.number} '
+        summary:
+            'Deleted ${expense.type} ${expense.number} '
             '(${expense.category})',
       );
     });
@@ -809,6 +886,7 @@ class ExpenseRepository with SyncQueueMixin {
 
   /// Hard-deletes a recycled expense (must already be soft-deleted).
   Future<void> deleteForever(String id) async {
+    db.assertPermission(Permission.purge);
     await db.transaction(() async {
       final query = db.select(db.expenses)
         ..where((t) => t.id.equals(id) & t.firmId.equals(firmId));
@@ -816,19 +894,21 @@ class ExpenseRepository with SyncQueueMixin {
       if (expense == null) return;
       if (!expense.isDeleted) {
         throw StateError(
-            'Move this expense to the recycle bin before deleting it '
-            'permanently.');
+          'Move this expense to the recycle bin before deleting it '
+          'permanently.',
+        );
       }
       await db.assertDateEditable(firmId, expense.date);
-      await (db.delete(db.expenses)
-            ..where((t) => t.id.equals(id) & t.firmId.equals(firmId)))
-          .go();
+      await (db.delete(
+        db.expenses,
+      )..where((t) => t.id.equals(id) & t.firmId.equals(firmId))).go();
       await db.auditRepository.log(
         action: 'purge',
         entity: 'expenses',
         firmId: firmId,
         entityId: id,
-        summary: 'Permanently deleted expense '
+        summary:
+            'Permanently deleted expense '
             '${expense.number} (${expense.category})',
       );
     });
@@ -836,6 +916,7 @@ class ExpenseRepository with SyncQueueMixin {
 
   /// Restores a soft-deleted expense/income row.
   Future<void> restore(String id, {String? actor}) async {
+    db.assertPermission(Permission.softDelete);
     await db.transaction(() async {
       final query = db.select(db.expenses)
         ..where((t) => t.id.equals(id) & t.firmId.equals(firmId));
@@ -850,7 +931,11 @@ class ExpenseRepository with SyncQueueMixin {
         ),
       );
       await enqueue(
-          firmId: firmId, entity: 'expenses', entityId: id, operation: 'update');
+        firmId: firmId,
+        entity: 'expenses',
+        entityId: id,
+        operation: 'update',
+      );
       await db.auditRepository.log(
         action: 'restore',
         entity: 'expenses',

@@ -2,6 +2,7 @@ import 'package:decimal/decimal.dart';
 import 'package:drift/drift.dart';
 
 import '../../domain/document_status.dart';
+import '../../domain/member_role.dart';
 import '../../engine/gst_engine.dart';
 import '../../utils/money.dart';
 import '../app_database.dart';
@@ -300,6 +301,7 @@ class SalesRepository with SyncQueueMixin {
     bool affectStock = true,
     String? createdBy,
   }) async {
+    db.assertPermission(Permission.createSales);
     // The caller resolves the split from the firm's state vs the place of
     // supply; [isInterState] is the stored denormalized flag.
     final split = draft.isInterState
@@ -770,6 +772,7 @@ class SalesRepository with SyncQueueMixin {
   }
 
   Future<void> markCancelled(String id, {String? actor}) async {
+    db.assertPermission(Permission.cancelDocument);
     await db.transaction(() async {
       final doc = await getById(id);
       if (doc == null) return;
@@ -830,6 +833,11 @@ class SalesRepository with SyncQueueMixin {
   /// caller was told it had deleted a document that was never there, and would
   /// then offer an undo covering it. Statement call sites are unaffected.
   Future<bool> softDelete(String id, {String? actor}) async {
+    // Checked before the transaction, not inside it. The session is in-memory,
+    // so a refusal has nothing to read and nothing to roll back — opening a
+    // transaction to throw out of it is wasted work and a stack of frames that
+    // says the write was attempted when it was refused.
+    db.assertPermission(Permission.softDelete);
     var deleted = false;
     await db.transaction(() async {
       final doc = await getById(id);
@@ -872,6 +880,7 @@ class SalesRepository with SyncQueueMixin {
   /// stock deducted it a second time, and the guard used to live only in the
   /// UI that hides the action.
   Future<bool> restore(String id, {String? actor}) async {
+    db.assertPermission(Permission.softDelete);
     var restored = false;
     await db.transaction(() async {
       final doc = await getById(id);
@@ -948,6 +957,7 @@ class SalesRepository with SyncQueueMixin {
   /// first so the stock deduction is reversed before the rows vanish — and
   /// refuses dates inside a locked period.
   Future<void> purge(String id) async {
+    db.assertPermission(Permission.purge);
     await db.transaction(() async {
       final doc = await getById(id);
       if (doc == null) return;
@@ -991,6 +1001,7 @@ class SalesRepository with SyncQueueMixin {
     required String invoiceId,
     String? actor,
   }) async {
+    db.assertPermission(Permission.createSales);
     await db.transaction(() async {
       final doc = await getById(id);
       if (doc == null) return;
@@ -1036,6 +1047,13 @@ class SalesRepository with SyncQueueMixin {
     DocumentStatus status, {
     String? actor,
   }) async {
+    // Answering a quotation is a statement to a customer, so it is a
+    // cancel-class action rather than a save.
+    db.assertPermission(
+      status == DocumentStatus.cancelled
+          ? Permission.cancelDocument
+          : Permission.createSales,
+    );
     await db.transaction(() async {
       final doc = await getById(id);
       if (doc == null) return;

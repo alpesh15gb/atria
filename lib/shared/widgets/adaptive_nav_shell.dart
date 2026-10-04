@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
+import '../../core/domain/member_role.dart';
 import '../../core/navigation/nav_destinations.dart';
 import '../../core/responsive/breakpoints.dart';
+import '../../core/state/member_session_controller.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_sizes.dart';
 import 'atria_create_menu.dart';
@@ -104,15 +107,14 @@ bool navEntryIsActive(Uri location, NavSectionEntry entry) {
   for (final candidate in all) {
     final path = candidate.route.split('?').first;
     if (!location.path.startsWith('$path/')) continue;
-    if (best == null ||
-        path.length > best.route.split('?').first.length) {
+    if (best == null || path.length > best.route.split('?').first.length) {
       best = candidate;
     }
   }
   return best != null && best.route == entry.route;
 }
 
-class _BottomShell extends StatelessWidget {
+class _BottomShell extends ConsumerWidget {
   const _BottomShell({
     required this.navigationShell,
     required this.bottomBarIndex,
@@ -139,7 +141,7 @@ class _BottomShell extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     String? path;
     try {
       path = GoRouterState.of(context).uri.path;
@@ -170,7 +172,7 @@ class _BottomShell extends StatelessWidget {
         selectedIndex: bottomBarIndex,
         onDestinationSelected: (value) {
           if (value == NavDestinations.bottomBarItemCount) {
-            _showMoreSheet(context);
+            _showMoreSheet(context, ref.watch(effectiveSessionProvider));
             return;
           }
           onTap(value);
@@ -212,7 +214,12 @@ class _BottomShell extends StatelessWidget {
     );
   }
 
-  void _showMoreSheet(BuildContext context) {
+  /// The overflow sheet — every route the rail shows, minus the bottom bar.
+  ///
+  /// Takes the session rather than reading it, because this is called from a
+  /// tap handler that has no [WidgetRef] and the sheet must show the member the
+  /// *same* rows the rail would, at the moment it was opened.
+  void _showMoreSheet(BuildContext context, MemberSession session) {
     // The location must be read HERE, in the shell's context: a modal sheet's
     // builder context sits above the root navigator's overlay, where
     // GoRouterState is not provided — reading it in the builder threw on
@@ -252,7 +259,8 @@ class _BottomShell extends StatelessWidget {
                   for (final section in NavDestinations.sections) ...[
                     Builder(
                       builder: (context) {
-                        final entries = section.entries
+                        final entries = section
+                            .visibleTo(session)
                             .where(
                               (e) =>
                                   e.branchIndex == null ||
@@ -280,10 +288,8 @@ class _BottomShell extends StatelessWidget {
                                   entry.label,
                                   style: TextStyle(
                                     fontSize: 13.5,
-                                    fontWeight: navEntryIsActive(
-                                      location,
-                                      entry,
-                                    )
+                                    fontWeight:
+                                        navEntryIsActive(location, entry)
                                         ? FontWeight.w700
                                         : FontWeight.w500,
                                     color: navEntryIsActive(location, entry)
@@ -340,7 +346,10 @@ class _RailShell extends StatelessWidget {
         children: [
           // The wordmark lives up here, aligned with the nav column below it —
           // QBO's arrangement. That is why the rail itself starts at Create.
-          AtriaTopBar(leadingWidth: extended ? 236 : 64, compactLeading: !extended),
+          AtriaTopBar(
+            leadingWidth: extended ? 236 : 64,
+            compactLeading: !extended,
+          ),
           Expanded(
             child: Row(
               children: [
@@ -416,10 +425,10 @@ class _SectionHeading extends StatelessWidget {
       child: Text(
         title,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              letterSpacing: 1.1,
-              fontWeight: FontWeight.w700,
-            ),
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          letterSpacing: 1.1,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }
@@ -541,24 +550,21 @@ class _SectionRow extends StatelessWidget {
 }
 
 /// Icon-only rail used between the phone and desktop breakpoints.
-class _CompactRail extends StatelessWidget {
+class _CompactRail extends ConsumerWidget {
   const _CompactRail({required this.navigationShell});
 
   final StatefulNavigationShell navigationShell;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final session = ref.watch(effectiveSessionProvider);
     final scheme = Theme.of(context).colorScheme;
     final location = GoRouterState.of(context).uri;
     return _RailColumn(
       width: 64,
       header: const Padding(
         padding: EdgeInsets.only(top: 10, bottom: 10),
-        child: Column(
-          children: [
-            AtriaCreateButton(expanded: false),
-          ],
-        ),
+        child: Column(children: [AtriaCreateButton(expanded: false)]),
       ),
       children: [
         Container(
@@ -568,7 +574,7 @@ class _CompactRail extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         for (final section in NavDestinations.sections)
-          for (final entry in section.entries)
+          for (final entry in section.visibleTo(session))
             _SectionRow(
               entry: entry,
               selected: navEntryIsActive(location, entry),
@@ -594,13 +600,14 @@ class _CompactRail extends StatelessWidget {
 }
 
 /// The full rail: wordmark, Create button, then QBO's section stack.
-class _ExtendedRail extends StatelessWidget {
+class _ExtendedRail extends ConsumerWidget {
   const _ExtendedRail({required this.navigationShell});
 
   final StatefulNavigationShell navigationShell;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final session = ref.watch(effectiveSessionProvider);
     final scheme = Theme.of(context).colorScheme;
     final location = GoRouterState.of(context).uri;
     return _RailColumn(
@@ -625,7 +632,7 @@ class _ExtendedRail extends StatelessWidget {
             // The first heading follows a rule, so it needs no extra air.
             top: s == 0 ? 10 : 14,
           ),
-          for (final entry in NavDestinations.sections[s].entries)
+          for (final entry in NavDestinations.sections[s].visibleTo(session))
             _SectionRow(
               entry: entry,
               selected: navEntryIsActive(location, entry),
@@ -655,9 +662,9 @@ class _ExtendedRail extends StatelessWidget {
                   'Your books stay on this device',
                   maxLines: 2,
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                        letterSpacing: 0,
-                      ),
+                    color: scheme.onSurfaceVariant,
+                    letterSpacing: 0,
+                  ),
                 ),
               ),
             ],

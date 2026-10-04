@@ -2,20 +2,17 @@
 
 ## Next
 
-- [ ] **Find why a saved purchase bill can reopen with no line rows.** The
-      "Edit Purchase Bill" screenshot showed the header loaded with one blank
-      line — the grid's empty state, so `_prefill` got zero items. The editor
-      is now proven good (`test/purchase_editor_saved_lines_test.dart` passes at
-      both widths, and fails when `_prefill` is emptied), and so is the
-      repository round-trip. **Unverified hypothesis:** the bill was created on
-      another device and pulled with its lines dropped. Check whether
-      `PRAGMA foreign_keys=ON` rejected an orphan during a pull — it is ON in
-      production and OFF in the in-memory test DB, which is why no test catches
-      this class — and whether `PullApplier._applyOne` swallowed it (it counts
-      the change `skipped` and advances the cursor regardless, so a single FK
-      orphan is lost permanently and invisibly). Ask the user whether that bill
-      was created on another device before going further; everything else is
-      ruled out. Full write-up in `.claude/STATE.md`.
+- [ ] **Confirm the sync fix against the real server.** The line-item loss is
+      fixed and regression-tested against a faithful fake (`ec7df48`), but the
+      device that reported it still needs a real `.vyb` re-import + sync +
+      phone pull. Until that happens the fix is proven in a harness, not in the
+      user's hands.
+- [ ] **HIGH — non-atomic page apply in `PullApplier`.** A pull applies changes
+      one at a time and advances the cursor regardless of failures, so a single
+      rejected change (e.g. an FK orphan — `PRAGMA foreign_keys=ON` in
+      production, OFF in the in-memory test DB, which is why no test catches the
+      class) is counted `skipped` and lost permanently and invisibly. The
+      batch-size bug above lived in the same file's neighbourhood.
 - [ ] **HIGH — `UnsavedGuard` is dead on both nav rails.** `adaptive_nav_shell`
       calls `context.go(entry.route)` at :588 and :634; `go` bypasses
       `PopScope`, so a rail click leaves a half-typed invoice with no prompt and
@@ -43,6 +40,17 @@
       Flutter will refuse `build apk` until they migrate to built-in Kotlin.
 
 ## Done
+
+- [x] **Android "items don't render in saved bills" — root cause found and
+      fixed (`ec7df48`).** Push batches were sized by row count, not bytes; the
+      server refuses >256KB whole, so the header rows went through and the line
+      rows were thrown away — the phone pulled bills with totals and no items.
+      Also fixed: unsendable rows were marked *sent* and then pruned (data
+      existed nowhere while sync reported clean), and "Re-send all books" was a
+      no-op on any row already parked. Four new tests in
+      `test/vyapar_sync_roundtrip_test.dart` reproduce the real `.vyb` →
+      server → phone pipeline. Suite 574/1 skipped. Full write-up in
+      `.claude/STATE.md`.
 
 - [x] **Go-live verification pass (2026-10-03):** four real bugs found and
       fixed, each with a test proven to fail when the fix is reverted —

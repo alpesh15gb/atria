@@ -1,6 +1,50 @@
 # Project State
 
-_Last updated: 2026-10-04 (Android "items don't render": one cause fixed, one ruled out)_
+_Last updated: 2026-10-04 (Android "items don't render": root cause found, fixed, regression-tested)_
+
+## 2026-10-04 (later): the actual cause — a batch the server refused
+
+**The user's clue closed this:** *"i uploaded the data from vyb file then i
+synced to atria server then when i am seeing the data on android this bug"*. The
+import and the phone pull were both fine in isolation; running the whole road —
+`.vyb` → push → server → second device — reproduced it exactly.
+
+**Root cause.** `SyncEngine` built push batches by counting rows
+(`batchSize = 200`), not by measuring the encoded body. The server refuses
+anything over 256KB and rejects the request **whole** — there is no partial
+accept. The drain orders every parent before its children, so a full batch of
+`purchase_bills` headers fits comfortably, while the much larger
+`purchase_bill_items` rows land in requests the server throws away. The server
+ends up holding bills with their totals and no items, and any other device
+pulls precisely that.
+
+Reproduced in `test/vyapar_sync_roundtrip_test.dart` before the fix:
+
+    PROBE cap push: pushed=0 ... batches=[209, 591]KB bills=199 lines=0
+    PROBE cap pull: 199 bills, 0 lines
+
+After the fix: `batches=[200, 200, 198, ...]KB`, phone receives 200 bills and
+all 2000 lines, `pending=0`.
+
+**Why it was silent** — two compounding bugs, both mine (from `7688242`):
+
+1. A row the server refused `maxAttempts` (8) times was marked
+   `synced_at = sent`. `pruneSent` then deleted it. The invoice existed on **no
+   device and no server** while the settings screen reported a clean sync. That
+   is the worst possible assumption in a ledger app. Now `_quarantineUnsendable`
+   keeps it unsent, keeps it counted in `pending`, skips it in the drain so one
+   impossible row cannot wedge the queue, and "Re-send all books" revives it.
+2. `rejournalEverything` skipped a quarantined row — the `entity`+`entityId`
+   dedupe matched it and `continue`d — so the repair reported success and left
+   the row unsent. It now clears `attempts` on rows it finds parked.
+
+**A test was holding the bug in place.** `test/sync_engine_test.dart`'s
+"an outbox row with no business is retired with a reason" asserted
+`syncedAt` isNotNull for an unsendable row. It passed, and it was asserting the
+data loss. Renamed to "…is quarantined, not retired" and inverted.
+
+Verified by reverting the size check in place: the torn-document test fails with
+`The server refused the request (HTTP 413).`
 
 ## 2026-10-04: the Android items bug — what was fixed, what was ruled out
 
@@ -244,12 +288,15 @@ Also fixed this day (earlier audit pass, tests in place):
 
 ## Exact next action
 
-1. Fix the last MEDIUM: the payment editor's cheque-state invariant when the
+1. **Rebuild + install the app and re-import the real `.vyb`** to confirm the
+   line items now reach the server. The bug is fixed and regression-tested in
+   isolation; it has not been seen working against the real server yet.
+2. Fix the HIGH items: `UnsavedGuard` is dead on both nav rails (below), then
+   invoice rate/discount have no validator (silent ₹0 lines).
+3. Fix the last MEDIUM: the payment editor's cheque-state invariant when the
    mode changes (`payments_screen.dart` ~845–867). Add a test that flips
    cheque→cash and cash→cheque and asserts `chequeStatus` is right.
-2. Re-run the full suite + analyzer after that edit.
-3. Release builds (`--release`): Windows + APK. APK needs a signing config.
-4. Rebuild + install the debug APK on hardware to confirm the route fix.
+4. Release builds (`--release`): Windows + APK. APK needs a signing config.
 5. Decide on exports/SEZ as a post-launch feature.
 
 ## ⚠️ Build toolchains are MISSING from this machine (2026-10-03)

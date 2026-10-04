@@ -17,6 +17,7 @@ class MoneyText extends StatelessWidget {
     this.colorize = true,
     this.decimals = 2,
     this.textAlign = TextAlign.left,
+    this.shrinkToFit = false,
   });
 
   final Decimal amount;
@@ -31,6 +32,16 @@ class MoneyText extends StatelessWidget {
   /// their figures under right-aligned headers; a bare [Text] is left-aligned
   /// and the column reads as skewed.
   final TextAlign textAlign;
+
+  /// Scales the figure down to fit the width it is given instead of
+  /// overflowing or truncating it.
+  ///
+  /// Both alternatives to this are wrong in a books app. An ellipsis turns
+  /// `₹1,23,456.00` into `₹1,23,45…`, so the reader cannot check the figure —
+  /// and a RenderFlex overflow throws a yellow stripe across the totals on
+  /// every phone narrower than about 380dp. Scaling keeps every digit legible
+  /// and shrinks only until it fits, so a wide window is unaffected.
+  final bool shrinkToFit;
 
   @override
   Widget build(BuildContext context) {
@@ -76,7 +87,7 @@ class MoneyText extends StatelessWidget {
       }
     }
 
-    return Text(
+    final figure = Text(
       display,
       textAlign: textAlign,
       style: (style ?? Theme.of(context).textTheme.titleMedium)?.copyWith(
@@ -84,7 +95,21 @@ class MoneyText extends StatelessWidget {
         fontFeatures: const [FontFeature.tabularFigures()],
       ),
     );
+
+    if (!shrinkToFit) return figure;
+    // `scaleDown` never grows the figure past its natural size, so the desktop
+    // layout is untouched — only a box too small for the text is accommodated.
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: _fitAlignment(textAlign),
+    );
   }
+
+  Alignment _fitAlignment(TextAlign align) => switch (align) {
+        TextAlign.right || TextAlign.end => Alignment.centerRight,
+        TextAlign.center => Alignment.center,
+        _ => Alignment.centerLeft,
+      };
 }
 
 enum MoneySignMode {

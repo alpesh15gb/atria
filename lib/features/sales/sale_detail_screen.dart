@@ -26,6 +26,7 @@ import '../../core/utils/file_names.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/number_words.dart';
 import '../../core/utils/whatsapp_links.dart';
+import '../../shared/widgets/atria_line_grid.dart';
 import '../../shared/widgets/atria_pdf_preview.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/money_text.dart';
@@ -538,23 +539,34 @@ class _StatusHero extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    'Balance due',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.9),
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
+                  Flexible(
+                    child: Text(
+                      'Balance due',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
-                  Text(
-                    Formatters.money(
-                      Decimal.parse(invoice.balanceDue.toStringAsFixed(2)),
-                    ),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      fontFeatures: [FontFeature.tabularFigures()],
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        Formatters.money(
+                          Decimal.parse(invoice.balanceDue.toStringAsFixed(2)),
+                        ),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          fontFeatures: [FontFeature.tabularFigures()],
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -757,141 +769,97 @@ class _ItemsTable extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: SectionHeader(title: 'Items', padding: EdgeInsets.zero),
           ),
-          // The floor is the width this card actually has, not the window's:
-          // the screen centres content in a 1080-wide column, so at 1920px
-          // the card holds ~1040px while `MediaQuery.size.width - 40` is
-          // 1880px — a horizontal scrollbar with ~800px of dead scroll in it.
-          LayoutBuilder(
-            builder: (context, constraints) {
-              return SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(minWidth: constraints.maxWidth),
-                  child: DataTable(
-                    headingRowHeight: 38,
-                    dataRowMinHeight: 44,
-                    columnSpacing: 12,
-                    horizontalMargin: 12,
-                    columns: [
-                      const DataColumn(label: Text('Item')),
-                      const DataColumn(label: Text('HSN')),
-                      const DataColumn(label: Text('Qty'), numeric: true),
-                      const DataColumn(label: Text('Rate'), numeric: true),
-                      const DataColumn(label: Text('Taxable'), numeric: true),
-                      if (interState)
-                        const DataColumn(label: Text('IGST'), numeric: true)
-                      else ...[
-                        const DataColumn(label: Text('CGST'), numeric: true),
-                        DataColumn(
-                          label: Text(
-                            intraStateSecondHead(
-                              resolveGstSplit(
-                                supplierState: firmStateCode,
-                                buyerState: invoice.placeOfSupply,
-                              ),
-                            ),
-                          ),
-                          numeric: true,
-                        ),
-                      ],
-                      const DataColumn(label: Text('Amount'), numeric: true),
-                    ],
-                    rows: [
-                      for (final l in items)
-                        DataRow(
-                          cells: [
-                            DataCell(
-                              Text(
-                                l.name,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                            DataCell(
-                              Text(
-                                l.hsn ?? '-',
-                                style: TextStyle(
-                                  color: scheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                            DataCell(
-                              Text(
-                                Formatters.qty(
-                                  Decimal.parse(l.quantity.toString()),
-                                ),
-                              ),
-                            ),
-                            DataCell(
-                              Text(
-                                Formatters.money(
-                                  Decimal.parse(l.rate.toStringAsFixed(2)),
-                                ),
-                              ),
-                            ),
-                            DataCell(
-                              Text(
-                                Formatters.money(
-                                  Decimal.parse(
-                                    l.taxableValue.toStringAsFixed(2),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            if (interState)
-                              DataCell(
-                                Text(
-                                  l.igst > 0.001
-                                      ? Formatters.money(
-                                          Decimal.parse(
-                                            l.igst.toStringAsFixed(2),
-                                          ),
-                                        )
-                                      : '-',
-                                ),
-                              )
-                            else ...[
-                              DataCell(
-                                Text(
-                                  l.cgst > 0.001
-                                      ? Formatters.money(
-                                          Decimal.parse(
-                                            l.cgst.toStringAsFixed(2),
-                                          ),
-                                        )
-                                      : '-',
-                                ),
-                              ),
-                              DataCell(
-                                Text(
-                                  l.sgst > 0.001
-                                      ? Formatters.money(
-                                          Decimal.parse(
-                                            l.sgst.toStringAsFixed(2),
-                                          ),
-                                        )
-                                      : '-',
-                                ),
-                              ),
-                            ],
-                            DataCell(
-                              Text(
-                                Formatters.money(
-                                  Decimal.parse(l.total.toStringAsFixed(2)),
-                                ),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                    ],
+          // Read-only lines go through the same responsive grid the editors
+          // use, not a DataTable. The DataTable this replaced needed ~800dp for
+          // its nine columns, so on a 360dp phone the reader saw the Item
+          // column and had to scroll sideways for every rupee figure — the
+          // rate, the tax and the amount were all off-screen, which is the
+          // whole point of the card. The grid re-flows to a labelled card per
+          // line below `Breakpoints.medium` and keeps the spreadsheet sheet
+          // above it, so Windows is unchanged and Android becomes readable.
+          AtriaLineGrid(
+            showAddRow: false,
+            onAddRow: () {},
+            emptyHint: 'This invoice has no items.',
+            columns: [
+              const AtriaLineColumn('Item', flex: 3),
+              const AtriaLineColumn('HSN', flex: 2),
+              const AtriaLineColumn('Qty', flex: 1, numeric: true),
+              const AtriaLineColumn('Rate', flex: 2, numeric: true),
+              const AtriaLineColumn('Taxable', flex: 2, numeric: true),
+              if (interState)
+                const AtriaLineColumn('IGST', flex: 2, numeric: true)
+              else ...[
+                const AtriaLineColumn('CGST', flex: 2, numeric: true),
+                AtriaLineColumn(
+                  intraStateSecondHead(
+                    resolveGstSplit(
+                      supplierState: firmStateCode,
+                      buyerState: invoice.placeOfSupply,
+                    ),
                   ),
+                  flex: 2,
+                  numeric: true,
                 ),
-              );
-            },
+              ],
+              const AtriaLineColumn('Amount', flex: 2, numeric: true),
+            ],
+            rows: [
+              for (final l in items)
+                AtriaLineGridRow(
+                  cells: [
+                    Text(
+                      l.name,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    Text(
+                      l.hsn ?? '-',
+                      style: TextStyle(color: scheme.onSurfaceVariant),
+                    ),
+                    Text(Formatters.qty(Decimal.parse(l.quantity.toString()))),
+                    Text(
+                      Formatters.money(
+                        Decimal.parse(l.rate.toStringAsFixed(2)),
+                      ),
+                    ),
+                    Text(
+                      Formatters.money(
+                        Decimal.parse(l.taxableValue.toStringAsFixed(2)),
+                      ),
+                    ),
+                    if (interState)
+                      Text(
+                        l.igst > 0.001
+                            ? Formatters.money(
+                                Decimal.parse(l.igst.toStringAsFixed(2)),
+                              )
+                            : '-',
+                      )
+                    else ...[
+                      Text(
+                        l.cgst > 0.001
+                            ? Formatters.money(
+                                Decimal.parse(l.cgst.toStringAsFixed(2)),
+                              )
+                            : '-',
+                      ),
+                      Text(
+                        l.sgst > 0.001
+                            ? Formatters.money(
+                                Decimal.parse(l.sgst.toStringAsFixed(2)),
+                              )
+                            : '-',
+                      ),
+                    ],
+                    Text(
+                      Formatters.money(
+                        Decimal.parse(l.total.toStringAsFixed(2)),
+                      ),
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
+            ],
           ),
         ],
       ),
@@ -995,16 +963,25 @@ class _AmountBreakdown extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'Grand total',
-                  style: Theme.of(context).textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w700),
+                Flexible(
+                  child: Text(
+                    'Grand total',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w700),
+                  ),
                 ),
-                MoneyText(
-                  Decimal.parse(invoice.grandTotal.toStringAsFixed(2)),
-                  style: Theme.of(context).textTheme.headlineSmall
-                      ?.copyWith(fontWeight: FontWeight.w700),
-                  colorize: false,
+                const SizedBox(width: 8),
+                Flexible(
+                  child: MoneyText(
+                    Decimal.parse(invoice.grandTotal.toStringAsFixed(2)),
+                    style: Theme.of(context).textTheme.headlineSmall
+                        ?.copyWith(fontWeight: FontWeight.w700),
+                    colorize: false,
+                    textAlign: TextAlign.right,
+                    shrinkToFit: true,
+                  ),
                 ),
               ],
             ),
@@ -1038,17 +1015,31 @@ class _AmountBreakdown extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
-          Text(
-            negate ? '- ${Formatters.money(value)}' : Formatters.money(value),
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-              fontFeatures: const [FontFeature.tabularFigures()],
+          const SizedBox(width: 8),
+          Flexible(
+            child: MoneyText(
+              // `negate` used to be a '- ' prefix painted onto a positive
+              // figure; handing the sign to MoneyText is the same output, and
+              // it keeps the minus attached to the number when the figure
+              // scales down to fit.
+              negate ? -value : value,
+              signMode: MoneySignMode.auto,
+              colorize: false,
+              textAlign: TextAlign.right,
+              shrinkToFit: true,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -1159,6 +1150,10 @@ class _PaymentSectionState extends ConsumerState<_PaymentSection> {
                 flex: 2,
                 child: DropdownButtonFormField<String>(
                   iconSize: AppIconSize.md,
+                  // Without this the button lays its label out at its natural
+                  // width and overflows the field: at 360dp this half of the
+                  // row is 119px, and "Cheque" plus the arrow does not fit.
+                  isExpanded: true,
                   initialValue: _mode,
                   decoration: const InputDecoration(labelText: 'Mode'),
                   items: const [

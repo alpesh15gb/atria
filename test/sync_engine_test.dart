@@ -265,9 +265,16 @@ void main() {
     expect(report.pending, 0);
   });
 
-  test('an outbox row with no business is retired with a reason', () async {
+  test('an outbox row with no business is quarantined, not retired', () async {
     // Not something the app does today, but the outbox is a table and a row
     // without a firm can never be sent: it must not be re-read for ever.
+    //
+    // "Not re-read for ever" is the whole requirement, and it is NOT the same
+    // as "marked sent". Marking it `synced_at` says the server holds a change
+    // it never received; `pruneSent` then deletes it with the rest of the sent
+    // queue, and the row is gone from the device while the UI reports a clean
+    // sync. So the row stays *unsent*, is counted in `pending`, and is skipped
+    // by the drain on account of its `attempts`.
     await db.into(db.syncQueue).insert(SyncQueueCompanion.insert(
           id: 'orphan',
           firmId: const Value(null),
@@ -278,10 +285,11 @@ void main() {
 
     final report = await engine.push();
 
-    expect(report.pending, 0);
+    expect(report.pending, 1, reason: 'an unsent change must stay counted');
     final row = await db.select(db.syncQueue).getSingle();
-    expect(row.syncedAt, isNotNull);
+    expect(row.syncedAt, isNull);
     expect(row.error, contains('No business'));
+    expect(row.attempts, greaterThan(0));
   });
 
   test('pruning drops sent rows and keeps unsent ones', () async {

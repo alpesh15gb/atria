@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../api/server_client.dart' show ServerRequestException;
 import '../api/sync_client.dart';
@@ -135,6 +138,17 @@ class SyncEngine {
   /// that either times out or hits the body limit.
   static const int batchSize = 200;
 
+  /// The largest request body the client will build, in bytes.
+  ///
+  /// The server refuses anything over 256KB, and it refuses the request
+  /// *whole* — there is no partial accept. So this budget has to sit below that
+  /// limit with room for the `{"changes":[…]}` wrapper and JSON punctuation,
+  /// or the last row of a full batch tips it over.
+  ///
+  /// Batching by row count alone is what produced bills with no items on other
+  /// devices: see the drain.
+  static const int maxRequestBytes = 200 * 1024;
+
   /// The order the firm's tables are journalled in: every parent before the
   /// children that reference it. The pull replays changes in this order and
   /// skips a child whose parent has not applied yet — permanently, because
@@ -181,6 +195,8 @@ class SyncEngine {
   /// Returns how many outbox rows were newly enqueued.
   Future<int> rejournalEverything({required String firmId}) async {
     var enqueued = 0;
+    // Rows that were quarantined and have now been put back in the drain.
+    var revived = 0;
     // The outbox id IS the server's `firm_changes.change_id` primary key,
     // which is inserted `ON CONFLICT DO NOTHING`. So an id that repeats
     // across runs is dropped by the server as a duplicate — the client marks
@@ -252,7 +268,21 @@ class SyncEngine {
               ..where((t) =>
                   t.entity.equals(entity) & t.entityId.equals(entityId)))
             .getSingleOrNull();
-        if (already != null) continue;
+        if (already != null) {
+          // A row parked by [_quarantineUnsendable] is unsent but out of the
+          // drain, so re-queuing it as a *new* row would do nothing (the
+          // entity+entityId check above skips it) and the repair would report
+          // success while the row stayed unsent. Clearing `attempts` puts it
+          // back in the drain, which is the entire point of asking for a
+          // re-send by hand.
+          if (already.syncedAt == null && already.attempts >= maxAttempts) {
+            await (_db.update(_db.syncQueue)
+                  ..where((t) => t.id.equals(already.id)))
+                .write(const SyncQueueCompanion(attempts: Value(0), error: Value(null)));
+            revived++;
+          }
+          continue;
+        }
         await _db.into(_db.syncQueue).insert(
               SyncQueueCompanion.insert(
                 // The run id is what makes this a *new* journal entry server
@@ -269,10 +299,15 @@ class SyncEngine {
         enqueued++;
       }
     }
-    return enqueued;
+    if (revived > 0) {
+      debugPrint(
+        'atria sync: re-send revived $revived quarantined change(s)',
+      );
+    }
+    return enqueued + revived;
   }
 
-  /// How many times a row may fail to push before it is retired.
+  /// How many times a row may fail to push before it is quarantined.
   ///
   /// High enough that a transient outage (offline, 5xx, a dropped connection)
   /// retries many times, low enough that a permanently-rejected row stops
@@ -325,10 +360,11 @@ class SyncEngine {
         // per firm so each push carries the right id.
         final firmId = batch.first.firmId;
         if (firmId == null || firmId.isEmpty) {
-          // Nothing to attach it to. Retiring these is the honest move: they
-          // can never succeed, and leaving them means every future run reads
-          // them again.
-          await _retireUnsendable(
+          // Nothing to attach it to, so no push can ever succeed for these.
+          // Quarantined like any other unsendable row — still unsent, so the
+          // change is not erased by claiming it was delivered — and skipped by
+          // the drain from here on.
+          await _quarantineUnsendable(
             batch.where((r) => r.firmId == null || r.firmId!.isEmpty).toList(),
             'No business is attached to this change.',
           );
@@ -337,14 +373,32 @@ class SyncEngine {
 
         final sameFirm =
             batch.where((r) => r.firmId == firmId).toList(growable: false);
-        final ids = sameFirm.map((r) => r.id).toList(growable: false);
 
         await _ensureFirmRegistered(firmId, accessToken);
 
+        // Encode as many rows as the server's body cap allows, not as many as
+        // [batchSize] counts.
+        //
+        // Counting rows is not enough: a batch is rejected wholesale when its
+        // encoded body is too large, and the drain orders rows so that every
+        // document *parent* is sent before any of its *lines*. A books-sized
+        // batch therefore splits into a small header batch that fits and one or
+        // more oversized line batches that do not — so the headers reach the
+        // server and the lines never do, and every other device pulls saved
+        // bills and estimates with their totals and no items. Splitting on the
+        // encoded size is what keeps a document from being delivered piecemeal.
         final changes = <Map<String, Object?>>[];
+        var used = 0;
         for (final row in sameFirm) {
-          changes.add(await _encode(row));
+          final encoded = await _encode(row);
+          final size = _encodedSize(encoded);
+          // Always send at least one row: a single change the server will not
+          // take must fail loudly and stay queued, never be skipped silently.
+          if (changes.isNotEmpty && used + size > maxRequestBytes) break;
+          changes.add(encoded);
+          used += size;
         }
+        final ids = changes.map((c) => c['id'] as String).toList(growable: false);
 
         try {
           await _client.pushChanges(
@@ -362,22 +416,27 @@ class SyncEngine {
           // one invoice with a long notes blob fails forever. Because the
           // drain is head-of-queue, that single row blocked every payment,
           // expense and later invoice behind it — silently, since nothing
-          // read `attempts` to notice. Retire it instead, so the rest of the
+          // read `attempts` to notice. Park it instead, so the rest of the
           // book can leave the device.
+          //
+          // Parked, not retired: it stays unsent and in `pending`, because
+          // "the server will never take this row" is not "the server has
+          // this row". See [_quarantineUnsendable].
           final stuck = await _stuckIn(firmId, ids);
           if (stuck.isNotEmpty) {
-            await _retireUnsendable(
+            await _quarantineUnsendable(
               stuck,
-              'Gave up after $maxAttempts attempts — this change was rejected '
-              'every time and has been skipped so it cannot block the rest of '
-              'the books. Last error: ${stuck.first.error ?? 'unknown'}. '
-              'Re-send all books, or shorten the note/terms on this document.',
+              'Could not be sent in $maxAttempts attempts — kept unsent so it '
+              'is not lost, and held back so it cannot block the rest of the '
+              'books. Last error: ${stuck.first.error ?? 'unknown'}. '
+              'Use "Re-send all books" to try again, or shorten the '
+              'note/terms on this document.',
             );
           }
           rethrow;
         }
         await _markSent(ids);
-        pushed += sameFirm.length;
+        pushed += changes.length;
       }
     } on ServerRequestException catch (failure) {
       error = failure.signedOut
@@ -692,15 +751,33 @@ class SyncEngine {
     return deleted;
   }
 
-  /// Records the reason on rows that can never be sent, and retires them.
+  /// Parks rows that can never be sent, so they stop blocking the queue without
+  /// being lost.
   ///
-  /// Retired rather than deleted: the row is the only evidence of what was lost,
-  /// and silently deleting a change is how a books app loses an invoice without
-  /// anybody noticing.
-  Future<void> _retireUnsendable(List<SyncQueueEntity> rows, String reason) async {
+  /// "Parked" means: still unsent (`synced_at` untouched), the reason recorded,
+  /// and `attempts` left at [maxAttempts] so [_nextBatch] steps over them. The
+  /// row stays in the outbox and in `pending`, so the books are never reported
+  /// as safe when a change has not left the device.
+  ///
+  /// It used to mark them `synced_at` instead, on the reasoning that a row the
+  /// server will never take is as good as sent. That is the worst possible
+  /// assumption in a ledger app: `pruneSent` then deletes the row with the rest
+  /// of the sent queue, and the invoice exists on no device and on no server,
+  /// while the UI says the sync succeeded. A shop that imports its books,
+  /// syncs once against a server that refuses the size, and comes back to an
+  /// Android phone to find bills with totals and no items — which is exactly
+  /// what a quarantined line row looks like from the other end.
+  ///
+  /// [rejournalEverything] revives them: the repair resets `attempts` for rows
+  /// it finds stuck, so "Re-send all books" is a real recovery and not a no-op
+  /// on a device that has already hit this.
+  Future<void> _quarantineUnsendable(
+    List<SyncQueueEntity> rows,
+    String reason,
+  ) async {
     if (rows.isEmpty) return;
     final ids = rows.map((r) => r.id).toList(growable: false);
-    await _bumpAttempts(ids, reason, sent: true);
+    await _bumpAttempts(ids, reason, sent: false);
   }
 
   /// The next batch, oldest first — with one firm's rows first, so a device with
@@ -716,12 +793,24 @@ class SyncEngine {
       for (var i = 0; i < journalOrder.length; i++)
         "WHEN '${journalOrder[i]}' THEN $i",
     ].join(' ');
+    // A row that has exhausted its attempts is quarantined: still unsent, still
+    // in the outbox, still counted in `pending` — but out of the drain, so one
+    // impossible row cannot wedge every change behind it. `rejournalEverything`
+    // is what brings it back.
+    //
+    // This clause is the whole reason a quarantine is safe. The previous
+    // behaviour marked such rows `synced_at`, which is a claim that the server
+    // holds the change — and it does not. The row was then pruned with the rest
+    // of the sent queue and the invoice existed on no device at all, while the
+    // UI reported a clean sync.
+    //
     // The entity names interpolated here are this class's own compile-time
     // constants, never user input — the same trust PullApplier places in its
     // table allowlist.
     final idRows = await _db
         .customSelect(
           'SELECT id FROM sync_queue WHERE synced_at IS NULL '
+          'AND attempts < $maxAttempts '
           'ORDER BY CASE entity $caseWhen '
           'ELSE ${journalOrder.length} END ASC, created_at ASC, id ASC '
           'LIMIT $batchSize',
@@ -784,6 +873,14 @@ class SyncEngine {
         .where((id) => id.isNotEmpty)
         .toSet();
   }
+
+  /// The wire size of one encoded change, in bytes.
+  ///
+  /// Measured on the encoded form rather than estimated from column types: the
+  /// whole problem is that `notes`, `terms` and item names are unbounded TEXT,
+  /// so a per-column guess is exactly the assumption that fails.
+  int _encodedSize(Map<String, Object?> encoded) =>
+      jsonEncode(encoded).length;
 
   /// One outbox row as the wire format.
   ///

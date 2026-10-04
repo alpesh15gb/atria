@@ -640,6 +640,7 @@ ItemEntity _item({
       sku: sku,
       hsn: hsn,
       unit: unit,
+      costingMethod: 'moving_average',
       salePrice: salePrice,
       purchasePrice: 900,
       mrp: mrp,

@@ -440,6 +440,13 @@ Future<void> eraseFirmRows(AppDatabase db, String firmId) async {
     await (db.delete(db.accounts)..where((t) => t.firmId.equals(firmId))).go();
     await (db.delete(db.syncQueue)..where((t) => t.firmId.equals(firmId))).go();
     await (db.delete(db.auditLogs)..where((t) => t.firmId.equals(firmId))).go();
+    // Godowns last of the firm-scoped masters: `stock_movements.godownId` and
+    // `items.defaultGodownId` name one. SQLite is not enforcing that FK (the
+    // column has no REFERENCES clause), so forgetting this line would leave a
+    // purged business's godowns behind as rows nothing can reach —
+    // `firm_purge_test.dart` asserts on every firm-scoped table for exactly
+    // this reason.
+    await (db.delete(db.godowns)..where((t) => t.firmId.equals(firmId))).go();
     await (db.delete(db.firms)..where((t) => t.id.equals(firmId))).go();
   });
 }

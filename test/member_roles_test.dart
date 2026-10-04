@@ -16,6 +16,8 @@ import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'helpers/schema_rollback.dart';
+
 /// Local users and roles: the permission table, the PIN hash, and the guards.
 ///
 /// Three properties are load-bearing and each has its own group below.
@@ -61,7 +63,7 @@ void main() {
   Map<String, dynamic> backupEnvelope() => {
     'app': 'Apex Books',
     'version': 3,
-    'schemaVersion': 10,
+    'schemaVersion': 11,
     'firms': [
       {'id': firmId, 'name': 'Apex Integrations'},
     ],
@@ -663,13 +665,17 @@ void main() {
         await rolled.customStatement(
           'ALTER TABLE firm_members DROP COLUMN is_active',
         );
-        await rolled.customStatement('PRAGMA user_version = 9');
+        // v11's columns too — the chain runs v9 → v10 → v11, and leaving them
+        // in place makes the v11 step fail on a duplicate column, which reads
+        // as a broken migration rather than a stale rollback list.
+        await SchemaRollback.costingV11(rolled);
+        await SchemaRollback.setVersion(rolled, 9);
         await rolled.close();
 
-        // 3. Reopen: the v9 -> v10 upgrade runs for real.
+        // 3. Reopen: the v9 -> v10 and v10 -> v11 upgrades run for real.
         final upgraded = AppDatabase.test(NativeDatabase(file));
         addTearDown(upgraded.close);
-        expect(upgraded.schemaVersion, 10);
+        expect(upgraded.schemaVersion, 11);
 
         final member = await upgraded
             .membersRepositoryFor(firm.id)

@@ -36,15 +36,16 @@ void main() {
   /// the moment somebody adds a table that belongs to a firm and does not teach
   /// [eraseFirmRows] about it — which is the only way that bug ever appears.
   Future<List<String>> tablesWithFirmId() async {
-    final tables = await db.customSelect(
-      "SELECT name FROM sqlite_master WHERE type = 'table' "
-      "AND name NOT LIKE 'sqlite_%'",
-    ).get();
+    final tables = await db
+        .customSelect(
+          "SELECT name FROM sqlite_master WHERE type = 'table' "
+          "AND name NOT LIKE 'sqlite_%'",
+        )
+        .get();
     final found = <String>[];
     for (final table in tables) {
       final name = table.read<String>('name');
-      final columns =
-          await db.customSelect('PRAGMA table_info($name)').get();
+      final columns = await db.customSelect('PRAGMA table_info($name)').get();
       if (columns.any((column) => column.read<String>('name') == 'firm_id')) {
         found.add(name);
       }
@@ -54,103 +55,206 @@ void main() {
 
   Future<void> seed(String firmId, String suffix) async {
     final now = DateTime(2026, 4, 1);
-    await db.into(db.firms).insert(
-        FirmsCompanion.insert(id: firmId, name: 'Business $suffix'));
-    await db.into(db.firmMembers).insert(FirmMembersCompanion.insert(
-        id: 'member-$suffix', firmId: firmId, name: 'Owner $suffix'));
-    await db.into(db.parties).insert(PartiesCompanion.insert(
-        id: 'party-$suffix', firmId: firmId, name: 'Customer $suffix', type: 'customer'));
-    await db.into(db.categories).insert(CategoriesCompanion.insert(
-        id: 'category-$suffix', firmId: firmId, name: 'Category $suffix'));
-    await db.into(db.units).insert(UnitsCompanion.insert(
-        id: 'unit-$suffix', firmId: firmId, name: 'Box $suffix', symbol: 'box'));
-    await db.into(db.items).insert(ItemsCompanion.insert(
-        id: 'item-$suffix', firmId: firmId, name: 'Widget $suffix'));
-    await db.into(db.stockMovements).insert(StockMovementsCompanion.insert(
-          id: 'movement-$suffix',
-          firmId: firmId,
-          itemId: 'item-$suffix',
-          kind: 'opening',
-          quantity: 10,
-          source: 'opening_balance',
-          date: now,
-        ));
-    await db.into(db.salesInvoices).insert(SalesInvoicesCompanion.insert(
-          id: 'invoice-$suffix',
-          firmId: firmId,
-          number: 'INV-001',
-          invoiceDate: now,
-        ));
-    await db.into(db.salesInvoiceItems).insert(
-        SalesInvoiceItemsCompanion.insert(
+    await db
+        .into(db.firms)
+        .insert(FirmsCompanion.insert(id: firmId, name: 'Business $suffix'));
+    await db
+        .into(db.firmMembers)
+        .insert(
+          FirmMembersCompanion.insert(
+            id: 'member-$suffix',
+            firmId: firmId,
+            name: 'Owner $suffix',
+          ),
+        );
+    await db
+        .into(db.parties)
+        .insert(
+          PartiesCompanion.insert(
+            id: 'party-$suffix',
+            firmId: firmId,
+            name: 'Customer $suffix',
+            type: 'customer',
+          ),
+        );
+    await db
+        .into(db.categories)
+        .insert(
+          CategoriesCompanion.insert(
+            id: 'category-$suffix',
+            firmId: firmId,
+            name: 'Category $suffix',
+          ),
+        );
+    await db
+        .into(db.units)
+        .insert(
+          UnitsCompanion.insert(
+            id: 'unit-$suffix',
+            firmId: firmId,
+            name: 'Box $suffix',
+            symbol: 'box',
+          ),
+        );
+    await db
+        .into(db.items)
+        .insert(
+          ItemsCompanion.insert(
+            id: 'item-$suffix',
+            firmId: firmId,
+            name: 'Widget $suffix',
+          ),
+        );
+    await db
+        .into(db.stockMovements)
+        .insert(
+          StockMovementsCompanion.insert(
+            id: 'movement-$suffix',
+            firmId: firmId,
+            itemId: 'item-$suffix',
+            kind: 'opening',
+            quantity: 10,
+            source: 'opening_balance',
+            date: now,
+          ),
+        );
+    await db
+        .into(db.salesInvoices)
+        .insert(
+          SalesInvoicesCompanion.insert(
+            id: 'invoice-$suffix',
+            firmId: firmId,
+            number: 'INV-001',
+            invoiceDate: now,
+          ),
+        );
+    await db
+        .into(db.salesInvoiceItems)
+        .insert(
+          SalesInvoiceItemsCompanion.insert(
             id: 'invoice-line-$suffix',
             invoiceId: 'invoice-$suffix',
             name: 'Widget',
             quantity: 1,
-            rate: 100));
-    await db.into(db.purchaseBills).insert(PurchaseBillsCompanion.insert(
-          id: 'bill-$suffix',
-          firmId: firmId,
-          number: 'PUR-001',
-          billDate: now,
-        ));
-    await db.into(db.purchaseBillItems).insert(
-        PurchaseBillItemsCompanion.insert(
+            rate: 100,
+          ),
+        );
+    await db
+        .into(db.purchaseBills)
+        .insert(
+          PurchaseBillsCompanion.insert(
+            id: 'bill-$suffix',
+            firmId: firmId,
+            number: 'PUR-001',
+            billDate: now,
+          ),
+        );
+    await db
+        .into(db.purchaseBillItems)
+        .insert(
+          PurchaseBillItemsCompanion.insert(
             id: 'bill-line-$suffix',
             billId: 'bill-$suffix',
             name: 'Widget',
             quantity: 1,
-            rate: 100));
-    await db.into(db.payments).insert(PaymentsCompanion.insert(
-          id: 'payment-$suffix',
-          firmId: firmId,
-          type: 'payment_in',
-          number: 'RCPT-001',
-          amount: 100,
-          date: now,
-        ));
-    await db.into(db.expenses).insert(ExpensesCompanion.insert(
-          id: 'expense-$suffix',
-          firmId: firmId,
-          number: 'EXP-001',
-          category: 'Rent',
-          amount: 500,
-          date: now,
-        ));
-    await db.into(db.accounts).insert(AccountsCompanion.insert(
-          id: 'account-$suffix',
-          firmId: firmId,
-          code: '6001',
-          name: 'Rent $suffix',
-          type: 'expense',
-        ));
-    await db.into(db.journalEntries).insert(JournalEntriesCompanion.insert(
-          id: 'journal-$suffix',
-          firmId: firmId,
-          number: 'JV/0001',
-          date: now,
-          narration: 'Opening balance $suffix',
-        ));
-    await db.into(db.journalLines).insert(JournalLinesCompanion.insert(
-          id: 'journal-line-$suffix',
-          entryId: 'journal-$suffix',
-          accountId: 'account-$suffix',
-          debit: const Value(500),
-        ));
-    await db.into(db.appSettings).insert(AppSettingsCompanion.insert(
-        key: 'books_locked_upto', firmId: Value(firmId), value: '2026-03-31'));
-    await db.into(db.syncQueue).insert(SyncQueueCompanion.insert(
-          id: 'queue-$suffix',
-          firmId: Value(firmId),
-          entity: 'parties',
-          entityId: 'party-$suffix',
-          operation: 'insert',
-        ));
-    await db.into(db.auditLogs).insert(AuditLogsCompanion.insert(
-        id: 'audit-$suffix',
-        firmId: Value(firmId),
-        action: 'create',
-        entity: 'parties'));
+            rate: 100,
+          ),
+        );
+    await db
+        .into(db.payments)
+        .insert(
+          PaymentsCompanion.insert(
+            id: 'payment-$suffix',
+            firmId: firmId,
+            type: 'payment_in',
+            number: 'RCPT-001',
+            amount: 100,
+            date: now,
+          ),
+        );
+    await db
+        .into(db.expenses)
+        .insert(
+          ExpensesCompanion.insert(
+            id: 'expense-$suffix',
+            firmId: firmId,
+            number: 'EXP-001',
+            category: 'Rent',
+            amount: 500,
+            date: now,
+          ),
+        );
+    await db
+        .into(db.accounts)
+        .insert(
+          AccountsCompanion.insert(
+            id: 'account-$suffix',
+            firmId: firmId,
+            code: '6001',
+            name: 'Rent $suffix',
+            type: 'expense',
+          ),
+        );
+    await db
+        .into(db.journalEntries)
+        .insert(
+          JournalEntriesCompanion.insert(
+            id: 'journal-$suffix',
+            firmId: firmId,
+            number: 'JV/0001',
+            date: now,
+            narration: 'Opening balance $suffix',
+          ),
+        );
+    await db
+        .into(db.journalLines)
+        .insert(
+          JournalLinesCompanion.insert(
+            id: 'journal-line-$suffix',
+            entryId: 'journal-$suffix',
+            accountId: 'account-$suffix',
+            debit: const Value(500),
+          ),
+        );
+    await db
+        .into(db.appSettings)
+        .insert(
+          AppSettingsCompanion.insert(
+            key: 'books_locked_upto',
+            firmId: Value(firmId),
+            value: '2026-03-31',
+          ),
+        );
+    await db
+        .into(db.syncQueue)
+        .insert(
+          SyncQueueCompanion.insert(
+            id: 'queue-$suffix',
+            firmId: Value(firmId),
+            entity: 'parties',
+            entityId: 'party-$suffix',
+            operation: 'insert',
+          ),
+        );
+    await db
+        .into(db.auditLogs)
+        .insert(
+          AuditLogsCompanion.insert(
+            id: 'audit-$suffix',
+            firmId: Value(firmId),
+            action: 'create',
+            entity: 'parties',
+          ),
+        );
+    await db
+        .into(db.godowns)
+        .insert(
+          GodownsCompanion.insert(
+            id: 'godown-$suffix',
+            firmId: firmId,
+            name: 'Store $suffix',
+          ),
+        );
   }
 
   setUp(() async {
@@ -158,8 +262,11 @@ void main() {
     await seed(doomed, 'doomed');
     await seed(survivor, 'survivor');
     // A global setting, which belongs to no firm and must survive.
-    await db.into(db.appSettings).insert(
-        AppSettingsCompanion.insert(key: 'onboarding_done', value: 'true'));
+    await db
+        .into(db.appSettings)
+        .insert(
+          AppSettingsCompanion.insert(key: 'onboarding_done', value: 'true'),
+        );
   });
 
   tearDown(() => db.close());
@@ -197,10 +304,7 @@ void main() {
       await countWhere('purchase_bill_items', "bill_id = '$doomedBill'"),
       0,
     );
-    expect(
-      await countWhere('journal_lines', "entry_id = 'journal-doomed'"),
-      0,
-    );
+    expect(await countWhere('journal_lines', "entry_id = 'journal-doomed'"), 0);
   });
 
   test('the other business is untouched', () async {
@@ -222,15 +326,14 @@ void main() {
     expect(await countWhere('app_settings', "key = 'onboarding_done'"), 1);
   });
 
-  test('the deletion is recorded, and the record outlives the business',
-      () async {
+  test('the deletion is recorded, and the record outlives the business', () async {
     await db.firmRepository.purge(doomed);
 
     // Nothing firm-scoped may remain — that includes the deleted business's own
     // audit trail — but the *fact* of the deletion has to be visible somewhere.
-    final logs = await (db.select(db.auditLogs)
-          ..where((t) => t.action.equals('purge')))
-        .get();
+    final logs = await (db.select(
+      db.auditLogs,
+    )..where((t) => t.action.equals('purge'))).get();
     expect(logs, hasLength(1));
     expect(logs.single.firmId, isNull);
     expect(logs.single.summary, contains('Business doomed'));

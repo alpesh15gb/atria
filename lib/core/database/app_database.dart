@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../domain/member_role.dart';
 import 'tables/firms.dart';
+import 'tables/godowns.dart';
 import 'tables/items.dart';
 import 'tables/ledger.dart';
 import 'tables/parties.dart';
@@ -43,6 +44,7 @@ part 'app_database.g.dart';
     Accounts,
     JournalEntries,
     JournalLines,
+    Godowns,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -50,7 +52,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.test(super.e);
 
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 11;
 
   /// Who is operating, for local-user permissions.
   ///
@@ -206,6 +208,27 @@ class AppDatabase extends _$AppDatabase {
         await m.addColumn(firmMembers, firmMembers.pinHash);
         await m.addColumn(firmMembers, firmMembers.pinSalt);
         await m.addColumn(firmMembers, firmMembers.isActive);
+      }
+      // v11: costing. `unitCost` on every movement is what makes an item's
+      // profit report possible at all — until now, stock was valued at the
+      // item's *current* purchase price, so a historical P&L moved whenever
+      // somebody bought the item. Additive with defaults: existing movements
+      // come back with `unitCost = 0`, which is NOT "free" — it is "unknown
+      // until replayed", and [CostingBackfill] walks the log to fill it in.
+      // The backfill is one-shot and idempotent: it skips any movement that
+      // already has a non-zero cost, so running it twice cannot double-count.
+      if (from < 11) {
+        await m.addColumn(stockMovements, stockMovements.unitCost);
+        await m.addColumn(stockMovements, stockMovements.sourceLineId);
+        await m.addColumn(stockMovements, stockMovements.godownId);
+        await m.addColumn(items, items.costingMethod);
+        await m.addColumn(items, items.defaultGodownId);
+        await m.addColumn(parties, parties.categoryId);
+        await m.createTable(godowns);
+        // Explicit, because `createAll` skips a table that already exists and
+        // therefore never applies this table's `@TableIndex` to an upgraded
+        // database. Same reason as the v4 block above.
+        await m.createIndex(idxGodownsFirm);
       }
     },
   );

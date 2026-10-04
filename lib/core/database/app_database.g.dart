@@ -3725,6 +3725,17 @@ class $PartiesTable extends Parties with TableInfo<$PartiesTable, PartyEntity> {
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _categoryIdMeta = const VerificationMeta(
+    'categoryId',
+  );
+  @override
+  late final GeneratedColumn<String> categoryId = GeneratedColumn<String>(
+    'category_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _panMeta = const VerificationMeta('pan');
   @override
   late final GeneratedColumn<String> pan = GeneratedColumn<String>(
@@ -3940,6 +3951,7 @@ class $PartiesTable extends Parties with TableInfo<$PartiesTable, PartyEntity> {
     name,
     type,
     gstin,
+    categoryId,
     pan,
     gstType,
     contactPerson,
@@ -4005,6 +4017,12 @@ class $PartiesTable extends Parties with TableInfo<$PartiesTable, PartyEntity> {
       context.handle(
         _gstinMeta,
         gstin.isAcceptableOrUnknown(data['gstin']!, _gstinMeta),
+      );
+    }
+    if (data.containsKey('category_id')) {
+      context.handle(
+        _categoryIdMeta,
+        categoryId.isAcceptableOrUnknown(data['category_id']!, _categoryIdMeta),
       );
     }
     if (data.containsKey('pan')) {
@@ -4168,6 +4186,10 @@ class $PartiesTable extends Parties with TableInfo<$PartiesTable, PartyEntity> {
         DriftSqlType.string,
         data['${effectivePrefix}gstin'],
       ),
+      categoryId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}category_id'],
+      ),
       pan: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}pan'],
@@ -4259,6 +4281,19 @@ class PartyEntity extends DataClass implements Insertable<PartyEntity> {
   final String name;
   final String type;
   final String? gstin;
+
+  /// The party group this party belongs to, for "Sale/Purchase By Party Group".
+  ///
+  /// A group is a `Categories` row with `kind == 'party'` — an application
+  /// convention, not a schema one, because `Categories.kind` is free text.
+  /// That is deliberate: a firm grouping its customers by city, by segment or
+  /// by nothing in particular should not need a table per grouping scheme, and
+  /// adding one later costs a column while adding a table costs a migration.
+  ///
+  /// Nullable, and null means ungrouped — which is what every existing party
+  /// is, and must keep being until somebody groups it. Reports have to print
+  /// an "Ungrouped" row for them rather than dropping them.
+  final String? categoryId;
   final String? pan;
 
   /// registered | unregistered | consumer | composition | overseas | sez | special
@@ -4288,6 +4323,7 @@ class PartyEntity extends DataClass implements Insertable<PartyEntity> {
     required this.name,
     required this.type,
     this.gstin,
+    this.categoryId,
     this.pan,
     required this.gstType,
     this.contactPerson,
@@ -4317,6 +4353,9 @@ class PartyEntity extends DataClass implements Insertable<PartyEntity> {
     map['type'] = Variable<String>(type);
     if (!nullToAbsent || gstin != null) {
       map['gstin'] = Variable<String>(gstin);
+    }
+    if (!nullToAbsent || categoryId != null) {
+      map['category_id'] = Variable<String>(categoryId);
     }
     if (!nullToAbsent || pan != null) {
       map['pan'] = Variable<String>(pan);
@@ -4375,6 +4414,9 @@ class PartyEntity extends DataClass implements Insertable<PartyEntity> {
       gstin: gstin == null && nullToAbsent
           ? const Value.absent()
           : Value(gstin),
+      categoryId: categoryId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(categoryId),
       pan: pan == null && nullToAbsent ? const Value.absent() : Value(pan),
       gstType: Value(gstType),
       contactPerson: contactPerson == null && nullToAbsent
@@ -4430,6 +4472,7 @@ class PartyEntity extends DataClass implements Insertable<PartyEntity> {
       name: serializer.fromJson<String>(json['name']),
       type: serializer.fromJson<String>(json['type']),
       gstin: serializer.fromJson<String?>(json['gstin']),
+      categoryId: serializer.fromJson<String?>(json['categoryId']),
       pan: serializer.fromJson<String?>(json['pan']),
       gstType: serializer.fromJson<String>(json['gstType']),
       contactPerson: serializer.fromJson<String?>(json['contactPerson']),
@@ -4462,6 +4505,7 @@ class PartyEntity extends DataClass implements Insertable<PartyEntity> {
       'name': serializer.toJson<String>(name),
       'type': serializer.toJson<String>(type),
       'gstin': serializer.toJson<String?>(gstin),
+      'categoryId': serializer.toJson<String?>(categoryId),
       'pan': serializer.toJson<String?>(pan),
       'gstType': serializer.toJson<String>(gstType),
       'contactPerson': serializer.toJson<String?>(contactPerson),
@@ -4490,6 +4534,7 @@ class PartyEntity extends DataClass implements Insertable<PartyEntity> {
     String? name,
     String? type,
     Value<String?> gstin = const Value.absent(),
+    Value<String?> categoryId = const Value.absent(),
     Value<String?> pan = const Value.absent(),
     String? gstType,
     Value<String?> contactPerson = const Value.absent(),
@@ -4515,6 +4560,7 @@ class PartyEntity extends DataClass implements Insertable<PartyEntity> {
     name: name ?? this.name,
     type: type ?? this.type,
     gstin: gstin.present ? gstin.value : this.gstin,
+    categoryId: categoryId.present ? categoryId.value : this.categoryId,
     pan: pan.present ? pan.value : this.pan,
     gstType: gstType ?? this.gstType,
     contactPerson: contactPerson.present
@@ -4544,6 +4590,9 @@ class PartyEntity extends DataClass implements Insertable<PartyEntity> {
       name: data.name.present ? data.name.value : this.name,
       type: data.type.present ? data.type.value : this.type,
       gstin: data.gstin.present ? data.gstin.value : this.gstin,
+      categoryId: data.categoryId.present
+          ? data.categoryId.value
+          : this.categoryId,
       pan: data.pan.present ? data.pan.value : this.pan,
       gstType: data.gstType.present ? data.gstType.value : this.gstType,
       contactPerson: data.contactPerson.present
@@ -4588,6 +4637,7 @@ class PartyEntity extends DataClass implements Insertable<PartyEntity> {
           ..write('name: $name, ')
           ..write('type: $type, ')
           ..write('gstin: $gstin, ')
+          ..write('categoryId: $categoryId, ')
           ..write('pan: $pan, ')
           ..write('gstType: $gstType, ')
           ..write('contactPerson: $contactPerson, ')
@@ -4618,6 +4668,7 @@ class PartyEntity extends DataClass implements Insertable<PartyEntity> {
     name,
     type,
     gstin,
+    categoryId,
     pan,
     gstType,
     contactPerson,
@@ -4647,6 +4698,7 @@ class PartyEntity extends DataClass implements Insertable<PartyEntity> {
           other.name == this.name &&
           other.type == this.type &&
           other.gstin == this.gstin &&
+          other.categoryId == this.categoryId &&
           other.pan == this.pan &&
           other.gstType == this.gstType &&
           other.contactPerson == this.contactPerson &&
@@ -4674,6 +4726,7 @@ class PartiesCompanion extends UpdateCompanion<PartyEntity> {
   final Value<String> name;
   final Value<String> type;
   final Value<String?> gstin;
+  final Value<String?> categoryId;
   final Value<String?> pan;
   final Value<String> gstType;
   final Value<String?> contactPerson;
@@ -4700,6 +4753,7 @@ class PartiesCompanion extends UpdateCompanion<PartyEntity> {
     this.name = const Value.absent(),
     this.type = const Value.absent(),
     this.gstin = const Value.absent(),
+    this.categoryId = const Value.absent(),
     this.pan = const Value.absent(),
     this.gstType = const Value.absent(),
     this.contactPerson = const Value.absent(),
@@ -4727,6 +4781,7 @@ class PartiesCompanion extends UpdateCompanion<PartyEntity> {
     required String name,
     required String type,
     this.gstin = const Value.absent(),
+    this.categoryId = const Value.absent(),
     this.pan = const Value.absent(),
     this.gstType = const Value.absent(),
     this.contactPerson = const Value.absent(),
@@ -4757,6 +4812,7 @@ class PartiesCompanion extends UpdateCompanion<PartyEntity> {
     Expression<String>? name,
     Expression<String>? type,
     Expression<String>? gstin,
+    Expression<String>? categoryId,
     Expression<String>? pan,
     Expression<String>? gstType,
     Expression<String>? contactPerson,
@@ -4784,6 +4840,7 @@ class PartiesCompanion extends UpdateCompanion<PartyEntity> {
       if (name != null) 'name': name,
       if (type != null) 'type': type,
       if (gstin != null) 'gstin': gstin,
+      if (categoryId != null) 'category_id': categoryId,
       if (pan != null) 'pan': pan,
       if (gstType != null) 'gst_type': gstType,
       if (contactPerson != null) 'contact_person': contactPerson,
@@ -4814,6 +4871,7 @@ class PartiesCompanion extends UpdateCompanion<PartyEntity> {
     Value<String>? name,
     Value<String>? type,
     Value<String?>? gstin,
+    Value<String?>? categoryId,
     Value<String?>? pan,
     Value<String>? gstType,
     Value<String?>? contactPerson,
@@ -4841,6 +4899,7 @@ class PartiesCompanion extends UpdateCompanion<PartyEntity> {
       name: name ?? this.name,
       type: type ?? this.type,
       gstin: gstin ?? this.gstin,
+      categoryId: categoryId ?? this.categoryId,
       pan: pan ?? this.pan,
       gstType: gstType ?? this.gstType,
       contactPerson: contactPerson ?? this.contactPerson,
@@ -4881,6 +4940,9 @@ class PartiesCompanion extends UpdateCompanion<PartyEntity> {
     }
     if (gstin.present) {
       map['gstin'] = Variable<String>(gstin.value);
+    }
+    if (categoryId.present) {
+      map['category_id'] = Variable<String>(categoryId.value);
     }
     if (pan.present) {
       map['pan'] = Variable<String>(pan.value);
@@ -4953,6 +5015,7 @@ class PartiesCompanion extends UpdateCompanion<PartyEntity> {
           ..write('name: $name, ')
           ..write('type: $type, ')
           ..write('gstin: $gstin, ')
+          ..write('categoryId: $categoryId, ')
           ..write('pan: $pan, ')
           ..write('gstType: $gstType, ')
           ..write('contactPerson: $contactPerson, ')
@@ -5128,7 +5191,10 @@ class CategoryEntity extends DataClass implements Insertable<CategoryEntity> {
   final String firmId;
   final String name;
 
-  /// item | expense
+  /// item | expense | party
+  ///
+  /// Free text by design — a firm grouping customers by city and one grouping
+  /// by segment are the same operation on the same row.
   final String kind;
   final DateTime createdAt;
   const CategoryEntity({
@@ -5844,6 +5910,29 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, ItemEntity> {
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _costingMethodMeta = const VerificationMeta(
+    'costingMethod',
+  );
+  @override
+  late final GeneratedColumn<String> costingMethod = GeneratedColumn<String>(
+    'costing_method',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('moving_average'),
+  );
+  static const VerificationMeta _defaultGodownIdMeta = const VerificationMeta(
+    'defaultGodownId',
+  );
+  @override
+  late final GeneratedColumn<String> defaultGodownId = GeneratedColumn<String>(
+    'default_godown_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _wholesalePriceMeta = const VerificationMeta(
     'wholesalePrice',
   );
@@ -6057,6 +6146,8 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, ItemEntity> {
     unit,
     salePrice,
     purchasePrice,
+    costingMethod,
+    defaultGodownId,
     wholesalePrice,
     mrp,
     gstRate,
@@ -6144,6 +6235,24 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, ItemEntity> {
         purchasePrice.isAcceptableOrUnknown(
           data['purchase_price']!,
           _purchasePriceMeta,
+        ),
+      );
+    }
+    if (data.containsKey('costing_method')) {
+      context.handle(
+        _costingMethodMeta,
+        costingMethod.isAcceptableOrUnknown(
+          data['costing_method']!,
+          _costingMethodMeta,
+        ),
+      );
+    }
+    if (data.containsKey('default_godown_id')) {
+      context.handle(
+        _defaultGodownIdMeta,
+        defaultGodownId.isAcceptableOrUnknown(
+          data['default_godown_id']!,
+          _defaultGodownIdMeta,
         ),
       );
     }
@@ -6312,6 +6421,14 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, ItemEntity> {
         DriftSqlType.double,
         data['${effectivePrefix}purchase_price'],
       )!,
+      costingMethod: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}costing_method'],
+      )!,
+      defaultGodownId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}default_godown_id'],
+      ),
       wholesalePrice: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}wholesale_price'],
@@ -6399,6 +6516,20 @@ class ItemEntity extends DataClass implements Insertable<ItemEntity> {
   final String unit;
   final double salePrice;
   final double purchasePrice;
+
+  /// How this item's stock value is costed. `moving_average` today.
+  ///
+  /// Per master data rather than per firm, because the choice belongs to the
+  /// goods: a trader reselling one item FIFO and another weighted-average has a
+  /// real reason, and a shop owner cannot be asked to make the same decision
+  /// for forty items. Only `moving_average` is implemented; the column exists
+  /// so that adding a method later is a value, not a migration.
+  final String costingMethod;
+
+  /// The godown this item's stock normally sits in. Null means "no preference",
+  /// which is the correct value for every item in a firm with one godown and
+  /// also for a firm that has not created any yet.
+  final String? defaultGodownId;
   final double? wholesalePrice;
   final double? mrp;
   final double gstRate;
@@ -6432,6 +6563,8 @@ class ItemEntity extends DataClass implements Insertable<ItemEntity> {
     required this.unit,
     required this.salePrice,
     required this.purchasePrice,
+    required this.costingMethod,
+    this.defaultGodownId,
     this.wholesalePrice,
     this.mrp,
     required this.gstRate,
@@ -6468,6 +6601,10 @@ class ItemEntity extends DataClass implements Insertable<ItemEntity> {
     map['unit'] = Variable<String>(unit);
     map['sale_price'] = Variable<double>(salePrice);
     map['purchase_price'] = Variable<double>(purchasePrice);
+    map['costing_method'] = Variable<String>(costingMethod);
+    if (!nullToAbsent || defaultGodownId != null) {
+      map['default_godown_id'] = Variable<String>(defaultGodownId);
+    }
     if (!nullToAbsent || wholesalePrice != null) {
       map['wholesale_price'] = Variable<double>(wholesalePrice);
     }
@@ -6513,6 +6650,10 @@ class ItemEntity extends DataClass implements Insertable<ItemEntity> {
       unit: Value(unit),
       salePrice: Value(salePrice),
       purchasePrice: Value(purchasePrice),
+      costingMethod: Value(costingMethod),
+      defaultGodownId: defaultGodownId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(defaultGodownId),
       wholesalePrice: wholesalePrice == null && nullToAbsent
           ? const Value.absent()
           : Value(wholesalePrice),
@@ -6558,6 +6699,8 @@ class ItemEntity extends DataClass implements Insertable<ItemEntity> {
       unit: serializer.fromJson<String>(json['unit']),
       salePrice: serializer.fromJson<double>(json['salePrice']),
       purchasePrice: serializer.fromJson<double>(json['purchasePrice']),
+      costingMethod: serializer.fromJson<String>(json['costingMethod']),
+      defaultGodownId: serializer.fromJson<String?>(json['defaultGodownId']),
       wholesalePrice: serializer.fromJson<double?>(json['wholesalePrice']),
       mrp: serializer.fromJson<double?>(json['mrp']),
       gstRate: serializer.fromJson<double>(json['gstRate']),
@@ -6590,6 +6733,8 @@ class ItemEntity extends DataClass implements Insertable<ItemEntity> {
       'unit': serializer.toJson<String>(unit),
       'salePrice': serializer.toJson<double>(salePrice),
       'purchasePrice': serializer.toJson<double>(purchasePrice),
+      'costingMethod': serializer.toJson<String>(costingMethod),
+      'defaultGodownId': serializer.toJson<String?>(defaultGodownId),
       'wholesalePrice': serializer.toJson<double?>(wholesalePrice),
       'mrp': serializer.toJson<double?>(mrp),
       'gstRate': serializer.toJson<double>(gstRate),
@@ -6620,6 +6765,8 @@ class ItemEntity extends DataClass implements Insertable<ItemEntity> {
     String? unit,
     double? salePrice,
     double? purchasePrice,
+    String? costingMethod,
+    Value<String?> defaultGodownId = const Value.absent(),
     Value<double?> wholesalePrice = const Value.absent(),
     Value<double?> mrp = const Value.absent(),
     double? gstRate,
@@ -6647,6 +6794,10 @@ class ItemEntity extends DataClass implements Insertable<ItemEntity> {
     unit: unit ?? this.unit,
     salePrice: salePrice ?? this.salePrice,
     purchasePrice: purchasePrice ?? this.purchasePrice,
+    costingMethod: costingMethod ?? this.costingMethod,
+    defaultGodownId: defaultGodownId.present
+        ? defaultGodownId.value
+        : this.defaultGodownId,
     wholesalePrice: wholesalePrice.present
         ? wholesalePrice.value
         : this.wholesalePrice,
@@ -6684,6 +6835,12 @@ class ItemEntity extends DataClass implements Insertable<ItemEntity> {
       purchasePrice: data.purchasePrice.present
           ? data.purchasePrice.value
           : this.purchasePrice,
+      costingMethod: data.costingMethod.present
+          ? data.costingMethod.value
+          : this.costingMethod,
+      defaultGodownId: data.defaultGodownId.present
+          ? data.defaultGodownId.value
+          : this.defaultGodownId,
       wholesalePrice: data.wholesalePrice.present
           ? data.wholesalePrice.value
           : this.wholesalePrice,
@@ -6728,6 +6885,8 @@ class ItemEntity extends DataClass implements Insertable<ItemEntity> {
           ..write('unit: $unit, ')
           ..write('salePrice: $salePrice, ')
           ..write('purchasePrice: $purchasePrice, ')
+          ..write('costingMethod: $costingMethod, ')
+          ..write('defaultGodownId: $defaultGodownId, ')
           ..write('wholesalePrice: $wholesalePrice, ')
           ..write('mrp: $mrp, ')
           ..write('gstRate: $gstRate, ')
@@ -6760,6 +6919,8 @@ class ItemEntity extends DataClass implements Insertable<ItemEntity> {
     unit,
     salePrice,
     purchasePrice,
+    costingMethod,
+    defaultGodownId,
     wholesalePrice,
     mrp,
     gstRate,
@@ -6791,6 +6952,8 @@ class ItemEntity extends DataClass implements Insertable<ItemEntity> {
           other.unit == this.unit &&
           other.salePrice == this.salePrice &&
           other.purchasePrice == this.purchasePrice &&
+          other.costingMethod == this.costingMethod &&
+          other.defaultGodownId == this.defaultGodownId &&
           other.wholesalePrice == this.wholesalePrice &&
           other.mrp == this.mrp &&
           other.gstRate == this.gstRate &&
@@ -6820,6 +6983,8 @@ class ItemsCompanion extends UpdateCompanion<ItemEntity> {
   final Value<String> unit;
   final Value<double> salePrice;
   final Value<double> purchasePrice;
+  final Value<String> costingMethod;
+  final Value<String?> defaultGodownId;
   final Value<double?> wholesalePrice;
   final Value<double?> mrp;
   final Value<double> gstRate;
@@ -6848,6 +7013,8 @@ class ItemsCompanion extends UpdateCompanion<ItemEntity> {
     this.unit = const Value.absent(),
     this.salePrice = const Value.absent(),
     this.purchasePrice = const Value.absent(),
+    this.costingMethod = const Value.absent(),
+    this.defaultGodownId = const Value.absent(),
     this.wholesalePrice = const Value.absent(),
     this.mrp = const Value.absent(),
     this.gstRate = const Value.absent(),
@@ -6877,6 +7044,8 @@ class ItemsCompanion extends UpdateCompanion<ItemEntity> {
     this.unit = const Value.absent(),
     this.salePrice = const Value.absent(),
     this.purchasePrice = const Value.absent(),
+    this.costingMethod = const Value.absent(),
+    this.defaultGodownId = const Value.absent(),
     this.wholesalePrice = const Value.absent(),
     this.mrp = const Value.absent(),
     this.gstRate = const Value.absent(),
@@ -6908,6 +7077,8 @@ class ItemsCompanion extends UpdateCompanion<ItemEntity> {
     Expression<String>? unit,
     Expression<double>? salePrice,
     Expression<double>? purchasePrice,
+    Expression<String>? costingMethod,
+    Expression<String>? defaultGodownId,
     Expression<double>? wholesalePrice,
     Expression<double>? mrp,
     Expression<double>? gstRate,
@@ -6937,6 +7108,8 @@ class ItemsCompanion extends UpdateCompanion<ItemEntity> {
       if (unit != null) 'unit': unit,
       if (salePrice != null) 'sale_price': salePrice,
       if (purchasePrice != null) 'purchase_price': purchasePrice,
+      if (costingMethod != null) 'costing_method': costingMethod,
+      if (defaultGodownId != null) 'default_godown_id': defaultGodownId,
       if (wholesalePrice != null) 'wholesale_price': wholesalePrice,
       if (mrp != null) 'mrp': mrp,
       if (gstRate != null) 'gst_rate': gstRate,
@@ -6968,6 +7141,8 @@ class ItemsCompanion extends UpdateCompanion<ItemEntity> {
     Value<String>? unit,
     Value<double>? salePrice,
     Value<double>? purchasePrice,
+    Value<String>? costingMethod,
+    Value<String?>? defaultGodownId,
     Value<double?>? wholesalePrice,
     Value<double?>? mrp,
     Value<double>? gstRate,
@@ -6997,6 +7172,8 @@ class ItemsCompanion extends UpdateCompanion<ItemEntity> {
       unit: unit ?? this.unit,
       salePrice: salePrice ?? this.salePrice,
       purchasePrice: purchasePrice ?? this.purchasePrice,
+      costingMethod: costingMethod ?? this.costingMethod,
+      defaultGodownId: defaultGodownId ?? this.defaultGodownId,
       wholesalePrice: wholesalePrice ?? this.wholesalePrice,
       mrp: mrp ?? this.mrp,
       gstRate: gstRate ?? this.gstRate,
@@ -7047,6 +7224,12 @@ class ItemsCompanion extends UpdateCompanion<ItemEntity> {
     }
     if (purchasePrice.present) {
       map['purchase_price'] = Variable<double>(purchasePrice.value);
+    }
+    if (costingMethod.present) {
+      map['costing_method'] = Variable<String>(costingMethod.value);
+    }
+    if (defaultGodownId.present) {
+      map['default_godown_id'] = Variable<String>(defaultGodownId.value);
     }
     if (wholesalePrice.present) {
       map['wholesale_price'] = Variable<double>(wholesalePrice.value);
@@ -7117,6 +7300,8 @@ class ItemsCompanion extends UpdateCompanion<ItemEntity> {
           ..write('unit: $unit, ')
           ..write('salePrice: $salePrice, ')
           ..write('purchasePrice: $purchasePrice, ')
+          ..write('costingMethod: $costingMethod, ')
+          ..write('defaultGodownId: $defaultGodownId, ')
           ..write('wholesalePrice: $wholesalePrice, ')
           ..write('mrp: $mrp, ')
           ..write('gstRate: $gstRate, ')
@@ -7205,6 +7390,18 @@ class $StockMovementsTable extends StockMovements
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _unitCostMeta = const VerificationMeta(
+    'unitCost',
+  );
+  @override
+  late final GeneratedColumn<double> unitCost = GeneratedColumn<double>(
+    'unit_cost',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
   static const VerificationMeta _sourceMeta = const VerificationMeta('source');
   @override
   late final GeneratedColumn<String> source = GeneratedColumn<String>(
@@ -7220,6 +7417,28 @@ class $StockMovementsTable extends StockMovements
   @override
   late final GeneratedColumn<String> sourceId = GeneratedColumn<String>(
     'source_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _sourceLineIdMeta = const VerificationMeta(
+    'sourceLineId',
+  );
+  @override
+  late final GeneratedColumn<String> sourceLineId = GeneratedColumn<String>(
+    'source_line_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _godownIdMeta = const VerificationMeta(
+    'godownId',
+  );
+  @override
+  late final GeneratedColumn<String> godownId = GeneratedColumn<String>(
+    'godown_id',
     aliasedName,
     true,
     type: DriftSqlType.string,
@@ -7274,8 +7493,11 @@ class $StockMovementsTable extends StockMovements
     kind,
     quantity,
     balanceAfter,
+    unitCost,
     source,
     sourceId,
+    sourceLineId,
+    godownId,
     sourceNumber,
     date,
     notes,
@@ -7339,6 +7561,12 @@ class $StockMovementsTable extends StockMovements
         ),
       );
     }
+    if (data.containsKey('unit_cost')) {
+      context.handle(
+        _unitCostMeta,
+        unitCost.isAcceptableOrUnknown(data['unit_cost']!, _unitCostMeta),
+      );
+    }
     if (data.containsKey('source')) {
       context.handle(
         _sourceMeta,
@@ -7351,6 +7579,21 @@ class $StockMovementsTable extends StockMovements
       context.handle(
         _sourceIdMeta,
         sourceId.isAcceptableOrUnknown(data['source_id']!, _sourceIdMeta),
+      );
+    }
+    if (data.containsKey('source_line_id')) {
+      context.handle(
+        _sourceLineIdMeta,
+        sourceLineId.isAcceptableOrUnknown(
+          data['source_line_id']!,
+          _sourceLineIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('godown_id')) {
+      context.handle(
+        _godownIdMeta,
+        godownId.isAcceptableOrUnknown(data['godown_id']!, _godownIdMeta),
       );
     }
     if (data.containsKey('source_number')) {
@@ -7415,6 +7658,10 @@ class $StockMovementsTable extends StockMovements
         DriftSqlType.double,
         data['${effectivePrefix}balance_after'],
       )!,
+      unitCost: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}unit_cost'],
+      )!,
       source: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}source'],
@@ -7422,6 +7669,14 @@ class $StockMovementsTable extends StockMovements
       sourceId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}source_id'],
+      ),
+      sourceLineId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_line_id'],
+      ),
+      godownId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}godown_id'],
       ),
       sourceNumber: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -7459,9 +7714,48 @@ class StockMovementEntity extends DataClass
   final double quantity;
   final double balanceAfter;
 
+  /// What this movement was worth per unit, at the moment it happened.
+  ///
+  /// Stored on the movement rather than read back from `items.purchasePrice`
+  /// because that column is a *current* catalogue field: valuing last quarter's
+  /// movements at today's purchase price means last quarter's profit changes
+  /// when somebody buys the item today, and a P&L that moves after the fact is
+  /// worse than no P&L.
+  ///
+  /// Meaning by [kind]:
+  ///  * `purchase` — the bill line's net unit cost, **excluding** recoverable
+  ///    GST. Input tax credit is not part of what the goods cost the shop.
+  ///  * `purchase_return` — the average at the moment, so a return reduces
+  ///    value by what the goods actually left the business at worth.
+  ///  * `sale` / `sale_return` — the moving average at the moment, which is
+  ///    what the cost of those goods was.
+  ///  * `opening` — the item's purchase price, which is an **estimate**: the
+  ///    real opening cost is unknowable once the invoices are gone. Recorded as
+  ///    such rather than presented as fact.
+  ///  * `adjustment` — carried forward from the movement being adjusted.
+  ///
+  /// Zero is a real value here (an item given free) and so is a legacy row
+  /// that predates this column; [MovingAverageCosting] tells the two apart by
+  /// `kind`, not by zero.
+  final double unitCost;
+
   /// sales_invoices | purchase_bills | manual | opening_balance
   final String source;
   final String? sourceId;
+
+  /// Which line of the source document produced this movement.
+  ///
+  /// `sourceId` alone cannot order two movements from one bill that share an
+  /// item — a bill with "Widget ×5" on two rows is legal and posts two rows
+  /// with the same `sourceId`. That made the replay backfill ambiguous: it
+  /// could join an inbound movement to either line and get a different unit
+  /// cost each time. With this, the backfill is provably right rather than
+  /// right by luck.
+  final String? sourceLineId;
+
+  /// Where the stock moved. Null = the firm's single, unnamed location, which
+  /// is every movement written before this column existed.
+  final String? godownId;
   final String? sourceNumber;
   final DateTime date;
   final String? notes;
@@ -7473,8 +7767,11 @@ class StockMovementEntity extends DataClass
     required this.kind,
     required this.quantity,
     required this.balanceAfter,
+    required this.unitCost,
     required this.source,
     this.sourceId,
+    this.sourceLineId,
+    this.godownId,
     this.sourceNumber,
     required this.date,
     this.notes,
@@ -7489,9 +7786,16 @@ class StockMovementEntity extends DataClass
     map['kind'] = Variable<String>(kind);
     map['quantity'] = Variable<double>(quantity);
     map['balance_after'] = Variable<double>(balanceAfter);
+    map['unit_cost'] = Variable<double>(unitCost);
     map['source'] = Variable<String>(source);
     if (!nullToAbsent || sourceId != null) {
       map['source_id'] = Variable<String>(sourceId);
+    }
+    if (!nullToAbsent || sourceLineId != null) {
+      map['source_line_id'] = Variable<String>(sourceLineId);
+    }
+    if (!nullToAbsent || godownId != null) {
+      map['godown_id'] = Variable<String>(godownId);
     }
     if (!nullToAbsent || sourceNumber != null) {
       map['source_number'] = Variable<String>(sourceNumber);
@@ -7512,10 +7816,17 @@ class StockMovementEntity extends DataClass
       kind: Value(kind),
       quantity: Value(quantity),
       balanceAfter: Value(balanceAfter),
+      unitCost: Value(unitCost),
       source: Value(source),
       sourceId: sourceId == null && nullToAbsent
           ? const Value.absent()
           : Value(sourceId),
+      sourceLineId: sourceLineId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sourceLineId),
+      godownId: godownId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(godownId),
       sourceNumber: sourceNumber == null && nullToAbsent
           ? const Value.absent()
           : Value(sourceNumber),
@@ -7539,8 +7850,11 @@ class StockMovementEntity extends DataClass
       kind: serializer.fromJson<String>(json['kind']),
       quantity: serializer.fromJson<double>(json['quantity']),
       balanceAfter: serializer.fromJson<double>(json['balanceAfter']),
+      unitCost: serializer.fromJson<double>(json['unitCost']),
       source: serializer.fromJson<String>(json['source']),
       sourceId: serializer.fromJson<String?>(json['sourceId']),
+      sourceLineId: serializer.fromJson<String?>(json['sourceLineId']),
+      godownId: serializer.fromJson<String?>(json['godownId']),
       sourceNumber: serializer.fromJson<String?>(json['sourceNumber']),
       date: serializer.fromJson<DateTime>(json['date']),
       notes: serializer.fromJson<String?>(json['notes']),
@@ -7557,8 +7871,11 @@ class StockMovementEntity extends DataClass
       'kind': serializer.toJson<String>(kind),
       'quantity': serializer.toJson<double>(quantity),
       'balanceAfter': serializer.toJson<double>(balanceAfter),
+      'unitCost': serializer.toJson<double>(unitCost),
       'source': serializer.toJson<String>(source),
       'sourceId': serializer.toJson<String?>(sourceId),
+      'sourceLineId': serializer.toJson<String?>(sourceLineId),
+      'godownId': serializer.toJson<String?>(godownId),
       'sourceNumber': serializer.toJson<String?>(sourceNumber),
       'date': serializer.toJson<DateTime>(date),
       'notes': serializer.toJson<String?>(notes),
@@ -7573,8 +7890,11 @@ class StockMovementEntity extends DataClass
     String? kind,
     double? quantity,
     double? balanceAfter,
+    double? unitCost,
     String? source,
     Value<String?> sourceId = const Value.absent(),
+    Value<String?> sourceLineId = const Value.absent(),
+    Value<String?> godownId = const Value.absent(),
     Value<String?> sourceNumber = const Value.absent(),
     DateTime? date,
     Value<String?> notes = const Value.absent(),
@@ -7586,8 +7906,11 @@ class StockMovementEntity extends DataClass
     kind: kind ?? this.kind,
     quantity: quantity ?? this.quantity,
     balanceAfter: balanceAfter ?? this.balanceAfter,
+    unitCost: unitCost ?? this.unitCost,
     source: source ?? this.source,
     sourceId: sourceId.present ? sourceId.value : this.sourceId,
+    sourceLineId: sourceLineId.present ? sourceLineId.value : this.sourceLineId,
+    godownId: godownId.present ? godownId.value : this.godownId,
     sourceNumber: sourceNumber.present ? sourceNumber.value : this.sourceNumber,
     date: date ?? this.date,
     notes: notes.present ? notes.value : this.notes,
@@ -7603,8 +7926,13 @@ class StockMovementEntity extends DataClass
       balanceAfter: data.balanceAfter.present
           ? data.balanceAfter.value
           : this.balanceAfter,
+      unitCost: data.unitCost.present ? data.unitCost.value : this.unitCost,
       source: data.source.present ? data.source.value : this.source,
       sourceId: data.sourceId.present ? data.sourceId.value : this.sourceId,
+      sourceLineId: data.sourceLineId.present
+          ? data.sourceLineId.value
+          : this.sourceLineId,
+      godownId: data.godownId.present ? data.godownId.value : this.godownId,
       sourceNumber: data.sourceNumber.present
           ? data.sourceNumber.value
           : this.sourceNumber,
@@ -7623,8 +7951,11 @@ class StockMovementEntity extends DataClass
           ..write('kind: $kind, ')
           ..write('quantity: $quantity, ')
           ..write('balanceAfter: $balanceAfter, ')
+          ..write('unitCost: $unitCost, ')
           ..write('source: $source, ')
           ..write('sourceId: $sourceId, ')
+          ..write('sourceLineId: $sourceLineId, ')
+          ..write('godownId: $godownId, ')
           ..write('sourceNumber: $sourceNumber, ')
           ..write('date: $date, ')
           ..write('notes: $notes, ')
@@ -7641,8 +7972,11 @@ class StockMovementEntity extends DataClass
     kind,
     quantity,
     balanceAfter,
+    unitCost,
     source,
     sourceId,
+    sourceLineId,
+    godownId,
     sourceNumber,
     date,
     notes,
@@ -7658,8 +7992,11 @@ class StockMovementEntity extends DataClass
           other.kind == this.kind &&
           other.quantity == this.quantity &&
           other.balanceAfter == this.balanceAfter &&
+          other.unitCost == this.unitCost &&
           other.source == this.source &&
           other.sourceId == this.sourceId &&
+          other.sourceLineId == this.sourceLineId &&
+          other.godownId == this.godownId &&
           other.sourceNumber == this.sourceNumber &&
           other.date == this.date &&
           other.notes == this.notes &&
@@ -7673,8 +8010,11 @@ class StockMovementsCompanion extends UpdateCompanion<StockMovementEntity> {
   final Value<String> kind;
   final Value<double> quantity;
   final Value<double> balanceAfter;
+  final Value<double> unitCost;
   final Value<String> source;
   final Value<String?> sourceId;
+  final Value<String?> sourceLineId;
+  final Value<String?> godownId;
   final Value<String?> sourceNumber;
   final Value<DateTime> date;
   final Value<String?> notes;
@@ -7687,8 +8027,11 @@ class StockMovementsCompanion extends UpdateCompanion<StockMovementEntity> {
     this.kind = const Value.absent(),
     this.quantity = const Value.absent(),
     this.balanceAfter = const Value.absent(),
+    this.unitCost = const Value.absent(),
     this.source = const Value.absent(),
     this.sourceId = const Value.absent(),
+    this.sourceLineId = const Value.absent(),
+    this.godownId = const Value.absent(),
     this.sourceNumber = const Value.absent(),
     this.date = const Value.absent(),
     this.notes = const Value.absent(),
@@ -7702,8 +8045,11 @@ class StockMovementsCompanion extends UpdateCompanion<StockMovementEntity> {
     required String kind,
     required double quantity,
     this.balanceAfter = const Value.absent(),
+    this.unitCost = const Value.absent(),
     required String source,
     this.sourceId = const Value.absent(),
+    this.sourceLineId = const Value.absent(),
+    this.godownId = const Value.absent(),
     this.sourceNumber = const Value.absent(),
     required DateTime date,
     this.notes = const Value.absent(),
@@ -7723,8 +8069,11 @@ class StockMovementsCompanion extends UpdateCompanion<StockMovementEntity> {
     Expression<String>? kind,
     Expression<double>? quantity,
     Expression<double>? balanceAfter,
+    Expression<double>? unitCost,
     Expression<String>? source,
     Expression<String>? sourceId,
+    Expression<String>? sourceLineId,
+    Expression<String>? godownId,
     Expression<String>? sourceNumber,
     Expression<DateTime>? date,
     Expression<String>? notes,
@@ -7738,8 +8087,11 @@ class StockMovementsCompanion extends UpdateCompanion<StockMovementEntity> {
       if (kind != null) 'kind': kind,
       if (quantity != null) 'quantity': quantity,
       if (balanceAfter != null) 'balance_after': balanceAfter,
+      if (unitCost != null) 'unit_cost': unitCost,
       if (source != null) 'source': source,
       if (sourceId != null) 'source_id': sourceId,
+      if (sourceLineId != null) 'source_line_id': sourceLineId,
+      if (godownId != null) 'godown_id': godownId,
       if (sourceNumber != null) 'source_number': sourceNumber,
       if (date != null) 'date': date,
       if (notes != null) 'notes': notes,
@@ -7755,8 +8107,11 @@ class StockMovementsCompanion extends UpdateCompanion<StockMovementEntity> {
     Value<String>? kind,
     Value<double>? quantity,
     Value<double>? balanceAfter,
+    Value<double>? unitCost,
     Value<String>? source,
     Value<String?>? sourceId,
+    Value<String?>? sourceLineId,
+    Value<String?>? godownId,
     Value<String?>? sourceNumber,
     Value<DateTime>? date,
     Value<String?>? notes,
@@ -7770,8 +8125,11 @@ class StockMovementsCompanion extends UpdateCompanion<StockMovementEntity> {
       kind: kind ?? this.kind,
       quantity: quantity ?? this.quantity,
       balanceAfter: balanceAfter ?? this.balanceAfter,
+      unitCost: unitCost ?? this.unitCost,
       source: source ?? this.source,
       sourceId: sourceId ?? this.sourceId,
+      sourceLineId: sourceLineId ?? this.sourceLineId,
+      godownId: godownId ?? this.godownId,
       sourceNumber: sourceNumber ?? this.sourceNumber,
       date: date ?? this.date,
       notes: notes ?? this.notes,
@@ -7801,11 +8159,20 @@ class StockMovementsCompanion extends UpdateCompanion<StockMovementEntity> {
     if (balanceAfter.present) {
       map['balance_after'] = Variable<double>(balanceAfter.value);
     }
+    if (unitCost.present) {
+      map['unit_cost'] = Variable<double>(unitCost.value);
+    }
     if (source.present) {
       map['source'] = Variable<String>(source.value);
     }
     if (sourceId.present) {
       map['source_id'] = Variable<String>(sourceId.value);
+    }
+    if (sourceLineId.present) {
+      map['source_line_id'] = Variable<String>(sourceLineId.value);
+    }
+    if (godownId.present) {
+      map['godown_id'] = Variable<String>(godownId.value);
     }
     if (sourceNumber.present) {
       map['source_number'] = Variable<String>(sourceNumber.value);
@@ -7834,8 +8201,11 @@ class StockMovementsCompanion extends UpdateCompanion<StockMovementEntity> {
           ..write('kind: $kind, ')
           ..write('quantity: $quantity, ')
           ..write('balanceAfter: $balanceAfter, ')
+          ..write('unitCost: $unitCost, ')
           ..write('source: $source, ')
           ..write('sourceId: $sourceId, ')
+          ..write('sourceLineId: $sourceLineId, ')
+          ..write('godownId: $godownId, ')
           ..write('sourceNumber: $sourceNumber, ')
           ..write('date: $date, ')
           ..write('notes: $notes, ')
@@ -20539,6 +20909,689 @@ class JournalLinesCompanion extends UpdateCompanion<JournalLineEntity> {
   }
 }
 
+class $GodownsTable extends Godowns
+    with TableInfo<$GodownsTable, GodownEntity> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $GodownsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _firmIdMeta = const VerificationMeta('firmId');
+  @override
+  late final GeneratedColumn<String> firmId = GeneratedColumn<String>(
+    'firm_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL REFERENCES firms(id) ON DELETE CASCADE',
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    additionalChecks: GeneratedColumn.checkTextLength(
+      minTextLength: 1,
+      maxTextLength: 100,
+    ),
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _addressLine1Meta = const VerificationMeta(
+    'addressLine1',
+  );
+  @override
+  late final GeneratedColumn<String> addressLine1 = GeneratedColumn<String>(
+    'address_line1',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _cityMeta = const VerificationMeta('city');
+  @override
+  late final GeneratedColumn<String> city = GeneratedColumn<String>(
+    'city',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _stateCodeMeta = const VerificationMeta(
+    'stateCode',
+  );
+  @override
+  late final GeneratedColumn<String> stateCode = GeneratedColumn<String>(
+    'state_code',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _currentStockQuantityMeta =
+      const VerificationMeta('currentStockQuantity');
+  @override
+  late final GeneratedColumn<double> currentStockQuantity =
+      GeneratedColumn<double>(
+        'current_stock_quantity',
+        aliasedName,
+        false,
+        type: DriftSqlType.double,
+        requiredDuringInsert: false,
+        defaultValue: const Constant(0),
+      );
+  static const VerificationMeta _isDefaultMeta = const VerificationMeta(
+    'isDefault',
+  );
+  @override
+  late final GeneratedColumn<bool> isDefault = GeneratedColumn<bool>(
+    'is_default',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_default" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _isArchivedMeta = const VerificationMeta(
+    'isArchived',
+  );
+  @override
+  late final GeneratedColumn<bool> isArchived = GeneratedColumn<bool>(
+    'is_archived',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_archived" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    firmId,
+    name,
+    addressLine1,
+    city,
+    stateCode,
+    currentStockQuantity,
+    isDefault,
+    isArchived,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'godowns';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<GodownEntity> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('firm_id')) {
+      context.handle(
+        _firmIdMeta,
+        firmId.isAcceptableOrUnknown(data['firm_id']!, _firmIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_firmIdMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('address_line1')) {
+      context.handle(
+        _addressLine1Meta,
+        addressLine1.isAcceptableOrUnknown(
+          data['address_line1']!,
+          _addressLine1Meta,
+        ),
+      );
+    }
+    if (data.containsKey('city')) {
+      context.handle(
+        _cityMeta,
+        city.isAcceptableOrUnknown(data['city']!, _cityMeta),
+      );
+    }
+    if (data.containsKey('state_code')) {
+      context.handle(
+        _stateCodeMeta,
+        stateCode.isAcceptableOrUnknown(data['state_code']!, _stateCodeMeta),
+      );
+    }
+    if (data.containsKey('current_stock_quantity')) {
+      context.handle(
+        _currentStockQuantityMeta,
+        currentStockQuantity.isAcceptableOrUnknown(
+          data['current_stock_quantity']!,
+          _currentStockQuantityMeta,
+        ),
+      );
+    }
+    if (data.containsKey('is_default')) {
+      context.handle(
+        _isDefaultMeta,
+        isDefault.isAcceptableOrUnknown(data['is_default']!, _isDefaultMeta),
+      );
+    }
+    if (data.containsKey('is_archived')) {
+      context.handle(
+        _isArchivedMeta,
+        isArchived.isAcceptableOrUnknown(data['is_archived']!, _isArchivedMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  GodownEntity map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return GodownEntity(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      firmId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}firm_id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      addressLine1: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}address_line1'],
+      ),
+      city: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}city'],
+      ),
+      stateCode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}state_code'],
+      ),
+      currentStockQuantity: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}current_stock_quantity'],
+      )!,
+      isDefault: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_default'],
+      )!,
+      isArchived: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_archived'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $GodownsTable createAlias(String alias) {
+    return $GodownsTable(attachedDatabase, alias);
+  }
+}
+
+class GodownEntity extends DataClass implements Insertable<GodownEntity> {
+  final String id;
+  final String firmId;
+  final String name;
+
+  /// An address is optional because a godown is sometimes just "the back room"
+  /// and a forced address field would get "Main Street" typed into it for the
+  /// hundredth time.
+  final String? addressLine1;
+  final String? city;
+  final String? stateCode;
+
+  /// Stock held here, cached. Like `items.currentStock` it is derived from the
+  /// movement log, and the two can only disagree if a write is not atomic —
+  /// which is why transfers must be written inside a transaction.
+  final double currentStockQuantity;
+
+  /// The one godown an item without a `defaultGodownId` posts to.
+  final bool isDefault;
+
+  /// A godown can be archived rather than deleted once stock is in it:
+  /// deleting one would orphan every movement that names it, and the transfer
+  /// history is a tax record.
+  final bool isArchived;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  const GodownEntity({
+    required this.id,
+    required this.firmId,
+    required this.name,
+    this.addressLine1,
+    this.city,
+    this.stateCode,
+    required this.currentStockQuantity,
+    required this.isDefault,
+    required this.isArchived,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['firm_id'] = Variable<String>(firmId);
+    map['name'] = Variable<String>(name);
+    if (!nullToAbsent || addressLine1 != null) {
+      map['address_line1'] = Variable<String>(addressLine1);
+    }
+    if (!nullToAbsent || city != null) {
+      map['city'] = Variable<String>(city);
+    }
+    if (!nullToAbsent || stateCode != null) {
+      map['state_code'] = Variable<String>(stateCode);
+    }
+    map['current_stock_quantity'] = Variable<double>(currentStockQuantity);
+    map['is_default'] = Variable<bool>(isDefault);
+    map['is_archived'] = Variable<bool>(isArchived);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  GodownsCompanion toCompanion(bool nullToAbsent) {
+    return GodownsCompanion(
+      id: Value(id),
+      firmId: Value(firmId),
+      name: Value(name),
+      addressLine1: addressLine1 == null && nullToAbsent
+          ? const Value.absent()
+          : Value(addressLine1),
+      city: city == null && nullToAbsent ? const Value.absent() : Value(city),
+      stateCode: stateCode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(stateCode),
+      currentStockQuantity: Value(currentStockQuantity),
+      isDefault: Value(isDefault),
+      isArchived: Value(isArchived),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory GodownEntity.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return GodownEntity(
+      id: serializer.fromJson<String>(json['id']),
+      firmId: serializer.fromJson<String>(json['firmId']),
+      name: serializer.fromJson<String>(json['name']),
+      addressLine1: serializer.fromJson<String?>(json['addressLine1']),
+      city: serializer.fromJson<String?>(json['city']),
+      stateCode: serializer.fromJson<String?>(json['stateCode']),
+      currentStockQuantity: serializer.fromJson<double>(
+        json['currentStockQuantity'],
+      ),
+      isDefault: serializer.fromJson<bool>(json['isDefault']),
+      isArchived: serializer.fromJson<bool>(json['isArchived']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'firmId': serializer.toJson<String>(firmId),
+      'name': serializer.toJson<String>(name),
+      'addressLine1': serializer.toJson<String?>(addressLine1),
+      'city': serializer.toJson<String?>(city),
+      'stateCode': serializer.toJson<String?>(stateCode),
+      'currentStockQuantity': serializer.toJson<double>(currentStockQuantity),
+      'isDefault': serializer.toJson<bool>(isDefault),
+      'isArchived': serializer.toJson<bool>(isArchived),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  GodownEntity copyWith({
+    String? id,
+    String? firmId,
+    String? name,
+    Value<String?> addressLine1 = const Value.absent(),
+    Value<String?> city = const Value.absent(),
+    Value<String?> stateCode = const Value.absent(),
+    double? currentStockQuantity,
+    bool? isDefault,
+    bool? isArchived,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) => GodownEntity(
+    id: id ?? this.id,
+    firmId: firmId ?? this.firmId,
+    name: name ?? this.name,
+    addressLine1: addressLine1.present ? addressLine1.value : this.addressLine1,
+    city: city.present ? city.value : this.city,
+    stateCode: stateCode.present ? stateCode.value : this.stateCode,
+    currentStockQuantity: currentStockQuantity ?? this.currentStockQuantity,
+    isDefault: isDefault ?? this.isDefault,
+    isArchived: isArchived ?? this.isArchived,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  GodownEntity copyWithCompanion(GodownsCompanion data) {
+    return GodownEntity(
+      id: data.id.present ? data.id.value : this.id,
+      firmId: data.firmId.present ? data.firmId.value : this.firmId,
+      name: data.name.present ? data.name.value : this.name,
+      addressLine1: data.addressLine1.present
+          ? data.addressLine1.value
+          : this.addressLine1,
+      city: data.city.present ? data.city.value : this.city,
+      stateCode: data.stateCode.present ? data.stateCode.value : this.stateCode,
+      currentStockQuantity: data.currentStockQuantity.present
+          ? data.currentStockQuantity.value
+          : this.currentStockQuantity,
+      isDefault: data.isDefault.present ? data.isDefault.value : this.isDefault,
+      isArchived: data.isArchived.present
+          ? data.isArchived.value
+          : this.isArchived,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('GodownEntity(')
+          ..write('id: $id, ')
+          ..write('firmId: $firmId, ')
+          ..write('name: $name, ')
+          ..write('addressLine1: $addressLine1, ')
+          ..write('city: $city, ')
+          ..write('stateCode: $stateCode, ')
+          ..write('currentStockQuantity: $currentStockQuantity, ')
+          ..write('isDefault: $isDefault, ')
+          ..write('isArchived: $isArchived, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    firmId,
+    name,
+    addressLine1,
+    city,
+    stateCode,
+    currentStockQuantity,
+    isDefault,
+    isArchived,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is GodownEntity &&
+          other.id == this.id &&
+          other.firmId == this.firmId &&
+          other.name == this.name &&
+          other.addressLine1 == this.addressLine1 &&
+          other.city == this.city &&
+          other.stateCode == this.stateCode &&
+          other.currentStockQuantity == this.currentStockQuantity &&
+          other.isDefault == this.isDefault &&
+          other.isArchived == this.isArchived &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class GodownsCompanion extends UpdateCompanion<GodownEntity> {
+  final Value<String> id;
+  final Value<String> firmId;
+  final Value<String> name;
+  final Value<String?> addressLine1;
+  final Value<String?> city;
+  final Value<String?> stateCode;
+  final Value<double> currentStockQuantity;
+  final Value<bool> isDefault;
+  final Value<bool> isArchived;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const GodownsCompanion({
+    this.id = const Value.absent(),
+    this.firmId = const Value.absent(),
+    this.name = const Value.absent(),
+    this.addressLine1 = const Value.absent(),
+    this.city = const Value.absent(),
+    this.stateCode = const Value.absent(),
+    this.currentStockQuantity = const Value.absent(),
+    this.isDefault = const Value.absent(),
+    this.isArchived = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  GodownsCompanion.insert({
+    required String id,
+    required String firmId,
+    required String name,
+    this.addressLine1 = const Value.absent(),
+    this.city = const Value.absent(),
+    this.stateCode = const Value.absent(),
+    this.currentStockQuantity = const Value.absent(),
+    this.isDefault = const Value.absent(),
+    this.isArchived = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       firmId = Value(firmId),
+       name = Value(name);
+  static Insertable<GodownEntity> custom({
+    Expression<String>? id,
+    Expression<String>? firmId,
+    Expression<String>? name,
+    Expression<String>? addressLine1,
+    Expression<String>? city,
+    Expression<String>? stateCode,
+    Expression<double>? currentStockQuantity,
+    Expression<bool>? isDefault,
+    Expression<bool>? isArchived,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (firmId != null) 'firm_id': firmId,
+      if (name != null) 'name': name,
+      if (addressLine1 != null) 'address_line1': addressLine1,
+      if (city != null) 'city': city,
+      if (stateCode != null) 'state_code': stateCode,
+      if (currentStockQuantity != null)
+        'current_stock_quantity': currentStockQuantity,
+      if (isDefault != null) 'is_default': isDefault,
+      if (isArchived != null) 'is_archived': isArchived,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  GodownsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? firmId,
+    Value<String>? name,
+    Value<String?>? addressLine1,
+    Value<String?>? city,
+    Value<String?>? stateCode,
+    Value<double>? currentStockQuantity,
+    Value<bool>? isDefault,
+    Value<bool>? isArchived,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return GodownsCompanion(
+      id: id ?? this.id,
+      firmId: firmId ?? this.firmId,
+      name: name ?? this.name,
+      addressLine1: addressLine1 ?? this.addressLine1,
+      city: city ?? this.city,
+      stateCode: stateCode ?? this.stateCode,
+      currentStockQuantity: currentStockQuantity ?? this.currentStockQuantity,
+      isDefault: isDefault ?? this.isDefault,
+      isArchived: isArchived ?? this.isArchived,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (firmId.present) {
+      map['firm_id'] = Variable<String>(firmId.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (addressLine1.present) {
+      map['address_line1'] = Variable<String>(addressLine1.value);
+    }
+    if (city.present) {
+      map['city'] = Variable<String>(city.value);
+    }
+    if (stateCode.present) {
+      map['state_code'] = Variable<String>(stateCode.value);
+    }
+    if (currentStockQuantity.present) {
+      map['current_stock_quantity'] = Variable<double>(
+        currentStockQuantity.value,
+      );
+    }
+    if (isDefault.present) {
+      map['is_default'] = Variable<bool>(isDefault.value);
+    }
+    if (isArchived.present) {
+      map['is_archived'] = Variable<bool>(isArchived.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('GodownsCompanion(')
+          ..write('id: $id, ')
+          ..write('firmId: $firmId, ')
+          ..write('name: $name, ')
+          ..write('addressLine1: $addressLine1, ')
+          ..write('city: $city, ')
+          ..write('stateCode: $stateCode, ')
+          ..write('currentStockQuantity: $currentStockQuantity, ')
+          ..write('isDefault: $isDefault, ')
+          ..write('isArchived: $isArchived, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -20563,6 +21616,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $AccountsTable accounts = $AccountsTable(this);
   late final $JournalEntriesTable journalEntries = $JournalEntriesTable(this);
   late final $JournalLinesTable journalLines = $JournalLinesTable(this);
+  late final $GodownsTable godowns = $GodownsTable(this);
   late final Index idxPartiesFirmName = Index(
     'idx_parties_firm_name',
     'CREATE INDEX idx_parties_firm_name ON parties (firm_id, name)',
@@ -20647,6 +21701,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     'idx_journal_lines_account',
     'CREATE INDEX idx_journal_lines_account ON journal_lines (account_id)',
   );
+  late final Index idxGodownsFirm = Index(
+    'idx_godowns_firm',
+    'CREATE INDEX idx_godowns_firm ON godowns (firm_id)',
+  );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -20671,6 +21729,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     accounts,
     journalEntries,
     journalLines,
+    godowns,
     idxPartiesFirmName,
     idxItemsFirmName,
     idxMovementsFirmDate,
@@ -20692,6 +21751,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     idxJournalFirmDate,
     idxJournalLinesEntry,
     idxJournalLinesAccount,
+    idxGodownsFirm,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -22280,6 +23340,7 @@ typedef $$PartiesTableCreateCompanionBuilder =
       required String name,
       required String type,
       Value<String?> gstin,
+      Value<String?> categoryId,
       Value<String?> pan,
       Value<String> gstType,
       Value<String?> contactPerson,
@@ -22308,6 +23369,7 @@ typedef $$PartiesTableUpdateCompanionBuilder =
       Value<String> name,
       Value<String> type,
       Value<String?> gstin,
+      Value<String?> categoryId,
       Value<String?> pan,
       Value<String> gstType,
       Value<String?> contactPerson,
@@ -22361,6 +23423,11 @@ class $$PartiesTableFilterComposer
 
   ColumnFilters<String> get gstin => $composableBuilder(
     column: $table.gstin,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get categoryId => $composableBuilder(
+    column: $table.categoryId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -22494,6 +23561,11 @@ class $$PartiesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get categoryId => $composableBuilder(
+    column: $table.categoryId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get pan => $composableBuilder(
     column: $table.pan,
     builder: (column) => ColumnOrderings(column),
@@ -22614,6 +23686,11 @@ class $$PartiesTableAnnotationComposer
   GeneratedColumn<String> get gstin =>
       $composableBuilder(column: $table.gstin, builder: (column) => column);
 
+  GeneratedColumn<String> get categoryId => $composableBuilder(
+    column: $table.categoryId,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get pan =>
       $composableBuilder(column: $table.pan, builder: (column) => column);
 
@@ -22722,6 +23799,7 @@ class $$PartiesTableTableManager
                 Value<String> name = const Value.absent(),
                 Value<String> type = const Value.absent(),
                 Value<String?> gstin = const Value.absent(),
+                Value<String?> categoryId = const Value.absent(),
                 Value<String?> pan = const Value.absent(),
                 Value<String> gstType = const Value.absent(),
                 Value<String?> contactPerson = const Value.absent(),
@@ -22748,6 +23826,7 @@ class $$PartiesTableTableManager
                 name: name,
                 type: type,
                 gstin: gstin,
+                categoryId: categoryId,
                 pan: pan,
                 gstType: gstType,
                 contactPerson: contactPerson,
@@ -22776,6 +23855,7 @@ class $$PartiesTableTableManager
                 required String name,
                 required String type,
                 Value<String?> gstin = const Value.absent(),
+                Value<String?> categoryId = const Value.absent(),
                 Value<String?> pan = const Value.absent(),
                 Value<String> gstType = const Value.absent(),
                 Value<String?> contactPerson = const Value.absent(),
@@ -22802,6 +23882,7 @@ class $$PartiesTableTableManager
                 name: name,
                 type: type,
                 gstin: gstin,
+                categoryId: categoryId,
                 pan: pan,
                 gstType: gstType,
                 contactPerson: contactPerson,
@@ -23270,6 +24351,8 @@ typedef $$ItemsTableCreateCompanionBuilder =
       Value<String> unit,
       Value<double> salePrice,
       Value<double> purchasePrice,
+      Value<String> costingMethod,
+      Value<String?> defaultGodownId,
       Value<double?> wholesalePrice,
       Value<double?> mrp,
       Value<double> gstRate,
@@ -23300,6 +24383,8 @@ typedef $$ItemsTableUpdateCompanionBuilder =
       Value<String> unit,
       Value<double> salePrice,
       Value<double> purchasePrice,
+      Value<String> costingMethod,
+      Value<String?> defaultGodownId,
       Value<double?> wholesalePrice,
       Value<double?> mrp,
       Value<double> gstRate,
@@ -23370,6 +24455,16 @@ class $$ItemsTableFilterComposer extends Composer<_$AppDatabase, $ItemsTable> {
 
   ColumnFilters<double> get purchasePrice => $composableBuilder(
     column: $table.purchasePrice,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get costingMethod => $composableBuilder(
+    column: $table.costingMethod,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get defaultGodownId => $composableBuilder(
+    column: $table.defaultGodownId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -23513,6 +24608,16 @@ class $$ItemsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get costingMethod => $composableBuilder(
+    column: $table.costingMethod,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get defaultGodownId => $composableBuilder(
+    column: $table.defaultGodownId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<double> get wholesalePrice => $composableBuilder(
     column: $table.wholesalePrice,
     builder: (column) => ColumnOrderings(column),
@@ -23639,6 +24744,16 @@ class $$ItemsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get costingMethod => $composableBuilder(
+    column: $table.costingMethod,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get defaultGodownId => $composableBuilder(
+    column: $table.defaultGodownId,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<double> get wholesalePrice => $composableBuilder(
     column: $table.wholesalePrice,
     builder: (column) => column,
@@ -23740,6 +24855,8 @@ class $$ItemsTableTableManager
                 Value<String> unit = const Value.absent(),
                 Value<double> salePrice = const Value.absent(),
                 Value<double> purchasePrice = const Value.absent(),
+                Value<String> costingMethod = const Value.absent(),
+                Value<String?> defaultGodownId = const Value.absent(),
                 Value<double?> wholesalePrice = const Value.absent(),
                 Value<double?> mrp = const Value.absent(),
                 Value<double> gstRate = const Value.absent(),
@@ -23768,6 +24885,8 @@ class $$ItemsTableTableManager
                 unit: unit,
                 salePrice: salePrice,
                 purchasePrice: purchasePrice,
+                costingMethod: costingMethod,
+                defaultGodownId: defaultGodownId,
                 wholesalePrice: wholesalePrice,
                 mrp: mrp,
                 gstRate: gstRate,
@@ -23798,6 +24917,8 @@ class $$ItemsTableTableManager
                 Value<String> unit = const Value.absent(),
                 Value<double> salePrice = const Value.absent(),
                 Value<double> purchasePrice = const Value.absent(),
+                Value<String> costingMethod = const Value.absent(),
+                Value<String?> defaultGodownId = const Value.absent(),
                 Value<double?> wholesalePrice = const Value.absent(),
                 Value<double?> mrp = const Value.absent(),
                 Value<double> gstRate = const Value.absent(),
@@ -23826,6 +24947,8 @@ class $$ItemsTableTableManager
                 unit: unit,
                 salePrice: salePrice,
                 purchasePrice: purchasePrice,
+                costingMethod: costingMethod,
+                defaultGodownId: defaultGodownId,
                 wholesalePrice: wholesalePrice,
                 mrp: mrp,
                 gstRate: gstRate,
@@ -23875,8 +24998,11 @@ typedef $$StockMovementsTableCreateCompanionBuilder =
       required String kind,
       required double quantity,
       Value<double> balanceAfter,
+      Value<double> unitCost,
       required String source,
       Value<String?> sourceId,
+      Value<String?> sourceLineId,
+      Value<String?> godownId,
       Value<String?> sourceNumber,
       required DateTime date,
       Value<String?> notes,
@@ -23891,8 +25017,11 @@ typedef $$StockMovementsTableUpdateCompanionBuilder =
       Value<String> kind,
       Value<double> quantity,
       Value<double> balanceAfter,
+      Value<double> unitCost,
       Value<String> source,
       Value<String?> sourceId,
+      Value<String?> sourceLineId,
+      Value<String?> godownId,
       Value<String?> sourceNumber,
       Value<DateTime> date,
       Value<String?> notes,
@@ -23939,6 +25068,11 @@ class $$StockMovementsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<double> get unitCost => $composableBuilder(
+    column: $table.unitCost,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<String> get source => $composableBuilder(
     column: $table.source,
     builder: (column) => ColumnFilters(column),
@@ -23946,6 +25080,16 @@ class $$StockMovementsTableFilterComposer
 
   ColumnFilters<String> get sourceId => $composableBuilder(
     column: $table.sourceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceLineId => $composableBuilder(
+    column: $table.sourceLineId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get godownId => $composableBuilder(
+    column: $table.godownId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -24009,6 +25153,11 @@ class $$StockMovementsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<double> get unitCost => $composableBuilder(
+    column: $table.unitCost,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get source => $composableBuilder(
     column: $table.source,
     builder: (column) => ColumnOrderings(column),
@@ -24016,6 +25165,16 @@ class $$StockMovementsTableOrderingComposer
 
   ColumnOrderings<String> get sourceId => $composableBuilder(
     column: $table.sourceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourceLineId => $composableBuilder(
+    column: $table.sourceLineId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get godownId => $composableBuilder(
+    column: $table.godownId,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -24069,11 +25228,22 @@ class $$StockMovementsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<double> get unitCost =>
+      $composableBuilder(column: $table.unitCost, builder: (column) => column);
+
   GeneratedColumn<String> get source =>
       $composableBuilder(column: $table.source, builder: (column) => column);
 
   GeneratedColumn<String> get sourceId =>
       $composableBuilder(column: $table.sourceId, builder: (column) => column);
+
+  GeneratedColumn<String> get sourceLineId => $composableBuilder(
+    column: $table.sourceLineId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get godownId =>
+      $composableBuilder(column: $table.godownId, builder: (column) => column);
 
   GeneratedColumn<String> get sourceNumber => $composableBuilder(
     column: $table.sourceNumber,
@@ -24133,8 +25303,11 @@ class $$StockMovementsTableTableManager
                 Value<String> kind = const Value.absent(),
                 Value<double> quantity = const Value.absent(),
                 Value<double> balanceAfter = const Value.absent(),
+                Value<double> unitCost = const Value.absent(),
                 Value<String> source = const Value.absent(),
                 Value<String?> sourceId = const Value.absent(),
+                Value<String?> sourceLineId = const Value.absent(),
+                Value<String?> godownId = const Value.absent(),
                 Value<String?> sourceNumber = const Value.absent(),
                 Value<DateTime> date = const Value.absent(),
                 Value<String?> notes = const Value.absent(),
@@ -24147,8 +25320,11 @@ class $$StockMovementsTableTableManager
                 kind: kind,
                 quantity: quantity,
                 balanceAfter: balanceAfter,
+                unitCost: unitCost,
                 source: source,
                 sourceId: sourceId,
+                sourceLineId: sourceLineId,
+                godownId: godownId,
                 sourceNumber: sourceNumber,
                 date: date,
                 notes: notes,
@@ -24163,8 +25339,11 @@ class $$StockMovementsTableTableManager
                 required String kind,
                 required double quantity,
                 Value<double> balanceAfter = const Value.absent(),
+                Value<double> unitCost = const Value.absent(),
                 required String source,
                 Value<String?> sourceId = const Value.absent(),
+                Value<String?> sourceLineId = const Value.absent(),
+                Value<String?> godownId = const Value.absent(),
                 Value<String?> sourceNumber = const Value.absent(),
                 required DateTime date,
                 Value<String?> notes = const Value.absent(),
@@ -24177,8 +25356,11 @@ class $$StockMovementsTableTableManager
                 kind: kind,
                 quantity: quantity,
                 balanceAfter: balanceAfter,
+                unitCost: unitCost,
                 source: source,
                 sourceId: sourceId,
+                sourceLineId: sourceLineId,
+                godownId: godownId,
                 sourceNumber: sourceNumber,
                 date: date,
                 notes: notes,
@@ -30674,6 +31856,326 @@ typedef $$JournalLinesTableProcessedTableManager =
       JournalLineEntity,
       PrefetchHooks Function({bool entryId})
     >;
+typedef $$GodownsTableCreateCompanionBuilder =
+    GodownsCompanion Function({
+      required String id,
+      required String firmId,
+      required String name,
+      Value<String?> addressLine1,
+      Value<String?> city,
+      Value<String?> stateCode,
+      Value<double> currentStockQuantity,
+      Value<bool> isDefault,
+      Value<bool> isArchived,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+      Value<int> rowid,
+    });
+typedef $$GodownsTableUpdateCompanionBuilder =
+    GodownsCompanion Function({
+      Value<String> id,
+      Value<String> firmId,
+      Value<String> name,
+      Value<String?> addressLine1,
+      Value<String?> city,
+      Value<String?> stateCode,
+      Value<double> currentStockQuantity,
+      Value<bool> isDefault,
+      Value<bool> isArchived,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$GodownsTableFilterComposer
+    extends Composer<_$AppDatabase, $GodownsTable> {
+  $$GodownsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get firmId => $composableBuilder(
+    column: $table.firmId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get addressLine1 => $composableBuilder(
+    column: $table.addressLine1,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get city => $composableBuilder(
+    column: $table.city,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get stateCode => $composableBuilder(
+    column: $table.stateCode,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get currentStockQuantity => $composableBuilder(
+    column: $table.currentStockQuantity,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isDefault => $composableBuilder(
+    column: $table.isDefault,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isArchived => $composableBuilder(
+    column: $table.isArchived,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$GodownsTableOrderingComposer
+    extends Composer<_$AppDatabase, $GodownsTable> {
+  $$GodownsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get firmId => $composableBuilder(
+    column: $table.firmId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get addressLine1 => $composableBuilder(
+    column: $table.addressLine1,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get city => $composableBuilder(
+    column: $table.city,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get stateCode => $composableBuilder(
+    column: $table.stateCode,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get currentStockQuantity => $composableBuilder(
+    column: $table.currentStockQuantity,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isDefault => $composableBuilder(
+    column: $table.isDefault,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isArchived => $composableBuilder(
+    column: $table.isArchived,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$GodownsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $GodownsTable> {
+  $$GodownsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get firmId =>
+      $composableBuilder(column: $table.firmId, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get addressLine1 => $composableBuilder(
+    column: $table.addressLine1,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get city =>
+      $composableBuilder(column: $table.city, builder: (column) => column);
+
+  GeneratedColumn<String> get stateCode =>
+      $composableBuilder(column: $table.stateCode, builder: (column) => column);
+
+  GeneratedColumn<double> get currentStockQuantity => $composableBuilder(
+    column: $table.currentStockQuantity,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get isDefault =>
+      $composableBuilder(column: $table.isDefault, builder: (column) => column);
+
+  GeneratedColumn<bool> get isArchived => $composableBuilder(
+    column: $table.isArchived,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$GodownsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $GodownsTable,
+          GodownEntity,
+          $$GodownsTableFilterComposer,
+          $$GodownsTableOrderingComposer,
+          $$GodownsTableAnnotationComposer,
+          $$GodownsTableCreateCompanionBuilder,
+          $$GodownsTableUpdateCompanionBuilder,
+          (
+            GodownEntity,
+            BaseReferences<_$AppDatabase, $GodownsTable, GodownEntity>,
+          ),
+          GodownEntity,
+          PrefetchHooks Function()
+        > {
+  $$GodownsTableTableManager(_$AppDatabase db, $GodownsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$GodownsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$GodownsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$GodownsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> firmId = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String?> addressLine1 = const Value.absent(),
+                Value<String?> city = const Value.absent(),
+                Value<String?> stateCode = const Value.absent(),
+                Value<double> currentStockQuantity = const Value.absent(),
+                Value<bool> isDefault = const Value.absent(),
+                Value<bool> isArchived = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => GodownsCompanion(
+                id: id,
+                firmId: firmId,
+                name: name,
+                addressLine1: addressLine1,
+                city: city,
+                stateCode: stateCode,
+                currentStockQuantity: currentStockQuantity,
+                isDefault: isDefault,
+                isArchived: isArchived,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String firmId,
+                required String name,
+                Value<String?> addressLine1 = const Value.absent(),
+                Value<String?> city = const Value.absent(),
+                Value<String?> stateCode = const Value.absent(),
+                Value<double> currentStockQuantity = const Value.absent(),
+                Value<bool> isDefault = const Value.absent(),
+                Value<bool> isArchived = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => GodownsCompanion.insert(
+                id: id,
+                firmId: firmId,
+                name: name,
+                addressLine1: addressLine1,
+                city: city,
+                stateCode: stateCode,
+                currentStockQuantity: currentStockQuantity,
+                isDefault: isDefault,
+                isArchived: isArchived,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$GodownsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $GodownsTable,
+      GodownEntity,
+      $$GodownsTableFilterComposer,
+      $$GodownsTableOrderingComposer,
+      $$GodownsTableAnnotationComposer,
+      $$GodownsTableCreateCompanionBuilder,
+      $$GodownsTableUpdateCompanionBuilder,
+      (
+        GodownEntity,
+        BaseReferences<_$AppDatabase, $GodownsTable, GodownEntity>,
+      ),
+      GodownEntity,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -30716,4 +32218,6 @@ class $AppDatabaseManager {
       $$JournalEntriesTableTableManager(_db, _db.journalEntries);
   $$JournalLinesTableTableManager get journalLines =>
       $$JournalLinesTableTableManager(_db, _db.journalLines);
+  $$GodownsTableTableManager get godowns =>
+      $$GodownsTableTableManager(_db, _db.godowns);
 }

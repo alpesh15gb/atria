@@ -8,6 +8,8 @@ import 'package:decimal/decimal.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'helpers/schema_rollback.dart';
+
 /// The v8 -> v9 upgrade, for the quotation lifecycle.
 ///
 /// Built by rolling a real v9 database *back*: drop the two new columns and
@@ -73,9 +75,12 @@ void main() {
           legacyConverted.copyWith(status: DocumentStatus.legacyConvertedValue),
         );
 
-    // 2. Roll it back to what a v8 file looked like. The v10 columns go too:
-    //    the chain runs from 8 all the way to current, so leaving them in place
-    //    makes the v10 step fail on a duplicate column.
+    // 2. Roll it back to what a v8 file looked like. The v10 and v11 columns go
+    //    too: the chain runs from 8 all the way to current, so leaving them in
+    //    place makes those steps fail on a duplicate column. Every migration
+    //    test in this repo has to keep this list current — a test that only
+    //    rolls back its *own* version stops testing anything the moment a
+    //    later migration lands.
     await first.customStatement(
       'ALTER TABLE sales_invoices DROP COLUMN converted_to_invoice_id',
     );
@@ -91,10 +96,11 @@ void main() {
     await first.customStatement(
       'ALTER TABLE firm_members DROP COLUMN is_active',
     );
-    await first.customStatement('PRAGMA user_version = 8');
+    await SchemaRollback.costingV11(first);
+    await SchemaRollback.setVersion(first, 8);
     await first.close();
 
-    // 3. Reopen: this runs the v8 -> v9 and v9 -> v10 upgrades for real.
+    // 3. Reopen: this runs the v8 -> v9, v9 -> v10 and v10 -> v11 upgrades.
     final upgraded = AppDatabase.test(NativeDatabase(file));
     addTearDown(upgraded.close);
 
@@ -133,6 +139,6 @@ void main() {
       reason: 'cancelling it would wipe the only record that it was invoiced',
     );
 
-    expect(upgraded.schemaVersion, 10);
+    expect(upgraded.schemaVersion, 11);
   });
 }

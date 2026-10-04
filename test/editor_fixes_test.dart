@@ -75,6 +75,7 @@ void main() {
       hsn: hsn,
       barcode: barcode,
       unit: 'pcs',
+      costingMethod: 'moving_average',
       salePrice: 100,
       purchasePrice: 80,
       gstRate: 18,

@@ -8,6 +8,8 @@ import 'package:drift/drift.dart' hide isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'helpers/schema_rollback.dart';
+
 /// The printed layout is per firm, chosen in Firm Settings, and read by every
 /// PDF builder.
 ///
@@ -208,11 +210,12 @@ void main() {
       await first.customStatement(
         'ALTER TABLE firm_members DROP COLUMN is_active',
       );
-      await first.customStatement('PRAGMA user_version = 7');
+      await SchemaRollback.costingV11(first);
+      await SchemaRollback.setVersion(first, 7);
       await first.close();
 
-      // 3. Reopen: this runs the v7 -> v8, v8 -> v9 and v9 -> v10 upgrades for
-      //    real.
+      // 3. Reopen: this runs the v7 -> v8, v8 -> v9, v9 -> v10 and v10 -> v11
+      //    upgrades for real.
       final upgraded = AppDatabase.test(NativeDatabase(file));
       addTearDown(upgraded.close);
 
@@ -241,7 +244,7 @@ void main() {
 
       expect(
         upgraded.schemaVersion,
-        10,
+        11,
         reason: 'the chain runs all the way to current, not just to 8',
       );
     });

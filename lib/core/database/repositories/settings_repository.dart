@@ -268,6 +268,9 @@ class BackupRepository {
     final stockMovements = await (db.select(
       db.stockMovements,
     )..where((t) => t.firmId.isIn(firmIds))).get();
+    final godowns = await (db.select(
+      db.godowns,
+    )..where((t) => t.firmId.isIn(firmIds))).get();
     final sales = await (db.select(
       db.salesInvoices,
     )..where((t) => t.firmId.isIn(firmIds))).get();
@@ -334,6 +337,7 @@ class BackupRepository {
       'stock_movements': stockMovements
           .map((e) => _rowToMap(e.toCompanion(true)))
           .toList(),
+      'godowns': godowns.map((e) => _rowToMap(e.toCompanion(true))).toList(),
       'sales_invoices': sales
           .map((e) => _rowToMap(e.toCompanion(true)))
           .toList(),
@@ -421,6 +425,11 @@ class BackupRepository {
       count += await _restore(db.payments, json['payments']);
       count += await _restore(db.expenses, json['expenses']);
       count += await _restore(db.firmMembers, json['firm_members']);
+      // Before items and movements, which can name a godown. A backup written
+      // before v11 has no `godowns` key at all — restoring it then leaves every
+      // reference null, which is the same state a single-location firm is in,
+      // so the older file restores correctly rather than failing.
+      count += await _restore(db.godowns, json['godowns']);
       // Children before parents: journal lines reference their voucher, and
       // vouchers reference a firm that the first line above has restored.
       count += await _restore(db.accounts, json['accounts']);
@@ -573,6 +582,10 @@ class BackupRepository {
     await db.delete(db.accounts).go();
     await db.delete(db.appSettings).go();
     await db.delete(db.firmMembers).go();
+    // `godowns` is referenced by `items.defaultGodownId` and
+    // `stock_movements.godownId`, so it goes before those two — and before
+    // `firms`, which it does carry a real foreign key to.
+    await db.delete(db.godowns).go();
     // `audit_logs.firm_id` is nullable and carries no foreign key, so nothing
     // would ever remove these for us — the same reason eraseFirmRows deletes
     // them explicitly. Before the firms whose actions they record.

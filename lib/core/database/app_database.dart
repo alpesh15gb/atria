@@ -48,7 +48,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.test(super.e);
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -147,6 +147,15 @@ class AppDatabase extends _$AppDatabase {
             await m.createIndex(idxJournalFirmDate);
             await m.createIndex(idxJournalLinesEntry);
             await m.createIndex(idxJournalLinesAccount);
+          }
+          // v8: printed-document layout, and the GSTIN snapshot a payment
+          // receipt needs. Both additive with defaults, so existing rows
+          // migrate in place: every firm keeps printing the layout it has
+          // always printed (`classic`), and payments that predate this keep
+          // a null GSTIN rather than a fabricated one.
+          if (from < 8) {
+            await m.addColumn(firms, firms.pdfTemplate);
+            await m.addColumn(payments, payments.partyGstin);
           }
         },
       );

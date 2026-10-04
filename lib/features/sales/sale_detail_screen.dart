@@ -244,10 +244,9 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
     if (firm == null || _invoice == null) return;
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final bytes = await InvoicePdf.build(
+      final bytes = await InvoicePdf.forFirm(firm).build(
         invoice: _invoice!,
         items: _items,
-        firm: firm,
       );
       final dir = await getTemporaryDirectory();
       final file = File(p.join(dir.path, _pdfFileName));
@@ -296,10 +295,9 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
     if (firm == null || _invoice == null) return;
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final bytes = await InvoicePdf.build(
+      final bytes = await InvoicePdf.forFirm(firm).build(
         invoice: _invoice!,
         items: _items,
-        firm: firm,
       );
       final dir = await getApplicationDocumentsDirectory();
       final outDir = Directory(p.join(dir.path, 'atria', 'invoices'));
@@ -321,7 +319,7 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
     try {
       await Printing.layoutPdf(
         onLayout: (format) =>
-            InvoicePdf.build(invoice: _invoice!, items: _items, firm: firm),
+            InvoicePdf.forFirm(firm).build(invoice: _invoice!, items: _items),
         name: _invoice!.number,
       );
     } catch (e) {
@@ -1372,10 +1370,9 @@ class _PdfPreviewCardState extends State<_PdfPreviewCard> {
                 }
                 return AtriaPdfPreview(
                   height: 380,
-                  builder: (format) => InvoicePdf.build(
+                  builder: (format) => InvoicePdf.forFirm(firm).build(
                     invoice: widget.invoice,
                     items: widget.items,
-                    firm: firm,
                   ),
                   onPrint: widget.onPrint,
                   onShare: widget.onShare,

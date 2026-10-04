@@ -60,6 +60,14 @@ class Firms extends Table {
   TextColumn get bankBranch => text().nullable()();
   BoolColumn get showBankOnInvoice => boolean().withDefault(const Constant(false))();
   BoolColumn get showQrOnInvoice => boolean().withDefault(const Constant(false))();
+  /// Which layout printed documents use: classic | modern | minimal.
+  ///
+  /// Per firm rather than per document on purpose. Printed material is filed
+  /// and handed to customers, so a firm picks one look and keeps it — a book
+  /// that printed a different layout depending on which screen you happened to
+  /// print from looks like a mistake, and there is no record afterwards of
+  /// which layout a given invoice used.
+  TextColumn get pdfTemplate => text().withDefault(const Constant('classic'))();
   RealColumn get invoiceTcsRate => real().nullable()(); // TCS % if applicable
   BoolColumn get isDefault => boolean().withDefault(const Constant(false))();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();

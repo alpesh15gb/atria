@@ -6,6 +6,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import 'pdf_fonts.dart';
+import 'pdf_template_style.dart';
 
 import '../constants/app_constants.dart';
 import '../database/app_database.dart';
@@ -16,17 +17,19 @@ import 'upi_qr.dart';
 
 /// Renders a GST-compliant Indian invoice/quotation PDF.
 class InvoicePdf {
-  InvoicePdf._();
+  /// Builds an invoice PDF in the layout [firm] has chosen.
+  ///
+  /// Both the firm and the style are held per instance rather than read from
+  /// class constants, which is what makes more than one layout possible: every
+  /// section method below reads `style.*`, so adding a template is a new
+  /// [PdfTemplateStyle] and nothing in this file changes.
+  InvoicePdf.forFirm(this.firm) : style = PdfTemplateStyle.resolve(firm.pdfTemplate);
 
-  static const PdfColor _brand = PdfColor.fromInt(0xFF6D28D9); // violet-700
-  static const PdfColor _brandDeep = PdfColor.fromInt(0xFF4C1D95); // violet-900
-  // Neutrals follow the app's cool violet-tinted greys (app_colors.dart). The
-  // old green-grey set (0xFF161A18 / 0xFF5A605C / 0xFFD8D5CD / 0xFFF3F6F5)
-  // was left over from the teal palette and read mint next to the violet brand.
-  static const PdfColor _ink = PdfColor.fromInt(0xFF16141F);
-  static const PdfColor _inkSoft = PdfColor.fromInt(0xFF565263);
-  static const PdfColor _line = PdfColor.fromInt(0xFFD4D0E0);
-  static const PdfColor _tint = PdfColor.fromInt(0xFFF6F5FA);
+  /// The firm being invoiced. Also resolves [style] on the way in.
+  final FirmEntity firm;
+
+  /// The layout to print in.
+  final PdfTemplateStyle style;
 
   static const _docTitles = {
     'invoice': 'TAX INVOICE',
@@ -36,10 +39,17 @@ class InvoicePdf {
     'credit_note': 'CREDIT NOTE',
   };
 
-  static Future<Uint8List> build({
+  /// Prints [invoice] in the firm's layout.
+  ///
+  /// The entry point every call site uses, so the layout choice reaches all of
+  /// them from one place:
+  ///
+  /// ```dart
+  /// InvoicePdf.forFirm(firm).build(invoice: inv, items: lines)
+  /// ```
+  Future<Uint8List> build({
     required SalesInvoiceEntity invoice,
     required List<SalesInvoiceItemEntity> items,
-    required FirmEntity firm,
   }) async {
     // Helvetica has no ₹ (see PdfFonts) — Inter rides along as a fallback.
     final doc = pw.Document(
@@ -52,7 +62,7 @@ class InvoicePdf {
 
     doc.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
+        pageFormat: style.pageFormat,
         margin: const pw.EdgeInsets.all(0),
         // A bulk invoice legitimately carries 50+ lines. `MultiPage` defaults
         // to a 20-page ceiling and throws `TooManyPagesException` past it in
@@ -63,28 +73,28 @@ class InvoicePdf {
           return [
             _header(firm, invoice),
             pw.Padding(
-              padding: const pw.EdgeInsets.symmetric(horizontal: 34),
+              padding: pw.EdgeInsets.symmetric(horizontal: style.gutter),
               child: _parties(firm, invoice),
             ),
             pw.SizedBox(height: 12),
             pw.Padding(
-              padding: const pw.EdgeInsets.symmetric(horizontal: 34),
+              padding: pw.EdgeInsets.symmetric(horizontal: style.gutter),
               child: _itemsTable(items, invoice, _secondTaxHead(firm, invoice)),
             ),
             pw.SizedBox(height: 10),
             pw.Padding(
-              padding: const pw.EdgeInsets.symmetric(horizontal: 34),
+              padding: pw.EdgeInsets.symmetric(horizontal: style.gutter),
               child: _totals(firm, invoice),
             ),
             pw.SizedBox(height: 14),
             pw.Padding(
-              padding: const pw.EdgeInsets.symmetric(horizontal: 34),
+              padding: pw.EdgeInsets.symmetric(horizontal: style.gutter),
               child: _wordsAndBank(firm, invoice),
             ),
             if (isInvoice) ...[
               pw.SizedBox(height: 14),
               pw.Padding(
-                padding: const pw.EdgeInsets.symmetric(horizontal: 34),
+                padding: pw.EdgeInsets.symmetric(horizontal: style.gutter),
                 child: _terms(firm, invoice),
               ),
             ],
@@ -101,7 +111,7 @@ class InvoicePdf {
 
   /// Logo chip for the header. Returns a spacer when the file exists but
   /// can't be decoded, so layout stays stable either way.
-  static pw.Widget _logoFromFile(String path) {
+  pw.Widget _logoFromFile(String path) {
     try {
       final bytes = File(path).readAsBytesSync();
       return pw.Padding(
@@ -125,17 +135,23 @@ class InvoicePdf {
     }
   }
 
-  static pw.Widget _header(FirmEntity firm, SalesInvoiceEntity invoice) {
+  pw.Widget _header(FirmEntity firm, SalesInvoiceEntity invoice) {
     final title = _docTitles[invoice.docType] ?? 'INVOICE';
     return pw.Container(
-      decoration: const pw.BoxDecoration(
-        gradient: pw.LinearGradient(
-          begin: pw.Alignment.topLeft,
-          end: pw.Alignment.bottomRight,
-          colors: [_brand, _brandDeep],
-        ),
+      decoration: pw.BoxDecoration(
+        // `modern` fills the whole heading rather than shading it, so the two
+        // read as genuinely different documents rather than the same one with
+        // the gradient turned down.
+        color: style.usesHeaderBand ? style.brand : null,
+        gradient: style.usesHeaderBand
+            ? null
+            : pw.LinearGradient(
+                begin: pw.Alignment.topLeft,
+                end: pw.Alignment.bottomRight,
+                colors: [style.brand, style.brandDeep],
+              ),
       ),
-      padding: const pw.EdgeInsets.fromLTRB(34, 20, 34, 20),
+      padding: pw.EdgeInsets.fromLTRB(style.gutter, 20, style.gutter, 20),
       child: pw.Row(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
@@ -203,7 +219,7 @@ class InvoicePdf {
                   style: pw.TextStyle(
                     fontSize: 14,
                     fontWeight: pw.FontWeight.bold,
-                    color: _brandDeep,
+                    color: style.brandDeep,
                     letterSpacing: 1.6,
                   ),
                 ),
@@ -213,7 +229,7 @@ class InvoicePdf {
                   style: pw.TextStyle(
                     fontSize: 11,
                     fontWeight: pw.FontWeight.bold,
-                    color: _ink,
+                    color: style.ink,
                   ),
                 ),
               ],
@@ -224,7 +240,7 @@ class InvoicePdf {
     );
   }
 
-  static pw.Widget _metaChip(String label, String value) {
+  pw.Widget _metaChip(String label, String value) {
     return pw.RichText(
       text: pw.TextSpan(
         children: [
@@ -245,7 +261,7 @@ class InvoicePdf {
     );
   }
 
-  static String _address(FirmEntity firm) {
+  String _address(FirmEntity firm) {
     final parts = <String>[
       firm.addressLine1 ?? '',
       firm.addressLine2 ?? '',
@@ -254,10 +270,10 @@ class InvoicePdf {
     return parts.join(', ');
   }
 
-  static pw.Widget _parties(FirmEntity firm, SalesInvoiceEntity invoice) {
+  pw.Widget _parties(FirmEntity firm, SalesInvoiceEntity invoice) {
     return pw.Container(
       decoration: pw.BoxDecoration(
-        border: pw.Border.all(color: _line, width: 0.7),
+        border: pw.Border.all(color: style.line, width: 0.7),
         borderRadius: pw.BorderRadius.circular(6),
       ),
       child: pw.Row(
@@ -272,7 +288,7 @@ class InvoicePdf {
               null,
             ),
           ),
-          pw.Container(width: 0.7, color: _line),
+          pw.Container(width: 0.7, color: style.line),
           pw.Expanded(
             child: _partyBlock(
               invoice.docType == 'quotation' ? 'Quotation For' : 'Ship To',
@@ -287,7 +303,7 @@ class InvoicePdf {
     );
   }
 
-  static pw.Widget _partyBlock(
+  pw.Widget _partyBlock(
     String label,
     String name,
     String? address,
@@ -304,7 +320,7 @@ class InvoicePdf {
             style: pw.TextStyle(
               fontSize: 8,
               fontWeight: pw.FontWeight.bold,
-              color: _inkSoft,
+              color: style.inkSoft,
               letterSpacing: 1.1,
             ),
           ),
@@ -314,28 +330,28 @@ class InvoicePdf {
             style: pw.TextStyle(
               fontSize: 11.5,
               fontWeight: pw.FontWeight.bold,
-              color: _ink,
+              color: style.ink,
             ),
           ),
           if (address != null && address.isNotEmpty) ...[
             pw.SizedBox(height: 2),
             pw.Text(
               address,
-              style: pw.TextStyle(fontSize: 9, color: _inkSoft, height: 1.45),
+              style: pw.TextStyle(fontSize: 9, color: style.inkSoft, height: 1.45),
             ),
           ],
           if (gstin != null && gstin.isNotEmpty) ...[
             pw.SizedBox(height: 2),
             pw.Text(
               'GSTIN: ${gstin.toUpperCase()}',
-              style: pw.TextStyle(fontSize: 9, color: _inkSoft),
+              style: pw.TextStyle(fontSize: 9, color: style.inkSoft),
             ),
           ],
           if (state != null && state.isNotEmpty) ...[
             pw.SizedBox(height: 2),
             pw.Text(
               'State: $state',
-              style: pw.TextStyle(fontSize: 9, color: _inkSoft),
+              style: pw.TextStyle(fontSize: 9, color: style.inkSoft),
             ),
           ],
         ],
@@ -347,7 +363,7 @@ class InvoicePdf {
   /// a Union Territory, SGST otherwise. Derived from the same state codes the
   /// engine split the tax by, so the column headings and the amounts under them
   /// can never disagree.
-  static String _secondTaxHead(FirmEntity firm, SalesInvoiceEntity invoice) {
+  String _secondTaxHead(FirmEntity firm, SalesInvoiceEntity invoice) {
     if (invoice.isInterState) return 'IGST';
     return intraStateSecondHead(
       resolveGstSplit(
@@ -367,7 +383,7 @@ class InvoicePdf {
   /// continuation sheet carried bare `#`/`HSN`/`Amount` rows under nothing.
   /// `repeat: true` on the header row is what puts the brand-filled heading
   /// strip back at the top of every page after the first.
-  static pw.Widget _itemsTable(List<SalesInvoiceItemEntity> items,
+  pw.Widget _itemsTable(List<SalesInvoiceItemEntity> items,
       SalesInvoiceEntity invoice, String secondHead) {
     // IGST vs CGST/SGST must match the ENGINE's decision, which keys purely
     // off isInterState. The old `&& hasGstin` extra condition printed '-'
@@ -376,7 +392,7 @@ class InvoicePdf {
     final interState = invoice.isInterState;
 
     return pw.Table(
-      border: pw.TableBorder.all(color: _line, width: 0.7),
+      border: pw.TableBorder.all(color: style.line, width: 0.7),
       columnWidths: interState
           // IGST branch: #, Item, HSN, Qty, Rate, Taxable, IGST, Amount.
           ? const {
@@ -408,7 +424,7 @@ class InvoicePdf {
         // long invoice was previously an unlabelled list of amounts.
         pw.TableRow(
           repeat: true,
-          decoration: const pw.BoxDecoration(color: _brand),
+          decoration: pw.BoxDecoration(color: style.brand),
           children: [
             _headCell('#'),
             _headCell('Item'),
@@ -427,8 +443,9 @@ class InvoicePdf {
         ),
         for (var i = 0; i < items.length; i++)
           pw.TableRow(
-            decoration:
-                i.isOdd ? const pw.BoxDecoration(color: _tint) : null,
+            decoration: i.isOdd && style.usesZebraRows
+                ? pw.BoxDecoration(color: style.tint)
+                : null,
             children: [
               _bodyCell('${i + 1}'),
               _bodyCell(items[i].name, bold: false),
@@ -460,7 +477,7 @@ class InvoicePdf {
     );
   }
 
-  static pw.Widget _headCell(String text) {
+  pw.Widget _headCell(String text) {
     return pw.Padding(
       padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 6),
       child: pw.Text(
@@ -474,21 +491,21 @@ class InvoicePdf {
     );
   }
 
-  static pw.Widget _bodyCell(String text, {bool bold = false}) {
+  pw.Widget _bodyCell(String text, {bool bold = false}) {
     return pw.Padding(
       padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 5),
       child: pw.Text(
         text,
         style: pw.TextStyle(
           fontSize: 8.6,
-          color: _ink,
+          color: style.ink,
           fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
         ),
       ),
     );
   }
 
-  static String _rateLabel(num rate) {
+  String _rateLabel(num rate) {
     // Half-rates of cess-like goods (0.25% → CGST 0.125%) must not round to
     // a lie: show up to 3 decimals, trimming trailing zeros.
     final s = rate.toStringAsFixed(3);
@@ -496,7 +513,7 @@ class InvoicePdf {
     return '${trimmed.isEmpty ? 0 : trimmed}%';
   }
 
-  static pw.Widget _totals(FirmEntity firm, SalesInvoiceEntity invoice) {
+  pw.Widget _totals(FirmEntity firm, SalesInvoiceEntity invoice) {
     final rows = <pw.TableRow>[];
     void row(String label, String value, {bool emphasize = false}) {
       rows.add(pw.TableRow(
@@ -507,7 +524,7 @@ class InvoicePdf {
               label,
               style: pw.TextStyle(
                 fontSize: 9.2,
-                color: emphasize ? _ink : _inkSoft,
+                color: emphasize ? style.ink : style.inkSoft,
                 fontWeight:
                     emphasize ? pw.FontWeight.bold : pw.FontWeight.normal,
               ),
@@ -520,7 +537,7 @@ class InvoicePdf {
               textAlign: pw.TextAlign.right,
               style: pw.TextStyle(
                 fontSize: 9.2,
-                color: emphasize ? _brandDeep : _ink,
+                color: emphasize ? style.brandDeep : style.ink,
                 fontWeight:
                     emphasize ? pw.FontWeight.bold : pw.FontWeight.normal,
               ),
@@ -584,8 +601,8 @@ class InvoicePdf {
       children: [
         ...rows,
         pw.TableRow(
-          decoration: const pw.BoxDecoration(
-            color: PdfColor.fromInt(0xFFEDE9FE), // primaryContainer
+          decoration: pw.BoxDecoration(
+            color: style.accentBand,
           ),
           children: [
             pw.Padding(
@@ -596,7 +613,7 @@ class InvoicePdf {
                 style: pw.TextStyle(
                   fontSize: 10.5,
                   fontWeight: pw.FontWeight.bold,
-                  color: _brandDeep,
+                  color: style.brandDeep,
                 ),
               ),
             ),
@@ -609,7 +626,7 @@ class InvoicePdf {
                 style: pw.TextStyle(
                   fontSize: 11,
                   fontWeight: pw.FontWeight.bold,
-                  color: _brandDeep,
+                  color: style.brandDeep,
                 ),
               ),
             ),
@@ -619,7 +636,7 @@ class InvoicePdf {
     );
   }
 
-  static pw.Widget _wordsAndBank(FirmEntity firm, SalesInvoiceEntity invoice) {
+  pw.Widget _wordsAndBank(FirmEntity firm, SalesInvoiceEntity invoice) {
     final words =
         NumberToWords.indianCurrency(invoice.grandTotal, prefix: 'Rupees');
     final showBank = firm.showBankOnInvoice &&
@@ -645,7 +662,7 @@ class InvoicePdf {
     return pw.Container(
       width: double.infinity,
       decoration: pw.BoxDecoration(
-        border: pw.Border.all(color: _line, width: 0.7),
+        border: pw.Border.all(color: style.line, width: 0.7),
         borderRadius: pw.BorderRadius.circular(6),
       ),
       padding: const pw.EdgeInsets.all(10),
@@ -657,7 +674,7 @@ class InvoicePdf {
             style: pw.TextStyle(
               fontSize: 8,
               fontWeight: pw.FontWeight.bold,
-              color: _inkSoft,
+              color: style.inkSoft,
               letterSpacing: 0.8,
             ),
           ),
@@ -666,20 +683,20 @@ class InvoicePdf {
             words,
             style: pw.TextStyle(
               fontSize: 9.6,
-              color: _ink,
+              color: style.ink,
               fontWeight: pw.FontWeight.bold,
             ),
           ),
           if (showBank) ...[
             pw.SizedBox(height: 8),
-            pw.Divider(color: _line, height: 1),
+            pw.Divider(color: style.line, height: 1),
             pw.SizedBox(height: 6),
             pw.Text(
               'Payment Details',
               style: pw.TextStyle(
                 fontSize: 8,
                 fontWeight: pw.FontWeight.bold,
-                color: _inkSoft,
+                color: style.inkSoft,
                 letterSpacing: 0.8,
               ),
             ),
@@ -714,13 +731,13 @@ class InvoicePdf {
                         style: pw.TextStyle(
                           fontSize: 8.4,
                           fontWeight: pw.FontWeight.bold,
-                          color: _inkSoft,
+                          color: style.inkSoft,
                         ),
                       ),
                       pw.SizedBox(height: 2),
                       pw.Text(
                         '${firm.upiId} · ₹${invoice.grandTotal.toStringAsFixed(2)}',
-                        style: pw.TextStyle(fontSize: 8.2, color: _inkSoft),
+                        style: pw.TextStyle(fontSize: 8.2, color: style.inkSoft),
                       ),
                     ],
                   ),
@@ -733,7 +750,7 @@ class InvoicePdf {
     );
   }
 
-  static pw.Widget _payLine(String label, String value) {
+  pw.Widget _payLine(String label, String value) {
     return pw.Padding(
       padding: const pw.EdgeInsets.only(bottom: 1.5),
       child: pw.RichText(
@@ -743,13 +760,13 @@ class InvoicePdf {
               text: '$label: ',
               style: pw.TextStyle(
                 fontSize: 9,
-                color: _inkSoft,
+                color: style.inkSoft,
                 fontWeight: pw.FontWeight.bold,
               ),
             ),
             pw.TextSpan(
               text: value,
-              style: pw.TextStyle(fontSize: 9, color: _ink),
+              style: pw.TextStyle(fontSize: 9, color: style.ink),
             ),
           ],
         ),
@@ -757,7 +774,7 @@ class InvoicePdf {
     );
   }
 
-  static pw.Widget _terms(FirmEntity firm, SalesInvoiceEntity invoice) {
+  pw.Widget _terms(FirmEntity firm, SalesInvoiceEntity invoice) {
     final terms = invoice.docType == 'quotation'
         ? (invoice.terms ?? firm.invoiceTerms)
         : (invoice.terms ??
@@ -774,22 +791,22 @@ class InvoicePdf {
           style: pw.TextStyle(
             fontSize: 8,
             fontWeight: pw.FontWeight.bold,
-            color: _inkSoft,
+            color: style.inkSoft,
             letterSpacing: 0.8,
           ),
         ),
         pw.SizedBox(height: 3),
         pw.Text(
           terms,
-          style: pw.TextStyle(fontSize: 8.6, color: _inkSoft, height: 1.55),
+          style: pw.TextStyle(fontSize: 8.6, color: style.inkSoft, height: 1.55),
         ),
       ],
     );
   }
 
-  static pw.Widget _signature(FirmEntity firm) {
+  pw.Widget _signature(FirmEntity firm) {
     return pw.Padding(
-      padding: const pw.EdgeInsets.symmetric(horizontal: 34),
+      padding: pw.EdgeInsets.symmetric(horizontal: style.gutter),
       child: pw.Row(
         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
         children: [
@@ -798,18 +815,18 @@ class InvoicePdf {
             children: [
               pw.Text(
                 'Received the above goods in good condition',
-                style: pw.TextStyle(fontSize: 8.4, color: _inkSoft),
+                style: pw.TextStyle(fontSize: 8.4, color: style.inkSoft),
               ),
               pw.SizedBox(height: 22),
               pw.Container(
                 width: 130,
                 decoration: pw.BoxDecoration(
-                  border: pw.Border(top: pw.BorderSide(color: _line)),
+                  border: pw.Border(top: pw.BorderSide(color: style.line)),
                 ),
                 padding: const pw.EdgeInsets.only(top: 3),
                 child: pw.Text(
                   'Receiver\'s Signature',
-                  style: pw.TextStyle(fontSize: 8, color: _inkSoft),
+                  style: pw.TextStyle(fontSize: 8, color: style.inkSoft),
                 ),
               ),
             ],
@@ -822,7 +839,7 @@ class InvoicePdf {
                 style: pw.TextStyle(
                   fontSize: 9.6,
                   fontWeight: pw.FontWeight.bold,
-                  color: _ink,
+                  color: style.ink,
                 ),
               ),
               pw.SizedBox(height: 22),
@@ -830,12 +847,12 @@ class InvoicePdf {
                 width: 130,
                 alignment: pw.Alignment.topRight,
                 decoration: pw.BoxDecoration(
-                  border: pw.Border(top: pw.BorderSide(color: _line)),
+                  border: pw.Border(top: pw.BorderSide(color: style.line)),
                 ),
                 padding: const pw.EdgeInsets.only(top: 3),
                 child: pw.Text(
                   'Authorised Signatory',
-                  style: pw.TextStyle(fontSize: 8, color: _inkSoft),
+                  style: pw.TextStyle(fontSize: 8, color: style.inkSoft),
                   textAlign: pw.TextAlign.right,
                 ),
               ),
@@ -846,7 +863,7 @@ class InvoicePdf {
                     firm.signatureName!,
                     style: pw.TextStyle(
                         fontSize: 8.4,
-                        color: _ink,
+                        color: style.ink,
                         fontWeight: pw.FontWeight.bold),
                   ),
                 ),
@@ -857,21 +874,21 @@ class InvoicePdf {
     );
   }
 
-  static pw.Widget _footer(
+  pw.Widget _footer(
       pw.Context context, FirmEntity firm, SalesInvoiceEntity invoice) {
     return pw.Container(
-      decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF5F3FF)),
-      padding: const pw.EdgeInsets.symmetric(horizontal: 34, vertical: 9),
+      decoration: pw.BoxDecoration(color: style.footerBand),
+      padding: pw.EdgeInsets.symmetric(horizontal: style.gutter, vertical: 9),
       child: pw.Row(
         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
         children: [
           pw.Text(
             '${firm.name} • Generated by ${AppConstants.appName}',
-            style: pw.TextStyle(fontSize: 7.8, color: _inkSoft),
+            style: pw.TextStyle(fontSize: 7.8, color: style.inkSoft),
           ),
           pw.Text(
             'Page ${context.pageNumber} of ${context.pagesCount}',
-            style: pw.TextStyle(fontSize: 7.8, color: _inkSoft),
+            style: pw.TextStyle(fontSize: 7.8, color: style.inkSoft),
           ),
         ],
       ),
@@ -879,5 +896,5 @@ class InvoicePdf {
   }
 
   /// Database columns are `REAL`; the formatters want exact [Decimal]s.
-  static Decimal _dec(num value) => Decimal.parse(value.toString());
+  Decimal _dec(num value) => Decimal.parse(value.toString());
 }

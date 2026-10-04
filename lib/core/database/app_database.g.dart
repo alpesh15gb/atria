@@ -597,6 +597,18 @@ class $FirmsTable extends Firms with TableInfo<$FirmsTable, FirmEntity> {
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _pdfTemplateMeta = const VerificationMeta(
+    'pdfTemplate',
+  );
+  @override
+  late final GeneratedColumn<String> pdfTemplate = GeneratedColumn<String>(
+    'pdf_template',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('classic'),
+  );
   static const VerificationMeta _invoiceTcsRateMeta = const VerificationMeta(
     'invoiceTcsRate',
   );
@@ -701,6 +713,7 @@ class $FirmsTable extends Firms with TableInfo<$FirmsTable, FirmEntity> {
     bankBranch,
     showBankOnInvoice,
     showQrOnInvoice,
+    pdfTemplate,
     invoiceTcsRate,
     isDefault,
     createdAt,
@@ -1136,6 +1149,15 @@ class $FirmsTable extends Firms with TableInfo<$FirmsTable, FirmEntity> {
         ),
       );
     }
+    if (data.containsKey('pdf_template')) {
+      context.handle(
+        _pdfTemplateMeta,
+        pdfTemplate.isAcceptableOrUnknown(
+          data['pdf_template']!,
+          _pdfTemplateMeta,
+        ),
+      );
+    }
     if (data.containsKey('invoice_tcs_rate')) {
       context.handle(
         _invoiceTcsRateMeta,
@@ -1380,6 +1402,10 @@ class $FirmsTable extends Firms with TableInfo<$FirmsTable, FirmEntity> {
         DriftSqlType.bool,
         data['${effectivePrefix}show_qr_on_invoice'],
       )!,
+      pdfTemplate: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}pdf_template'],
+      )!,
       invoiceTcsRate: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}invoice_tcs_rate'],
@@ -1463,6 +1489,15 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
   final String? bankBranch;
   final bool showBankOnInvoice;
   final bool showQrOnInvoice;
+
+  /// Which layout printed documents use: classic | modern | minimal.
+  ///
+  /// Per firm rather than per document on purpose. Printed material is filed
+  /// and handed to customers, so a firm picks one look and keeps it — a book
+  /// that printed a different layout depending on which screen you happened to
+  /// print from looks like a mistake, and there is no record afterwards of
+  /// which layout a given invoice used.
+  final String pdfTemplate;
   final double? invoiceTcsRate;
   final bool isDefault;
   final DateTime createdAt;
@@ -1520,6 +1555,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
     this.bankBranch,
     required this.showBankOnInvoice,
     required this.showQrOnInvoice,
+    required this.pdfTemplate,
     this.invoiceTcsRate,
     required this.isDefault,
     required this.createdAt,
@@ -1624,6 +1660,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
     }
     map['show_bank_on_invoice'] = Variable<bool>(showBankOnInvoice);
     map['show_qr_on_invoice'] = Variable<bool>(showQrOnInvoice);
+    map['pdf_template'] = Variable<String>(pdfTemplate);
     if (!nullToAbsent || invoiceTcsRate != null) {
       map['invoice_tcs_rate'] = Variable<double>(invoiceTcsRate);
     }
@@ -1727,6 +1764,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
           : Value(bankBranch),
       showBankOnInvoice: Value(showBankOnInvoice),
       showQrOnInvoice: Value(showQrOnInvoice),
+      pdfTemplate: Value(pdfTemplate),
       invoiceTcsRate: invoiceTcsRate == null && nullToAbsent
           ? const Value.absent()
           : Value(invoiceTcsRate),
@@ -1806,6 +1844,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
       bankBranch: serializer.fromJson<String?>(json['bankBranch']),
       showBankOnInvoice: serializer.fromJson<bool>(json['showBankOnInvoice']),
       showQrOnInvoice: serializer.fromJson<bool>(json['showQrOnInvoice']),
+      pdfTemplate: serializer.fromJson<String>(json['pdfTemplate']),
       invoiceTcsRate: serializer.fromJson<double?>(json['invoiceTcsRate']),
       isDefault: serializer.fromJson<bool>(json['isDefault']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
@@ -1868,6 +1907,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
       'bankBranch': serializer.toJson<String?>(bankBranch),
       'showBankOnInvoice': serializer.toJson<bool>(showBankOnInvoice),
       'showQrOnInvoice': serializer.toJson<bool>(showQrOnInvoice),
+      'pdfTemplate': serializer.toJson<String>(pdfTemplate),
       'invoiceTcsRate': serializer.toJson<double?>(invoiceTcsRate),
       'isDefault': serializer.toJson<bool>(isDefault),
       'createdAt': serializer.toJson<DateTime>(createdAt),
@@ -1928,6 +1968,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
     Value<String?> bankBranch = const Value.absent(),
     bool? showBankOnInvoice,
     bool? showQrOnInvoice,
+    String? pdfTemplate,
     Value<double?> invoiceTcsRate = const Value.absent(),
     bool? isDefault,
     DateTime? createdAt,
@@ -1992,6 +2033,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
     bankBranch: bankBranch.present ? bankBranch.value : this.bankBranch,
     showBankOnInvoice: showBankOnInvoice ?? this.showBankOnInvoice,
     showQrOnInvoice: showQrOnInvoice ?? this.showQrOnInvoice,
+    pdfTemplate: pdfTemplate ?? this.pdfTemplate,
     invoiceTcsRate: invoiceTcsRate.present
         ? invoiceTcsRate.value
         : this.invoiceTcsRate,
@@ -2127,6 +2169,9 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
       showQrOnInvoice: data.showQrOnInvoice.present
           ? data.showQrOnInvoice.value
           : this.showQrOnInvoice,
+      pdfTemplate: data.pdfTemplate.present
+          ? data.pdfTemplate.value
+          : this.pdfTemplate,
       invoiceTcsRate: data.invoiceTcsRate.present
           ? data.invoiceTcsRate.value
           : this.invoiceTcsRate,
@@ -2191,6 +2236,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
           ..write('bankBranch: $bankBranch, ')
           ..write('showBankOnInvoice: $showBankOnInvoice, ')
           ..write('showQrOnInvoice: $showQrOnInvoice, ')
+          ..write('pdfTemplate: $pdfTemplate, ')
           ..write('invoiceTcsRate: $invoiceTcsRate, ')
           ..write('isDefault: $isDefault, ')
           ..write('createdAt: $createdAt, ')
@@ -2253,6 +2299,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
     bankBranch,
     showBankOnInvoice,
     showQrOnInvoice,
+    pdfTemplate,
     invoiceTcsRate,
     isDefault,
     createdAt,
@@ -2314,6 +2361,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
           other.bankBranch == this.bankBranch &&
           other.showBankOnInvoice == this.showBankOnInvoice &&
           other.showQrOnInvoice == this.showQrOnInvoice &&
+          other.pdfTemplate == this.pdfTemplate &&
           other.invoiceTcsRate == this.invoiceTcsRate &&
           other.isDefault == this.isDefault &&
           other.createdAt == this.createdAt &&
@@ -2373,6 +2421,7 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
   final Value<String?> bankBranch;
   final Value<bool> showBankOnInvoice;
   final Value<bool> showQrOnInvoice;
+  final Value<String> pdfTemplate;
   final Value<double?> invoiceTcsRate;
   final Value<bool> isDefault;
   final Value<DateTime> createdAt;
@@ -2431,6 +2480,7 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
     this.bankBranch = const Value.absent(),
     this.showBankOnInvoice = const Value.absent(),
     this.showQrOnInvoice = const Value.absent(),
+    this.pdfTemplate = const Value.absent(),
     this.invoiceTcsRate = const Value.absent(),
     this.isDefault = const Value.absent(),
     this.createdAt = const Value.absent(),
@@ -2490,6 +2540,7 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
     this.bankBranch = const Value.absent(),
     this.showBankOnInvoice = const Value.absent(),
     this.showQrOnInvoice = const Value.absent(),
+    this.pdfTemplate = const Value.absent(),
     this.invoiceTcsRate = const Value.absent(),
     this.isDefault = const Value.absent(),
     this.createdAt = const Value.absent(),
@@ -2550,6 +2601,7 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
     Expression<String>? bankBranch,
     Expression<bool>? showBankOnInvoice,
     Expression<bool>? showQrOnInvoice,
+    Expression<String>? pdfTemplate,
     Expression<double>? invoiceTcsRate,
     Expression<bool>? isDefault,
     Expression<DateTime>? createdAt,
@@ -2617,6 +2669,7 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
       if (bankBranch != null) 'bank_branch': bankBranch,
       if (showBankOnInvoice != null) 'show_bank_on_invoice': showBankOnInvoice,
       if (showQrOnInvoice != null) 'show_qr_on_invoice': showQrOnInvoice,
+      if (pdfTemplate != null) 'pdf_template': pdfTemplate,
       if (invoiceTcsRate != null) 'invoice_tcs_rate': invoiceTcsRate,
       if (isDefault != null) 'is_default': isDefault,
       if (createdAt != null) 'created_at': createdAt,
@@ -2678,6 +2731,7 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
     Value<String?>? bankBranch,
     Value<bool>? showBankOnInvoice,
     Value<bool>? showQrOnInvoice,
+    Value<String>? pdfTemplate,
     Value<double?>? invoiceTcsRate,
     Value<bool>? isDefault,
     Value<DateTime>? createdAt,
@@ -2739,6 +2793,7 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
       bankBranch: bankBranch ?? this.bankBranch,
       showBankOnInvoice: showBankOnInvoice ?? this.showBankOnInvoice,
       showQrOnInvoice: showQrOnInvoice ?? this.showQrOnInvoice,
+      pdfTemplate: pdfTemplate ?? this.pdfTemplate,
       invoiceTcsRate: invoiceTcsRate ?? this.invoiceTcsRate,
       isDefault: isDefault ?? this.isDefault,
       createdAt: createdAt ?? this.createdAt,
@@ -2912,6 +2967,9 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
     if (showQrOnInvoice.present) {
       map['show_qr_on_invoice'] = Variable<bool>(showQrOnInvoice.value);
     }
+    if (pdfTemplate.present) {
+      map['pdf_template'] = Variable<String>(pdfTemplate.value);
+    }
     if (invoiceTcsRate.present) {
       map['invoice_tcs_rate'] = Variable<double>(invoiceTcsRate.value);
     }
@@ -2985,6 +3043,7 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
           ..write('bankBranch: $bankBranch, ')
           ..write('showBankOnInvoice: $showBankOnInvoice, ')
           ..write('showQrOnInvoice: $showQrOnInvoice, ')
+          ..write('pdfTemplate: $pdfTemplate, ')
           ..write('invoiceTcsRate: $invoiceTcsRate, ')
           ..write('isDefault: $isDefault, ')
           ..write('createdAt: $createdAt, ')
@@ -14509,6 +14568,17 @@ class $PaymentsTable extends Payments
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _partyGstinMeta = const VerificationMeta(
+    'partyGstin',
+  );
+  @override
+  late final GeneratedColumn<String> partyGstin = GeneratedColumn<String>(
+    'party_gstin',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _amountMeta = const VerificationMeta('amount');
   @override
   late final GeneratedColumn<double> amount = GeneratedColumn<double>(
@@ -14716,6 +14786,7 @@ class $PaymentsTable extends Payments
     number,
     partyId,
     partyName,
+    partyGstin,
     amount,
     date,
     mode,
@@ -14786,6 +14857,12 @@ class $PaymentsTable extends Payments
       context.handle(
         _partyNameMeta,
         partyName.isAcceptableOrUnknown(data['party_name']!, _partyNameMeta),
+      );
+    }
+    if (data.containsKey('party_gstin')) {
+      context.handle(
+        _partyGstinMeta,
+        partyGstin.isAcceptableOrUnknown(data['party_gstin']!, _partyGstinMeta),
       );
     }
     if (data.containsKey('amount')) {
@@ -14954,6 +15031,10 @@ class $PaymentsTable extends Payments
         DriftSqlType.string,
         data['${effectivePrefix}party_name'],
       ),
+      partyGstin: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}party_gstin'],
+      ),
       amount: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}amount'],
@@ -15044,6 +15125,15 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
   final String number;
   final String? partyId;
   final String? partyName;
+
+  /// The payee's GSTIN, snapshotted at the time of payment.
+  ///
+  /// Sales documents and purchase bills both carry a party GSTIN for exactly
+  /// this reason: a receipt is a tax document, and a receipt that cannot name
+  /// the payee's GSTIN is not one. Null on every payment recorded before this
+  /// column existed — which is correct rather than a gap, because their payee's
+  /// registration cannot be reconstructed after the fact.
+  final String? partyGstin;
   final double amount;
   final DateTime date;
   final String mode;
@@ -15081,6 +15171,7 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
     required this.number,
     this.partyId,
     this.partyName,
+    this.partyGstin,
     required this.amount,
     required this.date,
     required this.mode,
@@ -15112,6 +15203,9 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
     }
     if (!nullToAbsent || partyName != null) {
       map['party_name'] = Variable<String>(partyName);
+    }
+    if (!nullToAbsent || partyGstin != null) {
+      map['party_gstin'] = Variable<String>(partyGstin);
     }
     map['amount'] = Variable<double>(amount);
     map['date'] = Variable<DateTime>(date);
@@ -15168,6 +15262,9 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
       partyName: partyName == null && nullToAbsent
           ? const Value.absent()
           : Value(partyName),
+      partyGstin: partyGstin == null && nullToAbsent
+          ? const Value.absent()
+          : Value(partyGstin),
       amount: Value(amount),
       date: Value(date),
       mode: Value(mode),
@@ -15223,6 +15320,7 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
       number: serializer.fromJson<String>(json['number']),
       partyId: serializer.fromJson<String?>(json['partyId']),
       partyName: serializer.fromJson<String?>(json['partyName']),
+      partyGstin: serializer.fromJson<String?>(json['partyGstin']),
       amount: serializer.fromJson<double>(json['amount']),
       date: serializer.fromJson<DateTime>(json['date']),
       mode: serializer.fromJson<String>(json['mode']),
@@ -15255,6 +15353,7 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
       'number': serializer.toJson<String>(number),
       'partyId': serializer.toJson<String?>(partyId),
       'partyName': serializer.toJson<String?>(partyName),
+      'partyGstin': serializer.toJson<String?>(partyGstin),
       'amount': serializer.toJson<double>(amount),
       'date': serializer.toJson<DateTime>(date),
       'mode': serializer.toJson<String>(mode),
@@ -15283,6 +15382,7 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
     String? number,
     Value<String?> partyId = const Value.absent(),
     Value<String?> partyName = const Value.absent(),
+    Value<String?> partyGstin = const Value.absent(),
     double? amount,
     DateTime? date,
     String? mode,
@@ -15308,6 +15408,7 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
     number: number ?? this.number,
     partyId: partyId.present ? partyId.value : this.partyId,
     partyName: partyName.present ? partyName.value : this.partyName,
+    partyGstin: partyGstin.present ? partyGstin.value : this.partyGstin,
     amount: amount ?? this.amount,
     date: date ?? this.date,
     mode: mode ?? this.mode,
@@ -15341,6 +15442,9 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
       number: data.number.present ? data.number.value : this.number,
       partyId: data.partyId.present ? data.partyId.value : this.partyId,
       partyName: data.partyName.present ? data.partyName.value : this.partyName,
+      partyGstin: data.partyGstin.present
+          ? data.partyGstin.value
+          : this.partyGstin,
       amount: data.amount.present ? data.amount.value : this.amount,
       date: data.date.present ? data.date.value : this.date,
       mode: data.mode.present ? data.mode.value : this.mode,
@@ -15385,6 +15489,7 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
           ..write('number: $number, ')
           ..write('partyId: $partyId, ')
           ..write('partyName: $partyName, ')
+          ..write('partyGstin: $partyGstin, ')
           ..write('amount: $amount, ')
           ..write('date: $date, ')
           ..write('mode: $mode, ')
@@ -15415,6 +15520,7 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
     number,
     partyId,
     partyName,
+    partyGstin,
     amount,
     date,
     mode,
@@ -15444,6 +15550,7 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
           other.number == this.number &&
           other.partyId == this.partyId &&
           other.partyName == this.partyName &&
+          other.partyGstin == this.partyGstin &&
           other.amount == this.amount &&
           other.date == this.date &&
           other.mode == this.mode &&
@@ -15471,6 +15578,7 @@ class PaymentsCompanion extends UpdateCompanion<PaymentEntity> {
   final Value<String> number;
   final Value<String?> partyId;
   final Value<String?> partyName;
+  final Value<String?> partyGstin;
   final Value<double> amount;
   final Value<DateTime> date;
   final Value<String> mode;
@@ -15497,6 +15605,7 @@ class PaymentsCompanion extends UpdateCompanion<PaymentEntity> {
     this.number = const Value.absent(),
     this.partyId = const Value.absent(),
     this.partyName = const Value.absent(),
+    this.partyGstin = const Value.absent(),
     this.amount = const Value.absent(),
     this.date = const Value.absent(),
     this.mode = const Value.absent(),
@@ -15524,6 +15633,7 @@ class PaymentsCompanion extends UpdateCompanion<PaymentEntity> {
     required String number,
     this.partyId = const Value.absent(),
     this.partyName = const Value.absent(),
+    this.partyGstin = const Value.absent(),
     required double amount,
     required DateTime date,
     this.mode = const Value.absent(),
@@ -15556,6 +15666,7 @@ class PaymentsCompanion extends UpdateCompanion<PaymentEntity> {
     Expression<String>? number,
     Expression<String>? partyId,
     Expression<String>? partyName,
+    Expression<String>? partyGstin,
     Expression<double>? amount,
     Expression<DateTime>? date,
     Expression<String>? mode,
@@ -15583,6 +15694,7 @@ class PaymentsCompanion extends UpdateCompanion<PaymentEntity> {
       if (number != null) 'number': number,
       if (partyId != null) 'party_id': partyId,
       if (partyName != null) 'party_name': partyName,
+      if (partyGstin != null) 'party_gstin': partyGstin,
       if (amount != null) 'amount': amount,
       if (date != null) 'date': date,
       if (mode != null) 'mode': mode,
@@ -15613,6 +15725,7 @@ class PaymentsCompanion extends UpdateCompanion<PaymentEntity> {
     Value<String>? number,
     Value<String?>? partyId,
     Value<String?>? partyName,
+    Value<String?>? partyGstin,
     Value<double>? amount,
     Value<DateTime>? date,
     Value<String>? mode,
@@ -15640,6 +15753,7 @@ class PaymentsCompanion extends UpdateCompanion<PaymentEntity> {
       number: number ?? this.number,
       partyId: partyId ?? this.partyId,
       partyName: partyName ?? this.partyName,
+      partyGstin: partyGstin ?? this.partyGstin,
       amount: amount ?? this.amount,
       date: date ?? this.date,
       mode: mode ?? this.mode,
@@ -15682,6 +15796,9 @@ class PaymentsCompanion extends UpdateCompanion<PaymentEntity> {
     }
     if (partyName.present) {
       map['party_name'] = Variable<String>(partyName.value);
+    }
+    if (partyGstin.present) {
+      map['party_gstin'] = Variable<String>(partyGstin.value);
     }
     if (amount.present) {
       map['amount'] = Variable<double>(amount.value);
@@ -15754,6 +15871,7 @@ class PaymentsCompanion extends UpdateCompanion<PaymentEntity> {
           ..write('number: $number, ')
           ..write('partyId: $partyId, ')
           ..write('partyName: $partyName, ')
+          ..write('partyGstin: $partyGstin, ')
           ..write('amount: $amount, ')
           ..write('date: $date, ')
           ..write('mode: $mode, ')
@@ -20357,6 +20475,7 @@ typedef $$FirmsTableCreateCompanionBuilder =
       Value<String?> bankBranch,
       Value<bool> showBankOnInvoice,
       Value<bool> showQrOnInvoice,
+      Value<String> pdfTemplate,
       Value<double?> invoiceTcsRate,
       Value<bool> isDefault,
       Value<DateTime> createdAt,
@@ -20417,6 +20536,7 @@ typedef $$FirmsTableUpdateCompanionBuilder =
       Value<String?> bankBranch,
       Value<bool> showBankOnInvoice,
       Value<bool> showQrOnInvoice,
+      Value<String> pdfTemplate,
       Value<double?> invoiceTcsRate,
       Value<bool> isDefault,
       Value<DateTime> createdAt,
@@ -20689,6 +20809,11 @@ class $$FirmsTableFilterComposer extends Composer<_$AppDatabase, $FirmsTable> {
 
   ColumnFilters<bool> get showQrOnInvoice => $composableBuilder(
     column: $table.showQrOnInvoice,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get pdfTemplate => $composableBuilder(
+    column: $table.pdfTemplate,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -20982,6 +21107,11 @@ class $$FirmsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get pdfTemplate => $composableBuilder(
+    column: $table.pdfTemplate,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<double> get invoiceTcsRate => $composableBuilder(
     column: $table.invoiceTcsRate,
     builder: (column) => ColumnOrderings(column),
@@ -21242,6 +21372,11 @@ class $$FirmsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get pdfTemplate => $composableBuilder(
+    column: $table.pdfTemplate,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<double> get invoiceTcsRate => $composableBuilder(
     column: $table.invoiceTcsRate,
     builder: (column) => column,
@@ -21337,6 +21472,7 @@ class $$FirmsTableTableManager
                 Value<String?> bankBranch = const Value.absent(),
                 Value<bool> showBankOnInvoice = const Value.absent(),
                 Value<bool> showQrOnInvoice = const Value.absent(),
+                Value<String> pdfTemplate = const Value.absent(),
                 Value<double?> invoiceTcsRate = const Value.absent(),
                 Value<bool> isDefault = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
@@ -21395,6 +21531,7 @@ class $$FirmsTableTableManager
                 bankBranch: bankBranch,
                 showBankOnInvoice: showBankOnInvoice,
                 showQrOnInvoice: showQrOnInvoice,
+                pdfTemplate: pdfTemplate,
                 invoiceTcsRate: invoiceTcsRate,
                 isDefault: isDefault,
                 createdAt: createdAt,
@@ -21455,6 +21592,7 @@ class $$FirmsTableTableManager
                 Value<String?> bankBranch = const Value.absent(),
                 Value<bool> showBankOnInvoice = const Value.absent(),
                 Value<bool> showQrOnInvoice = const Value.absent(),
+                Value<String> pdfTemplate = const Value.absent(),
                 Value<double?> invoiceTcsRate = const Value.absent(),
                 Value<bool> isDefault = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
@@ -21513,6 +21651,7 @@ class $$FirmsTableTableManager
                 bankBranch: bankBranch,
                 showBankOnInvoice: showBankOnInvoice,
                 showQrOnInvoice: showQrOnInvoice,
+                pdfTemplate: pdfTemplate,
                 invoiceTcsRate: invoiceTcsRate,
                 isDefault: isDefault,
                 createdAt: createdAt,
@@ -27204,6 +27343,7 @@ typedef $$PaymentsTableCreateCompanionBuilder =
       required String number,
       Value<String?> partyId,
       Value<String?> partyName,
+      Value<String?> partyGstin,
       required double amount,
       required DateTime date,
       Value<String> mode,
@@ -27232,6 +27372,7 @@ typedef $$PaymentsTableUpdateCompanionBuilder =
       Value<String> number,
       Value<String?> partyId,
       Value<String?> partyName,
+      Value<String?> partyGstin,
       Value<double> amount,
       Value<DateTime> date,
       Value<String> mode,
@@ -27289,6 +27430,11 @@ class $$PaymentsTableFilterComposer
 
   ColumnFilters<String> get partyName => $composableBuilder(
     column: $table.partyName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get partyGstin => $composableBuilder(
+    column: $table.partyGstin,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -27422,6 +27568,11 @@ class $$PaymentsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get partyGstin => $composableBuilder(
+    column: $table.partyGstin,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<double> get amount => $composableBuilder(
     column: $table.amount,
     builder: (column) => ColumnOrderings(column),
@@ -27540,6 +27691,11 @@ class $$PaymentsTableAnnotationComposer
   GeneratedColumn<String> get partyName =>
       $composableBuilder(column: $table.partyName, builder: (column) => column);
 
+  GeneratedColumn<String> get partyGstin => $composableBuilder(
+    column: $table.partyGstin,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<double> get amount =>
       $composableBuilder(column: $table.amount, builder: (column) => column);
 
@@ -27646,6 +27802,7 @@ class $$PaymentsTableTableManager
                 Value<String> number = const Value.absent(),
                 Value<String?> partyId = const Value.absent(),
                 Value<String?> partyName = const Value.absent(),
+                Value<String?> partyGstin = const Value.absent(),
                 Value<double> amount = const Value.absent(),
                 Value<DateTime> date = const Value.absent(),
                 Value<String> mode = const Value.absent(),
@@ -27672,6 +27829,7 @@ class $$PaymentsTableTableManager
                 number: number,
                 partyId: partyId,
                 partyName: partyName,
+                partyGstin: partyGstin,
                 amount: amount,
                 date: date,
                 mode: mode,
@@ -27700,6 +27858,7 @@ class $$PaymentsTableTableManager
                 required String number,
                 Value<String?> partyId = const Value.absent(),
                 Value<String?> partyName = const Value.absent(),
+                Value<String?> partyGstin = const Value.absent(),
                 required double amount,
                 required DateTime date,
                 Value<String> mode = const Value.absent(),
@@ -27726,6 +27885,7 @@ class $$PaymentsTableTableManager
                 number: number,
                 partyId: partyId,
                 partyName: partyName,
+                partyGstin: partyGstin,
                 amount: amount,
                 date: date,
                 mode: mode,

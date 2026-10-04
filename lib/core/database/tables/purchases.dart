@@ -109,6 +109,14 @@ class Payments extends Table {
   TextColumn get number => text().withLength(min: 1, max: 40)();
   TextColumn get partyId => text().nullable()();
   TextColumn get partyName => text().nullable()();
+  /// The payee's GSTIN, snapshotted at the time of payment.
+  ///
+  /// Sales documents and purchase bills both carry a party GSTIN for exactly
+  /// this reason: a receipt is a tax document, and a receipt that cannot name
+  /// the payee's GSTIN is not one. Null on every payment recorded before this
+  /// column existed — which is correct rather than a gap, because their payee's
+  /// registration cannot be reconstructed after the fact.
+  TextColumn get partyGstin => text().nullable()();
   RealColumn get amount => real()();
   DateTimeColumn get date => dateTime()();
   TextColumn get mode => text().withDefault(const Constant('cash'))();

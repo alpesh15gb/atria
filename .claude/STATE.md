@@ -1,6 +1,65 @@
 # Project State
 
-_Last updated: 2026-10-04 (Android "items don't render": root cause found, fixed, regression-tested)_
+_Last updated: 2026-10-04 (Phase 0 shipped: three PDF templates, per firm)_
+
+## Current objective
+
+Six-phase build agreed with the user: **PDF templates → purchase PDFs → paid/
+balance/PAID stamp + UPI QR fix → bulk actions → quotation lifecycle → optional
+local PIN roles.** Ship one piece per commit. Full plan:
+`C:\Users\Administrator\.claude\plans\woolly-pondering-gray.md`.
+
+Phase 0 (PDF templates) is **done and verified**. **Next: Phase 1 — purchase-side
+PDFs** (`PurchasePdf` for bill / purchase order / debit note / payment receipt).
+
+## Current implementation state
+
+- `flutter analyze lib/ test/` → clean.
+- `flutter test` → **579 passed / 1 skipped / 0 failed.**
+- Windows debug builds; APK debug/release build (release APK is debug-key-signed,
+  `CN=Android Debug`, per `build.gradle.kts`'s deliberate fallback).
+- **No phone attached** (`adb devices` empty) — the sync fix is proven against a
+  faithful fake server only, never on hardware.
+
+## Phase 0 shipped (2026-10-04) — three PDF templates, per firm
+
+- **Schema v8** (`from < 8`): `firms.pdfTemplate` (default `'classic'`) and
+  `payments.partyGstin` (nullable, no default — a GSTIN that was never
+  recorded must not be invented). Both additive.
+- New `lib/core/services/pdf_template_style.dart`: `PdfTemplateStyle` holds every
+  colour + `gutter` + `pageFormat` so the builders read `style.*` instead of
+  class constants. `classic` (the old violet, byte-identical output),
+  `modern` (filled header band, no zebra rows), `minimal` (greyscale).
+  `resolve()` trims + lowercases and falls back to `classic` rather than
+  throwing — a restored backup must never break a share dialog.
+- `invoice_pdf.dart` is no longer all-`static`: `InvoicePdf.forFirm(firm)` holds
+  the style. **Adding a template is now a new `PdfTemplateStyle` and nothing
+  else** — which is what makes Phase 1 cheap.
+- Firm Settings gained a **Printed document layout** section with a rendered
+  44×58 swatch per template (`_TemplateSwatch`), because "Classic" vs "Minimal"
+  describes nothing you can picture from a list. Colours come off the style, so
+  the swatch cannot drift from the real output.
+- `PdfColor` (the `pdf` package's type) does **not** implement Flutter's
+  `Color`; a file-private `toFlutter()` extension converts for the swatch.
+- Tests: `test/pdf_template_test.dart` (5). The v7→8 test builds a real v8 file,
+  rolls it back (`ALTER TABLE … DROP COLUMN` + `PRAGMA user_version = 7`),
+  reopens, and asserts rows survive with the new defaults — the only honest way
+  to test a migration.
+- **Proven to fail against reverted code:** both the migration test and
+  `forFirm`'s template lookup were reverted and observed failing.
+
+### Things not to re-learn
+
+- Never `sed` across a Dart file in this repo — it destroyed
+  `vyapar_sync_roundtrip_test.dart` beyond patching. Use `Edit`, or
+  `[IO.File]::WriteAllText` with a pattern you have read first.
+- PowerShell here-strings mangle multi-line `git commit -m`. Write the message
+  to a file and use `git commit -F`.
+- `flutter` is **not on PATH**. Invoke `C:\flutter\bin\flutter.bat`. Android
+  builds need `JAVA_HOME=C:\Program Files\Android\Android Studio\jbr`.
+- In a `flutter test` file, a local getter/function named `db` shadows the
+  top-level one and silently turns every `db.select(...)` into
+  `Function.select(...)` — pass the database in as a parameter instead.
 
 ## 2026-10-04 (later): the actual cause — a batch the server refused
 

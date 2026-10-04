@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:pdf/pdf.dart' show PdfColor;
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../core/api/server_client.dart';
@@ -15,6 +16,7 @@ import '../../core/constants/indian_states.dart';
 import '../../core/database/app_database.dart';
 import '../../core/database/repositories/repository_extensions.dart';
 import '../../core/engine/document_numbering.dart';
+import '../../core/services/pdf_template_style.dart';
 import '../../core/state/providers.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_sizes.dart';
@@ -117,6 +119,13 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
   int _padding = 3;
   bool _showBank = false;
   bool _showQr = false;
+
+  /// Which printed-document layout this firm uses. Resolved through
+  /// [PdfTemplateStyle.resolve] rather than stored verbatim, so a column
+  /// written by a newer build — or by a restored backup — cannot put the form
+  /// into a state where nothing is selected.
+  late PdfTemplateStyle _template;
+
   String? _logoPath;
   /// A logo file that is on disk but will not be referenced once the current
   /// form is saved — replaced by a different file, or removed. Deleted only
@@ -238,6 +247,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
     _padding = firm.invoiceSequencePadding;
     _showBank = firm.showBankOnInvoice;
     _showQr = firm.showQrOnInvoice;
+    _template = PdfTemplateStyle.resolve(firm.pdfTemplate);
     _logoPath = firm.logoPath;
     _staleLogoPath = null;
     _listenForEdits();
@@ -309,6 +319,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
               bankBranch: fieldValue(_bankBranchController.text),
               showBankOnInvoice: _showBank,
               showQrOnInvoice: _showQr,
+              pdfTemplate: _template.id,
               // The same absent-vs-null trap, with a visible symptom: absent left
               // the stored path in place, so "Remove" never removed the logo and
               // the deleted logo went on printing in the PDF header.
@@ -407,6 +418,8 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
           _numberingSection(),
           const SizedBox(height: 20),
           _invoiceSection(),
+          const SizedBox(height: 20),
+          _templateSection(),
           const SizedBox(height: 20),
           _paymentSection(),
           const SizedBox(height: 20),
@@ -897,6 +910,52 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
               hintText: 'Name printed under the signature line',
               prefixIcon: AtriaFieldIcon(Icons.draw_outlined),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Layout picker for printed documents.
+  ///
+  /// Per firm, not per document, on purpose: printed material is filed and
+  /// handed to customers, so a shop picks one look and keeps it.
+  Widget _templateSection() {
+    final scheme = Theme.of(context).colorScheme;
+    return _sectionCard(
+      title: 'Printed document layout',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // A rendered swatch rather than a name, because "Minimal" and
+          // "Classic" describe nothing you can picture from a list.
+          for (final style in PdfTemplateStyle.all) ...[
+            _TemplateOption(
+              style: style,
+              selected: style.id == _template.id,
+              onTap: () {
+                _markDirty();
+                setState(() => _template = style);
+              },
+            ),
+            if (style != PdfTemplateStyle.all.last) const SizedBox(height: 10),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Icon(Icons.lock_outline_rounded,
+                  size: 15, color: scheme.onSurfaceVariant),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  'Applies to every invoice, quotation and receipt printed from '
+                  'this firm.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1489,4 +1548,171 @@ class _FieldRow extends StatelessWidget {
       },
     );
   }
+}
+
+/// One [PdfTemplateStyle] in the picker: a miniature of the page it prints,
+/// the name, and one line explaining who it suits.
+///
+/// The swatch exists because "Classic" and "Minimal" describe nothing you can
+/// picture from a list — the difference between them is entirely visual.
+class _TemplateOption extends StatelessWidget {
+  const _TemplateOption({
+    required this.style,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final PdfTemplateStyle style;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Semantics(
+      selected: selected,
+      button: true,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: selected
+                ? scheme.primaryContainer.withValues(alpha: 0.45)
+                : scheme.surfaceContainerLowest,
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(
+              color: selected ? scheme.primary : scheme.outlineVariant,
+              width: selected ? 1.6 : 1,
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _TemplateSwatch(style: style),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            style.name,
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleSmall
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        if (selected)
+                          Icon(Icons.check_circle_rounded,
+                              size: 18, color: scheme.primary),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      style.description,
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(color: scheme.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A 44×58 miniature of what the layout actually prints: the header band (or
+/// the classic gradient), the items heading strip, three body rows with zebra
+/// shading where the template uses it, and the accent band behind the total.
+///
+/// Every colour is read off the style that will render the real PDF, so the
+/// swatch cannot drift away from the output the way a hand-picked icon would.
+class _TemplateSwatch extends StatelessWidget {
+  const _TemplateSwatch({required this.style});
+
+  final PdfTemplateStyle style;
+
+  @override
+  Widget build(BuildContext context) {
+    final surface = Theme.of(context).colorScheme.surface;
+    return Container(
+      width: 44,
+      height: 58,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: style.line.toFlutter()),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Header: a solid band where the template uses one, the classic
+          // gradient otherwise. Both are what the PDF prints.
+          Container(
+            height: 13,
+            decoration: BoxDecoration(
+              color: style.usesHeaderBand
+                  ? style.brand.toFlutter()
+                  : null,
+              gradient: style.usesHeaderBand
+                  ? null
+                  : LinearGradient(
+                      colors: [
+                        style.brand.toFlutter(),
+                        style.brandDeep.toFlutter(),
+                      ],
+                    ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 3),
+            child: Container(height: 3, color: style.brand.toFlutter()),
+          ),
+          const SizedBox(height: 3),
+          for (var i = 0; i < 3; i++)
+            Container(
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 3, left: 3, right: 3),
+              decoration: BoxDecoration(
+                color: (style.usesZebraRows && i.isOdd)
+                    ? style.tint.toFlutter()
+                    : null,
+                border: i.isEven
+                    ? Border(
+                        bottom: BorderSide(
+                            color: style.line.toFlutter(), width: 0.5),
+                      )
+                    : null,
+              ),
+            ),
+          const Spacer(),
+          Container(height: 8, color: style.accentBand.toFlutter()),
+          Container(height: 5, color: style.footerBand.toFlutter()),
+        ],
+      ),
+    );
+  }
+}
+
+extension on PdfColor {
+  /// [PdfColor] is the PDF library's own type and does not implement Flutter's
+  /// `Color`, so the swatch cannot hand it straight to a `BoxDecoration`.
+  Color toFlutter() => Color.fromARGB(
+        (alpha * 255).round(),
+        (red * 255).round(),
+        (green * 255).round(),
+        (blue * 255).round(),
+      );
 }

@@ -325,10 +325,9 @@ class DocumentRowMenu extends ConsumerWidget {
       final doc = await sales.getById(docId);
       final items = await sales.itemsFor(docId);
       if (doc == null) return;
-      final bytes = await InvoicePdf.build(
+      final bytes = await InvoicePdf.forFirm(firm).build(
         invoice: doc,
         items: items,
-        firm: firm,
       );
       final dir = await getApplicationDocumentsDirectory();
       final outDir = Directory(p.join(dir.path, 'atria', 'invoices'));
@@ -354,10 +353,9 @@ class DocumentRowMenu extends ConsumerWidget {
       final items = await sales.itemsFor(docId);
       if (doc == null) return;
       await Printing.layoutPdf(
-        onLayout: (_) async => InvoicePdf.build(
+        onLayout: (_) async => InvoicePdf.forFirm(firm).build(
           invoice: doc,
           items: items,
-          firm: firm,
         ),
       );
     } catch (error) {

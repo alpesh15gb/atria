@@ -1,6 +1,67 @@
 # TODO
 
-## Next
+## The agreed six-phase build (2026-10-04)
+
+Plan: `C:\Users\Administrator\.claude\plans\woolly-pondering-gray.md`.
+**One piece per commit.** Each is verified (analyzer clean, full suite green,
+new tests proven to fail against reverted code) before its commit.
+
+- [x] **Phase 0 — PDF template system.** Shipped. `firms.pdfTemplate` (schema
+      v8), `PdfTemplateStyle` (classic / modern / minimal), `InvoicePdf` is now
+      an instance class reading `style.*`, Firm Settings swatch picker,
+      `test/pdf_template_test.dart` (5). **This is the enabling refactor** —
+      everything below inherits the style system.
+- [ ] **Phase 1 — purchase-side PDFs.** New `PurchasePdf`: bill, purchase order,
+      debit note, payment receipt. `_itemsTable` works verbatim (the item
+      entities are identical); `_totals` needs a **TDS** branch plus
+      `otherCharges`; **`_secondTaxHead` arguments invert** — for a purchase the
+      party is the *supplier* and the firm is the buyer. No UPI QR (the shop is
+      paying, not collecting), no customer terms. Write via
+      `exportRootDirectory()` + `sanitizeFileName` + `exportTimestamp` so
+      Android app-private storage is handled. Then flip the `document_row_menu`
+      gate at `:199` from `_isSalesDoc` to `_isSalesDoc || _isPurchaseDoc` and
+      give `_openPdf`/`_print` the repo switch that `:446` already has.
+- [ ] **Phase 2 — paid / balance due / PAID stamp + a live UPI QR bug.** The QR
+      at `invoice_pdf.dart:637` encodes `invoice.grandTotal`, so a **partially
+      paid** invoice asks the customer for the full amount. Fix to balance due;
+      skip the QR when nothing is outstanding. Amount Paid + Balance Due rows go
+      into the existing local `row(label, value, {emphasize})` helper
+      (`:501-531`).
+- [ ] **Phase 3 — bulk actions.** Extract the 8 hand-rolled confirm dialogs into
+      one `confirmDestructive` first. `SelectionBar` for
+      `AtriaListPage.toolbar`; reuse the selection highlight currently trapped
+      privately in `parties_screen.dart:340-343`. The desktop table hardcodes a
+      `SizedBox(width: 50)` leading slot with fixed flexes in both the header and
+      the totals — a checkbox must be accounted for in all three. Bulk PDF / CSV
+      / delete with Undo. "Select all" means "all loaded" (sales caps at 200) —
+      surface that, do not hide it.
+- [ ] **Phase 4 — quotation lifecycle.** `converted` is a terminal *overwrite*
+      of `status`, which is why one column cannot also express `expired`. Add
+      `convertedToInvoiceId` + `convertedAt`. Collapse `StatusChip.doc` and the
+      hand-rolled `_statusText`/`_statusKindFor` onto one `DocumentStatus` enum
+      so a value cannot be added to one and missed in the other. `expired` is
+      **computed** from the editor's "Valid till", not stored.
+      - **Corrections from the plan review, not yet applied:** `'converted'`
+        rows **cannot** be migrated — the linked invoice id was never stored, so
+        rewriting them re-enables double conversion on real data. Keep
+        `'converted'` as a deprecated `convertedLegacy`. `watchOverdue`'s
+        `!= 'converted'` clause is already dead. `db.assertDateEditable` throws
+        bare `Exception`, not `PeriodLockedException` — pre-existing bug.
+      - `watchList`'s stream cache key must gain the status filter or the filter
+        silently does nothing.
+- [ ] **Phase 5 — optional local PIN + roles.** Off must be indistinguishable
+      from today. Off = no gate, no picker, every permission granted. Enforce in
+      the repositories next to `assertDateEditable`, never in the UI. The gate
+      is a **modal overlay on `MaterialApp.router.builder`**, not a router route
+      — `resolveOnboardingRedirect`'s `refreshListenable` only pulses on
+      `appInitializationProvider`. **`_neverExported` in
+      `settings_repository.dart:155-172` is key-based and `firm_members` has no
+      key column**, so the PIN hash/salt need a column-level strip on export.
+      The `actor` param every repository already takes is always null, so a
+      guard keyed on it is off until Phase 5 gives it a caller.
+      - Copy must not oversell a 4-digit PIN as security.
+
+## Open
 
 - [ ] **Confirm the sync fix against the real server.** The line-item loss is
       fixed and regression-tested against a faithful fake (`ec7df48`), but the

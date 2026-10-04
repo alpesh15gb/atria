@@ -308,6 +308,20 @@ class PurchaseRepository with SyncQueueMixin {
         for (final line in draft.lines) {
           if (line.itemId == null || line.quantity == Money.zero) continue;
           final sign = draft.docType == 'debit_note' ? -1.0 : 1.0;
+          // The cost the goods came in at, on a bill: the line's net taxable
+          // value per unit, taken from the tax engine's own result rather than
+          // re-derived from `rate` — the engine has already apportioned both
+          // the item discount and the invoice discount onto this line, and a
+          // hand-rolled `rate × quantity − discount` is wrong in exactly the
+          // cases `gst_engine.dart:441` documents (₹10 off ₹300 is 0.03, not
+          // 1/30).
+          //
+          // **GST is excluded on purpose.** Input tax credit is money the shop
+          // did not spend and can set off against output tax, so capitalising
+          // it into stock value would inflate every margin by the GST rate. A
+          // debit note (a return to supplier) leaves stock at the running
+          // average instead, and passes nothing.
+          final taxable = result.lineFor(line.id)?.taxableValue;
           await db.stockMovementsInsert(
             firmId,
             line.itemId!,
@@ -317,6 +331,12 @@ class PurchaseRepository with SyncQueueMixin {
             draft.id,
             draft.number,
             draft.billDate,
+            sourceLineId: line.id,
+            unitCost: draft.docType == 'debit_note' || taxable == null
+                ? null
+                : (taxable / line.quantity).toDecimal(
+                    scaleOnInfinitePrecision: 4,
+                  ),
           );
         }
       }
@@ -425,8 +445,21 @@ class PurchaseRepository with SyncQueueMixin {
               kind: kind,
               source: 'purchase_bills',
               sourceId: id,
+              sourceLineId: l.id,
               sourceNumber: bill.number,
               date: bill.billDate,
+              // `taxableValue` is the line's net value — both discounts
+              // already apportioned onto it, GST excluded — so dividing by
+              // quantity is what the goods actually cost the shop per unit.
+              // Using `total` instead would capitalise recoverable input tax
+              // into stock value, which is a figure the shop never paid and
+              // cannot deduct, and every margin built on it would be wrong by
+              // the GST rate.
+              unitCost: l.quantity == 0
+                  ? null
+                  : (Money.of(l.taxableValue) / Money.of(l.quantity)).toDecimal(
+                      scaleOnInfinitePrecision: 4,
+                    ),
             );
           }
         }

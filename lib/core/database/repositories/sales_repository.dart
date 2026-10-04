@@ -6,6 +6,7 @@ import '../../domain/member_role.dart';
 import '../../engine/gst_engine.dart';
 import '../../utils/money.dart';
 import '../app_database.dart';
+import '../costing/moving_average.dart';
 import 'repository_extensions.dart';
 import 'stock_movement_ids.dart';
 import 'sync_mixin.dart';
@@ -464,6 +465,11 @@ class SalesRepository with SyncQueueMixin {
             draft.id,
             draft.number,
             draft.invoiceDate,
+            // A credit note puts stock *back*, and at what cost? At the cost it
+            // left at — which the writer derives from the running average, so
+            // nothing is passed. Passing a value here would value returned goods
+            // at today's cost and make the return's margin wrong.
+            sourceLineId: line.id,
           );
         }
       }
@@ -1185,8 +1191,10 @@ extension StockMovementsInsert on AppDatabase {
     String source,
     String sourceId,
     String sourceNumber,
-    DateTime date,
-  ) async {
+    DateTime date, {
+    String? sourceLineId,
+    Decimal? unitCost,
+  }) async {
     final item =
         await (select(items)
               ..where((t) => t.id.equals(itemId) & t.firmId.equals(firmId)))
@@ -1207,6 +1215,14 @@ extension StockMovementsInsert on AppDatabase {
     await update(items).replace(
       item.copyWith(currentStock: newBalance, updatedAt: DateTime.now()),
     );
+    // What the movement was worth, decided once. An inbound movement takes the
+    // cost its caller supplied (a bill line's net unit cost); an outbound one
+    // takes the running average at this instant, replayed from the log so the
+    // figure does not depend on the order documents happened to be saved in.
+    final stamped = quantity > 0
+        ? (unitCost ?? Money.of(item.purchasePrice))
+        : await _averageCostAt(firmId, itemId, date) ??
+              Money.of(item.purchasePrice);
     final movementId = newStockMovementId();
     await into(stockMovements).insert(
       StockMovementsCompanion.insert(
@@ -1216,8 +1232,10 @@ extension StockMovementsInsert on AppDatabase {
         kind: kind,
         quantity: quantity,
         balanceAfter: Value(newBalance),
+        unitCost: Value(stamped.toDouble()),
         source: source,
         sourceId: Value(sourceId),
+        sourceLineId: Value(sourceLineId),
         sourceNumber: Value(sourceNumber),
         date: date,
       ),
@@ -1232,6 +1250,73 @@ extension StockMovementsInsert on AppDatabase {
       entityId: movementId,
       operation: 'insert',
     );
+  }
+
+  /// Posts the equal-and-opposite of every movement [sourceId] recorded, so a
+  /// document being rewritten lands at the net effect of its new lines rather
+  /// than its old lines plus its new ones.
+  ///
+  /// Two rules keep the ledger from growing on every cycle:
+  ///
+  /// 1. **Reversal rows are never reversed again.** They carry the same
+  ///    `sourceId` as the movement they undo, so the query used to match them
+  ///    too and post the opposite of each — net stock stayed right while the
+  ///    table doubled per call (2^n phantom rows for one document after n
+  ///    edit/delete cycles), in the table the code itself calls "the stock
+  ///    ledger of record".
+  /// 2. **A movement is reversed at most once**, enforced by
+  ///    [_stockReversalId] (see above). Without it, skipping rule 1 alone
+  ///    would still leave one orphan reversal per call.
+  ///
+  /// Migration: the `notes = 'reversal'` marker has been written since the
+  /// reversal path was introduced, so existing rows are recognised by rule 1
+  /// and stay excluded — the doubling stops immediately. Rows written by the
+  /// *old* code carry random ids, so they cannot be paired with the movement
+  /// they undo after the fact; they are left in place (they net to zero
+  /// against their originals, so deleting them would double the reversal)
+  /// and only stop multiplying. A firm that wants a clean ledger purges the
+  /// affected documents, which is the one operation that rewrites it.
+  /// The moving-average cost of [itemId] as at [moment], or null when it is
+  /// undefined (an item that has never been bought).
+  ///
+  /// Replays the item's whole log rather than reading a cached running average:
+  /// the cache would be one document edit, conversion or soft-delete away from
+  /// being wrong, and a wrong cost here is a wrong margin in every report
+  /// built on it.
+  ///
+  /// Ordered by `date, id` — the id is a monotonic counter, so two movements
+  /// written in the same microsecond still have a defined order, and the
+  /// average depends on which came first.
+  Future<Decimal?> _averageCostAt(
+    String firmId,
+    String itemId,
+    DateTime moment,
+  ) async {
+    final rows =
+        await (select(stockMovements)
+              ..where((t) => t.firmId.equals(firmId) & t.itemId.equals(itemId))
+              ..orderBy([
+                (t) => OrderingTerm.asc(t.date),
+                (t) => OrderingTerm.asc(t.id),
+              ]))
+            .get();
+
+    var costing = MovingAverageCosting.initial();
+    for (final row in rows) {
+      // Everything at or before `moment` is history. A row sharing the exact
+      // timestamp counts — the new movement is appended behind it.
+      if (row.date.isAfter(moment)) break;
+      final (next, _) = costing.apply(
+        CostedMovement(
+          id: row.id,
+          kind: row.kind,
+          quantity: row.quantity,
+          unitCost: Money.of(row.unitCost),
+        ),
+      );
+      costing = next;
+    }
+    return costing.average;
   }
 
   /// Posts the equal-and-opposite of every movement [sourceId] recorded, so a
@@ -1295,8 +1380,16 @@ extension StockMovementsInsert on AppDatabase {
           kind: m.kind,
           quantity: -m.quantity,
           balanceAfter: Value(newBalance),
+          // The reversal undoes a movement at the cost *that* movement was
+          // recorded at, not at today's average. Re-valuing it here would make
+          // the pair asymmetric — the original removed value at one price and
+          // the reversal put it back at another — so the two would never net
+          // to zero, and every edit would leak cost into the valuation.
+          unitCost: Value(m.unitCost),
           source: m.source,
           sourceId: Value(sourceId),
+          sourceLineId: Value(m.sourceLineId),
+          godownId: Value(m.godownId),
           sourceNumber: Value(m.sourceNumber),
           // Reversals are bookkeeping events, not transactions: date them at
           // the original movement's date so the ledger stays chronologically

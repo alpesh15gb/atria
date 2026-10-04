@@ -27,45 +27,53 @@ final Provider<AppDatabase> appDatabaseProvider = Provider((ref) {
   return db;
 });
 
-final Provider<SettingsRepository> settingsRepositoryProvider =
-    Provider((ref) => SettingsRepository(ref.read(appDatabaseProvider)));
+final Provider<SettingsRepository> settingsRepositoryProvider = Provider(
+  (ref) => SettingsRepository(ref.read(appDatabaseProvider)),
+);
 
 /// Where the app talks to the Apex Books server, and this install's identity.
-final Provider<ApiConfig> apiConfigProvider =
-    Provider((ref) => ApiConfig(ref.read(settingsRepositoryProvider)));
+final Provider<ApiConfig> apiConfigProvider = Provider(
+  (ref) => ApiConfig(ref.read(settingsRepositoryProvider)),
+);
 
 /// This install's Apex Books session. Not signed in is the normal state today —
 /// sign-in is not built yet — so callers must handle a null [SignedIn] rather
 /// than assume one. See [ServerSession].
-final Provider<ServerSession> serverSessionProvider =
-    Provider((ref) => ServerSession(ref.read(settingsRepositoryProvider)));
+final Provider<ServerSession> serverSessionProvider = Provider(
+  (ref) => ServerSession(ref.read(settingsRepositoryProvider)),
+);
 
 /// The API client for everything that is not sign-in.
-final Provider<ServerClient> serverClientProvider =
-    Provider((ref) => ServerClient(ref.read(apiConfigProvider)));
+final Provider<ServerClient> serverClientProvider = Provider(
+  (ref) => ServerClient(ref.read(apiConfigProvider)),
+);
 
 /// Sign-up, sign-in, refresh and sign-out.
-final Provider<AuthClient> authClientProvider =
-    Provider((ref) => AuthClient(ref.read(apiConfigProvider)));
+final Provider<AuthClient> authClientProvider = Provider(
+  (ref) => AuthClient(ref.read(apiConfigProvider)),
+);
 
 /// This device's session, kept alive across launches. Everything that needs a
 /// token reads it through this rather than through the settings rows, so token
 /// renewal happens in one place instead of at every call site.
-final authControllerProvider =
-    StateNotifierProvider<AuthController, AuthState>((ref) {
-  return AuthController(
-    ref.read(serverSessionProvider),
-    ref.read(authClientProvider),
-  );
-});
+final authControllerProvider = StateNotifierProvider<AuthController, AuthState>(
+  (ref) {
+    return AuthController(
+      ref.read(serverSessionProvider),
+      ref.read(authClientProvider),
+    );
+  },
+);
 
 /// The change-journal endpoint (sync push).
-final Provider<SyncClient> syncClientProvider =
-    Provider((ref) => SyncClient(ref.read(apiConfigProvider)));
+final Provider<SyncClient> syncClientProvider = Provider(
+  (ref) => SyncClient(ref.read(apiConfigProvider)),
+);
 
 /// The server's bill-scan endpoint (purchase OCR via the VPS).
-final Provider<ScanClient> scanClientProvider =
-    Provider((ref) => ScanClient(ref.read(apiConfigProvider)));
+final Provider<ScanClient> scanClientProvider = Provider(
+  (ref) => ScanClient(ref.read(apiConfigProvider)),
+);
 
 /// Drains the outbox. Holds no state of its own — a run is a call, and what it
 /// did is reported back to whoever asked.
@@ -108,8 +116,7 @@ final itemMovementSignalProvider = StreamProvider<void>((ref) async* {
 final syncStatusProvider = StreamProvider<SyncStatus>((ref) async* {
   final engine = ref.read(syncEngineProvider);
   final settings = ref.read(settingsRepositoryProvider);
-  yield* _coalesceOutboxChanges(engine.watchPendingCount())
-      .asyncMap((_) async {
+  yield* _coalesceOutboxChanges(engine.watchPendingCount()).asyncMap((_) async {
     // Both stamps are kept: a push can succeed while the pull failed (the
     // directions are independent), and "last synced" should only claim a full
     // round trip when both directions completed.
@@ -117,10 +124,12 @@ final syncStatusProvider = StreamProvider<SyncStatus>((ref) async* {
     final rawSynced = await settings.get(SettingsRepository.kSyncLastSyncedAt);
     return SyncStatus(
       pending: await engine.pendingCount(),
-      lastPushedAt:
-          rawPushed == null ? null : DateTime.tryParse(rawPushed)?.toLocal(),
-      lastSyncedAt:
-          rawSynced == null ? null : DateTime.tryParse(rawSynced)?.toLocal(),
+      lastPushedAt: rawPushed == null
+          ? null
+          : DateTime.tryParse(rawPushed)?.toLocal(),
+      lastSyncedAt: rawSynced == null
+          ? null
+          : DateTime.tryParse(rawSynced)?.toLocal(),
     );
   });
 });
@@ -128,8 +137,10 @@ final syncStatusProvider = StreamProvider<SyncStatus>((ref) async* {
 /// Passes the first outbox event through at once, then only after [quiet] has
 /// passed without another, so a shop billing fifty invoices in a row produces
 /// one re-read at the end of the burst rather than fifty.
-Stream<void> _coalesceOutboxChanges(Stream<int> pending,
-    {Duration quiet = const Duration(seconds: 1)}) {
+Stream<void> _coalesceOutboxChanges(
+  Stream<int> pending, {
+  Duration quiet = const Duration(seconds: 1),
+}) {
   final controller = StreamController<void>.broadcast();
   Timer? timer;
   var first = true;
@@ -155,7 +166,11 @@ Stream<void> _coalesceOutboxChanges(Stream<int> pending,
 
 /// What the settings screen shows about sync.
 class SyncStatus {
-  const SyncStatus({required this.pending, this.lastPushedAt, this.lastSyncedAt});
+  const SyncStatus({
+    required this.pending,
+    this.lastPushedAt,
+    this.lastSyncedAt,
+  });
 
   /// Changes waiting to be sent.
   final int pending;
@@ -169,10 +184,12 @@ class SyncStatus {
 }
 
 final backupRepositoryProvider = Provider(
-    (ref) => BackupRepository(ref.read(appDatabaseProvider)));
+  (ref) => BackupRepository(ref.read(appDatabaseProvider)),
+);
 
 final auditRepositoryProvider = Provider(
-    (ref) => AuditRepository(ref.read(appDatabaseProvider)));
+  (ref) => AuditRepository(ref.read(appDatabaseProvider)),
+);
 
 /// Period lock for the ACTIVE firm. Watched so UI can react to lock/unlock.
 final periodLockProvider = Provider((ref) {
@@ -186,7 +203,8 @@ final booksLockedUptoProvider = FutureProvider<DateTime?>((ref) async {
 });
 
 final firmRepositoryProvider = Provider(
-    (ref) => ref.read(appDatabaseProvider).firmRepository);
+  (ref) => ref.read(appDatabaseProvider).firmRepository,
+);
 
 // ---- Active firm ----
 
@@ -296,11 +314,11 @@ class ActiveFirmController extends StateNotifier<String?> {
 
 final activeFirmIdProvider =
     StateNotifierProvider<ActiveFirmController, String?>((ref) {
-  return ActiveFirmController(
-    ref.read(settingsRepositoryProvider),
-    ref.read(firmRepositoryProvider),
-  );
-});
+      return ActiveFirmController(
+        ref.read(settingsRepositoryProvider),
+        ref.read(firmRepositoryProvider),
+      );
+    });
 
 /// The currently active firm entity (reactive).
 final activeFirmProvider = StreamProvider<FirmEntity?>((ref) async* {
@@ -387,6 +405,22 @@ final ensureChartProvider = FutureProvider<int>((ref) async {
   return repo.ensureChart();
 });
 
+/// Replays the stock ledger to stamp every movement with the cost it should
+/// have carried, and reports how many rows it rewrote.
+///
+/// Not a migration, because a migration cannot do it honestly: the cost of a
+/// purchase is on the bill line, not on the movement, and joining the two needs
+/// the model layer. Left undone, every item-profit report reads the cost of
+/// sales as zero and the shop looks like it makes pure profit on everything.
+///
+/// Idempotent and cheap when there is nothing to do — a second call rewrites
+/// no rows — so watching it from more than one place is safe.
+final backfillUnitCostsProvider = FutureProvider<int>((ref) async {
+  final repo = ref.watch(itemRepositoryProvider);
+  if (repo == null) return 0;
+  return repo.backfillUnitCosts();
+});
+
 /// The whole chart, archived accounts included — the screen decides which to
 /// show, so filtering happens in the UI without a second query.
 final chartOfAccountsProvider = StreamProvider<List<AccountEntity>>((ref) {
@@ -404,11 +438,7 @@ final journalsProvider = StreamProvider<List<JournalEntryEntity>>((ref) {
 /// Cash in hand, bank balances and cheques in hand — the Payments screen's
 /// three cards, read from the ledger rather than re-derived from payments.
 class CashBankBalances {
-  const CashBankBalances({
-    this.cash = 0,
-    this.bank = 0,
-    this.cheques = 0,
-  });
+  const CashBankBalances({this.cash = 0, this.bank = 0, this.cheques = 0});
 
   final double cash;
   final double bank;
@@ -422,8 +452,9 @@ class CashBankBalances {
 /// place. Summing the payment rows alone disagrees with the books by every
 /// amount that left the till another way — a cash expense, an income receipt,
 /// a hand-keyed voucher — and the two would drift apart forever after.
-final cashBankBalancesProvider =
-    StreamProvider.autoDispose<CashBankBalances>((ref) async* {
+final cashBankBalancesProvider = StreamProvider.autoDispose<CashBankBalances>((
+  ref,
+) async* {
   final repo = ref.watch(ledgerRepositoryProvider);
   if (repo == null) {
     yield const CashBankBalances();
@@ -476,16 +507,17 @@ class ThemeModeController extends StateNotifier<ThemeMode> {
     final value = mode == ThemeMode.light
         ? 'light'
         : mode == ThemeMode.dark
-            ? 'dark'
-            : 'system';
+        ? 'dark'
+        : 'system';
     await _settings.set(SettingsRepository.kThemeMode, value);
   }
 }
 
-final themeModeProvider =
-    StateNotifierProvider<ThemeModeController, ThemeMode>((ref) {
-  return ThemeModeController(ref.read(settingsRepositoryProvider));
-});
+final themeModeProvider = StateNotifierProvider<ThemeModeController, ThemeMode>(
+  (ref) {
+    return ThemeModeController(ref.read(settingsRepositoryProvider));
+  },
+);
 
 // ---- Onboarding flags ----
 
@@ -517,7 +549,9 @@ class OnboardingController extends StateNotifier<bool> {
   Future<void> _init() async {
     try {
       initError = null;
-      final persisted = await _settings.getBool(SettingsRepository.kOnboardingDone);
+      final persisted = await _settings.getBool(
+        SettingsRepository.kOnboardingDone,
+      );
       // A complete() that raced this load wins: it flips the flag for a user
       // action that has already happened, while this load only reports what a
       // previous run persisted. Letting the stale read overwrite the flip
@@ -544,8 +578,8 @@ class OnboardingController extends StateNotifier<bool> {
 
 final onboardingDoneProvider =
     StateNotifierProvider<OnboardingController, bool>((ref) {
-  return OnboardingController(ref.read(settingsRepositoryProvider));
-});
+      return OnboardingController(ref.read(settingsRepositoryProvider));
+    });
 
 /// Blocks the router from rendering until the persisted onboarding flag and
 /// active firm have loaded, so the redirect never decides on cold-start data.
@@ -568,12 +602,14 @@ final seededDemoProvider = FutureProvider<bool>((ref) async {
 // ---- Label printers ----
 
 final printerRegistryProvider = Provider<PrinterRegistry>(
-    (ref) => PrinterRegistry(ref.read(appDatabaseProvider)));
+  (ref) => PrinterRegistry(ref.read(appDatabaseProvider)),
+);
 
 /// The configured printers. Invalidated after every change rather than mutated
 /// in place, so the list and the default can never disagree about what exists.
 final printersProvider = FutureProvider<List<PrinterProfile>>(
-    (ref) => ref.read(printerRegistryProvider).all());
+  (ref) => ref.read(printerRegistryProvider).all(),
+);
 
 /// The printer the print buttons use. Watches [printersProvider] so removing
 /// the current default immediately promotes the replacement here too.

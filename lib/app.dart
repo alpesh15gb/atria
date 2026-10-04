@@ -39,6 +39,7 @@ class _AtriaAppState extends ConsumerState<AtriaApp>
     // user and their first screen, however slow the network is.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _seedChart();
+      _backfillCosting();
       _drainOutbox();
       _startAutoSync();
     });
@@ -137,6 +138,21 @@ class _AtriaAppState extends ConsumerState<AtriaApp>
     } on Object {
       // A chart that failed to seed must not stop the app from opening: the
       // ledger screens report it, and every report retries the seed.
+    }
+  }
+
+  /// Stamps the cost onto stock movements written before costing existed.
+  ///
+  /// At launch for the same reason as the chart: it is a write, and a screen
+  /// that writes by being opened leaves a transaction in flight whenever it is
+  /// disposed mid-write. Best-effort — a backfill that fails must not stop the
+  /// app opening, and the next launch retries it.
+  Future<void> _backfillCosting() async {
+    try {
+      await ref.read(backfillUnitCostsProvider.future);
+    } on Object {
+      // Un-costed history is wrong but not broken: the reports say so, and the
+      // next launch tries again.
     }
   }
 

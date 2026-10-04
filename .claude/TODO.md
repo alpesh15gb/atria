@@ -2,6 +2,26 @@
 
 ## Next
 
+- [ ] **Find why a saved purchase bill can reopen with no line rows.** The
+      "Edit Purchase Bill" screenshot showed the header loaded with one blank
+      line — the grid's empty state, so `_prefill` got zero items. The editor
+      is now proven good (`test/purchase_editor_saved_lines_test.dart` passes at
+      both widths, and fails when `_prefill` is emptied), and so is the
+      repository round-trip. **Unverified hypothesis:** the bill was created on
+      another device and pulled with its lines dropped. Check whether
+      `PRAGMA foreign_keys=ON` rejected an orphan during a pull — it is ON in
+      production and OFF in the in-memory test DB, which is why no test catches
+      this class — and whether `PullApplier._applyOne` swallowed it (it counts
+      the change `skipped` and advances the cursor regardless, so a single FK
+      orphan is lost permanently and invisibly). Ask the user whether that bill
+      was created on another device before going further; everything else is
+      ruled out. Full write-up in `.claude/STATE.md`.
+- [ ] **HIGH — `UnsavedGuard` is dead on both nav rails.** `adaptive_nav_shell`
+      calls `context.go(entry.route)` at :588 and :634; `go` bypasses
+      `PopScope`, so a rail click leaves a half-typed invoice with no prompt and
+      no guard. All 8 guarded editors affected. Needs `canPop` consulted before
+      navigating (or `goBranch` semantics matched to `PopScope`).
+
 - [ ] **MEDIUM — editing a payment breaks the cheque-state invariant.**
       `payments_screen.dart` ~845–867 keeps `chequeStatus` when the mode
       changes: cheque→cash leaves a stale `pending`/`cleared` on a cash

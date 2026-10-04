@@ -1,6 +1,105 @@
 # Project State
 
-_Last updated: 2026-10-03 (go-live verification: two more real bugs found + fixed)_
+_Last updated: 2026-10-04 (Android "items don't render": one cause fixed, one ruled out)_
+
+## 2026-10-04: the Android items bug — what was fixed, what was ruled out
+
+The report was *"in windows items render but in android items doesnt render in
+already saved bill and estimate just the column"*. That is **two** symptoms, and
+they have different answers.
+
+### Fixed: "just the column" on a saved invoice/estimate (`6e01476`)
+
+`sale_detail_screen.dart`'s Items card was the only place in the app that did
+not use `AtriaLineGrid` — it built a `DataTable` inside a horizontal
+`SingleChildScrollView`. Nine columns need ~800dp; a 360dp phone shows the Item
+column and pushes every rupee figure off-screen. A desktop window fits the whole
+table, which is exactly why this only ever appeared on Android.
+
+It now renders through `AtriaLineGrid` (sheet when wide, labelled card per line
+when narrow). Note the widget choice alone was *not* the fix — see "the test that
+did not prove anything" below.
+
+Mounting the screen at 360px then surfaced **four pre-existing RenderFlex
+overflows**, none in the items card:
+
+- the balance-due strip, the grand-total row and every `_AmountBreakdown` line
+  were `Row` + `Text` pairs that did not fit ~294dp;
+- the payment Mode `DropdownButtonFormField` had no `isExpanded`, so it laid its
+  label out at natural width inside a 119px field.
+
+Money now goes through `MoneyText(shrinkToFit: true)`, which scales a figure down
+rather than truncating it — `TextOverflow.ellipsis` on an amount turns
+`₹1,23,456.00` into `₹1,23,45…`, and a books app cannot lose a digit to a width
+problem. `scaleDown` never grows a figure, so desktop is unchanged.
+
+### Ruled out: the purchase editor's blank line
+
+The screenshot showed "Edit Purchase Bill" with the header loaded but one empty
+line row (qty 1, no name, ₹0.00). A default `_LineState` is exactly quantity `1`
+with an empty rate — so that row was the grid's empty state, meaning `_prefill`
+was handed **zero** items.
+
+Checked and eliminated, in order:
+
+1. **`save()` not deleting old lines on edit** — I claimed this earlier and was
+   wrong. `purchase_repository.dart:194-199` does hard-delete the old
+   `purchaseBillItems` rows for the bill. Duplicates are not possible.
+2. **`itemsFor`'s `is_deleted = 0` filter** — correct; save writes `isDeleted`
+   false.
+3. **The repository round-trip** — a throwaway test saved a two-line bill,
+   re-saved it with a changed rate, and reloaded: both lines present, one raw
+   row, `is_deleted` false. The repository is sound.
+4. **The editor's reload** — `test/purchase_editor_saved_lines_test.dart` now
+   mounts the real `PurchaseEditorScreen(editId:)` over a real saved bill at
+   1680px **and** 360px and asserts both line names and both HSNs render. It
+   passes. Verified to have teeth by emptying `_prefill`'s loop, which fails both
+   cases. **The editor is not the bug.**
+
+Also considered and eliminated on inspection: `applyEntity` writes every field
+(name/HSN/qty/rate/discount/GST) correctly, and the derived getters parse via
+`Money.tryParse`, which handles Indian grouping.
+
+**So the blank line means the bill genuinely has no `purchase_bill_items` rows.**
+The leading remaining hypothesis is a bill created on one device and pulled to
+another with its lines lost. The obvious mechanism — `purchase_bill_items`
+arriving before `purchase_bills` and hitting the `REFERENCES purchase_bills(id)`
+foreign key — was checked and is *not* it: `_nextBatch` sorts every batch by
+`journalOrder` so parents always lead, and that ordering is what the comment at
+`sync_engine.dart:711-714` documents. **Unverified**, and the thing to check
+next: whether the affected bill was created on another device, and whether
+`PRAGMA foreign_keys=ON` (on in production, *off* in the in-memory test DB —
+which is why no test catches FK-ordering bugs) rejected anything during a pull.
+`PullApplier._applyOne` catches a failing child, counts it `skipped`, and the
+cursor advances regardless, so a single FK orphan is dropped permanently and
+invisibly. That is the shape of the bug, not proof of it.
+
+### The test that did not prove anything
+
+Worth recording, because it nearly shipped. The phone test first asserted that
+no `Text` inside the grid sat outside the 360px window — which is precisely the
+`DataTable` bug. Reverting the fix to force the wide sheet made it **pass**.
+Reason: `_Sheet` is a `Row` of flex cells inside a bounded parent, so at 360px
+it *squeezes* its columns rather than overflowing them. "Nothing off-screen" is a
+real invariant worth keeping, but it does not detect a squeezed table. The test
+was only validated against the genuine original: `git checkout HEAD --
+sale_detail_screen.dart` fails it with `Found 0 widgets with type
+"AtriaLineGrid"`. Verify a revert landed by checking the failure changed.
+
+### Also fixed earlier this session (`7688242`)
+
+Three silent sync failures: a re-journal id that collided with the server's
+`change_id` primary key (a second repair healed nothing), a poison row that
+blocked the whole head-of-queue drain for ever, and `journal_lines` re-journalled
+under a voided voucher. Plus a firm-scoped `_hardDelete`.
+
+### Still open
+
+- `UnsavedGuard` is dead on both nav rails (`context.go` bypasses `PopScope`) —
+  HIGH, an in-progress invoice is lost to a rail click. All 8 guarded editors.
+- Invoice line rate/discount have no validator, so a ₹0 line can be saved.
+- The invoice does not foot; CGST/SGST halves display over.
+- Non-atomic page apply in `pull_applier.dart:128-142` loses rows permanently.
 
 ## 2026-10-03: "are we ready to go live?" — verification pass
 

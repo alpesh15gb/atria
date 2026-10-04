@@ -1,11 +1,10 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:atria/core/database/app_database.dart';
 import 'package:atria/core/services/purchase_pdf.dart';
 import 'package:drift/drift.dart' hide isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'helpers/rendered_text.dart';
 
 /// A purchase bill is what input tax credit is claimed against, and under
 /// reverse charge it is the evidence that the supplier owes the tax. None of it
@@ -116,39 +115,6 @@ void main() {
           ));
     }
     return items;
-  }
-
-  /// Every string the PDF actually paints, in page order.
-  ///
-  /// dart_pdf writes text as `[(word)]TJ` inside a content stream that is
-  /// Flate-compressed, so the text is not greppable in the file itself.
-  Future<String> renderedText(List<int> bytes) async {
-    final raw = bytes;
-    final streams = <String>[];
-    final text = String.fromCharCodes(raw);
-    final pattern = RegExp(r'stream\r?\n');
-    for (final match in pattern.allMatches(text)) {
-      final start = match.end;
-      final end = text.indexOf('endstream', start);
-      if (end < 0) continue;
-      // Content streams are the only ones that inflate; font files do not.
-      try {
-        streams.add(_inflate(raw.sublist(start, end)));
-      } catch (_) {
-        continue;
-      }
-    }
-    final buffer = StringBuffer();
-    for (final stream in streams) {
-      for (final t in RegExp(r'\[\((.*?)\)\]TJ').allMatches(stream)) {
-        buffer.write(t
-            .group(1)!
-            .replaceAll(r'\(', '(')
-            .replaceAll(r'\)', ')'));
-        buffer.write(' ');
-      }
-    }
-    return buffer.toString();
   }
 
   test('a purchase bill prints its lines, its supplier and its total',
@@ -353,7 +319,3 @@ void main() {
     expect(bytes.length, lessThan(200000));
   });
 }
-
-/// Flate-decodes one PDF stream.
-String _inflate(List<int> compressed) =>
-    utf8.decode(ZLibCodec(level: 6).decode(compressed), allowMalformed: true);

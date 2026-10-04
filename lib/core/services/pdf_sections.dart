@@ -160,7 +160,17 @@ abstract class PdfSections {
   }
 
   /// The coloured band across the top of every page.
-  pw.Widget header({required String title, required String number}) {
+  ///
+  /// [stamp] is an optional short badge under the document number — "PAID IN
+  /// FULL" on a settled invoice. It lives here rather than in `invoice_pdf.dart`
+  /// because a paid purchase bill wants the same mark, and a stamp implemented
+  /// once per builder is a stamp that ends up on one kind of document and not
+  /// the other.
+  pw.Widget header({
+    required String title,
+    required String number,
+    String? stamp,
+  }) {
     return pw.Container(
       decoration: pw.BoxDecoration(
         // `modern` fills the whole heading rather than shading it, so the two
@@ -254,6 +264,26 @@ abstract class PdfSections {
                     color: style.ink,
                   ),
                 ),
+                if (stamp != null) ...[
+                  pw.SizedBox(height: 6),
+                  pw.Container(
+                    padding: const pw.EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 3),
+                    decoration: pw.BoxDecoration(
+                      color: style.brandDeep,
+                      borderRadius: pw.BorderRadius.circular(3),
+                    ),
+                    child: pw.Text(
+                      stamp,
+                      style: pw.TextStyle(
+                        fontSize: 8.4,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.white,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -539,10 +569,16 @@ abstract class PdfSections {
   /// The label is a parameter rather than the word "GRAND TOTAL" because a
   /// purchase bill's bottom line is a liability, not a sale, and a receipt has
   /// no total block at all.
+  ///
+  /// [afterGrand] prints below the grand-total band. Amount Paid and Balance
+  /// Due belong there: they are what has happened *to* the total, not part of
+  /// the arithmetic that arrived at it, and a reader scanning the column would
+  /// otherwise add them to the subtotal.
   pw.Widget totalsTable(
     List<PdfTotalRow> rows, {
     required String grandLabel,
     required String grandTotal,
+    List<PdfTotalRow> afterGrand = const [],
   }) {
     return pw.Table(
       columnWidths: {
@@ -550,38 +586,7 @@ abstract class PdfSections {
         1: const pw.FixedColumnWidth(108),
       },
       children: [
-        for (final row in rows)
-          pw.TableRow(
-            children: [
-              pw.Padding(
-                padding: const pw.EdgeInsets.symmetric(vertical: 3),
-                child: pw.Text(
-                  row.label,
-                  style: pw.TextStyle(
-                    fontSize: 9.2,
-                    color: row.emphasize ? style.ink : style.inkSoft,
-                    fontWeight: row.emphasize
-                        ? pw.FontWeight.bold
-                        : pw.FontWeight.normal,
-                  ),
-                ),
-              ),
-              pw.Padding(
-                padding: const pw.EdgeInsets.symmetric(vertical: 3),
-                child: pw.Text(
-                  row.value,
-                  textAlign: pw.TextAlign.right,
-                  style: pw.TextStyle(
-                    fontSize: 9.2,
-                    color: row.emphasize ? style.brandDeep : style.ink,
-                    fontWeight: row.emphasize
-                        ? pw.FontWeight.bold
-                        : pw.FontWeight.normal,
-                  ),
-                ),
-              ),
-            ],
-          ),
+        for (final row in rows) _totalRow(row),
         pw.TableRow(
           decoration: pw.BoxDecoration(color: style.accentBand),
           children: [
@@ -612,9 +617,40 @@ abstract class PdfSections {
             ),
           ],
         ),
+        for (final row in afterGrand) _totalRow(row),
       ],
     );
   }
+
+  pw.TableRow _totalRow(PdfTotalRow row) => pw.TableRow(
+        children: [
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(vertical: 3),
+            child: pw.Text(
+              row.label,
+              style: pw.TextStyle(
+                fontSize: 9.2,
+                color: row.emphasize ? style.ink : style.inkSoft,
+                fontWeight:
+                    row.emphasize ? pw.FontWeight.bold : pw.FontWeight.normal,
+              ),
+            ),
+          ),
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(vertical: 3),
+            child: pw.Text(
+              row.value,
+              textAlign: pw.TextAlign.right,
+              style: pw.TextStyle(
+                fontSize: 9.2,
+                color: row.emphasize ? style.brandDeep : style.ink,
+                fontWeight:
+                    row.emphasize ? pw.FontWeight.bold : pw.FontWeight.normal,
+              ),
+            ),
+          ),
+        ],
+      );
 
   // ---- Text blocks -------------------------------------------------------
 

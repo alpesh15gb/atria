@@ -64,6 +64,7 @@ class PurchasePdf extends PdfSections {
             header(
               title: _docTitles[bill.docType] ?? 'PURCHASE BILL',
               number: bill.number,
+              stamp: bill.docType == 'bill' ? _stamp(bill) : null,
             ),
             pw.Padding(
               padding: gutterPadding(),
@@ -275,6 +276,15 @@ class PurchasePdf extends PdfSections {
     return value[0].toUpperCase() + value.substring(1);
   }
 
+  /// A purchase order is never paid — the bill raised against it is. So the
+  /// stamp belongs to bills only, and only once money has actually gone out.
+  String? _stamp(PurchaseBillEntity bill) {
+    if (bill.status == 'cancelled') return 'CANCELLED';
+    if (bill.paidAmount <= 0.001) return null;
+    if (bill.balanceDue > 0.001) return null;
+    return 'PAID IN FULL';
+  }
+
   // ---- Tax ---------------------------------------------------------------
 
   /// The second intra-state tax column, resolved for a *purchase*.
@@ -367,7 +377,28 @@ class PurchasePdf extends PdfSections {
       rows,
       grandLabel: 'TOTAL PAYABLE',
       grandTotal: Formatters.money(dec(bill.grandTotal)),
+      afterGrand: _settlement(bill),
     );
+  }
+
+  /// What the firm has already paid the supplier, under the payable total.
+  ///
+  /// The same two lines the sales invoice prints, and for the same reason: a
+  /// bill sitting half-settled with no figure for what has gone out is the
+  /// document the supplier's accountant reconciles against and cannot.
+  List<PdfTotalRow> _settlement(PurchaseBillEntity bill) {
+    final rows = <PdfTotalRow>[];
+    if (bill.paidAmount.abs() > 0.001) {
+      rows.add(PdfTotalRow('Amount Paid', Formatters.money(dec(bill.paidAmount))));
+    }
+    if (bill.balanceDue > 0.001) {
+      rows.add(PdfTotalRow(
+        'Balance Due',
+        Formatters.money(dec(bill.balanceDue)),
+        emphasize: true,
+      ));
+    }
+    return rows;
   }
 
   /// The two facts about a purchase that change what the reader owes and

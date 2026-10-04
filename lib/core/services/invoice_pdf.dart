@@ -69,6 +69,7 @@ class InvoicePdf extends PdfSections {
             header(
               title: _docTitles[invoice.docType] ?? 'INVOICE',
               number: invoice.number,
+              stamp: isInvoice ? _stamp(invoice) : null,
             ),
             pw.Padding(
               padding: gutterPadding(),
@@ -196,7 +197,75 @@ class InvoicePdf extends PdfSections {
       rows,
       grandLabel: 'GRAND TOTAL',
       grandTotal: Formatters.money(dec(invoice.grandTotal)),
+      afterGrand: _settlement(invoice),
     );
+  }
+
+  /// Only an invoice carries a balance. A quotation, an order and a delivery
+  /// note are all stored with `DocumentSettlement.settled` — a ₹0 balance and a
+  /// `paid` status — because the bill raised against them is the payable one.
+  /// Printing their settlement would read as "Amount Paid ₹0.00, Balance Due
+  /// ₹0.00" next to a grand total of ₹2,000, which is a different wrong.
+  bool _isCollectable(SalesInvoiceEntity invoice) =>
+      invoice.docType == 'invoice';
+
+  /// What the UPI QR on this document should ask for, or null when it should not
+  /// carry one at all.
+  ///
+  /// The QR asks for what is *owed*, not what the invoice was worth. It used to
+  /// encode the grand total, so a customer paying off the last ₹2,000 of a
+  /// ₹5,000 bill scanned a request for the full ₹5,000 — and paying it meant
+  /// handing over the money twice or getting change back, neither of which
+  /// reads as the app's fault at the counter.
+  ///
+  /// Public and named because the amount encoded in a QR that is drawn as a
+  /// grid of rectangles cannot be asserted on from the finished file; the
+  /// decision, not the raster, is what has to be right.
+  String? collectableAmount(SalesInvoiceEntity invoice) {
+    if (!_isCollectable(invoice)) return null;
+    if (invoice.balanceDue <= 0.001) return null;
+    return invoice.balanceDue.toStringAsFixed(2);
+  }
+
+  /// What has been settled against the invoice, printed under the grand total.
+  ///
+  /// The balance prints whenever there is one, even when it equals the grand
+  /// total: "Balance Due ₹5,000" is the line the customer is looking for.
+  /// "Amount Paid ₹0.00" against nothing is noise dressed as information, so
+  /// it stays off. A settled invoice prints neither and says so in the header
+  /// stamp instead.
+  List<PdfTotalRow> _settlement(SalesInvoiceEntity invoice) {
+    if (!_isCollectable(invoice)) return const [];
+    // A cancelled invoice's balance is zeroed by the cancel path so ageing
+    // stops counting it — that is a bookkeeping fact, not a settlement, and
+    // must not print as one.
+    if (invoice.status == 'cancelled') return const [];
+
+    final rows = <PdfTotalRow>[];
+    if (invoice.paidAmount.abs() > 0.001) {
+      rows.add(
+          PdfTotalRow('Amount Paid', Formatters.money(dec(invoice.paidAmount))));
+    }
+    if (invoice.balanceDue > 0.001) {
+      rows.add(PdfTotalRow(
+        'Balance Due',
+        Formatters.money(dec(invoice.balanceDue)),
+        emphasize: true,
+      ));
+    }
+    return rows;
+  }
+
+  /// The one badge this document earns.
+  String? _stamp(SalesInvoiceEntity invoice) {
+    if (!_isCollectable(invoice)) return null;
+    if (invoice.status == 'cancelled') return 'CANCELLED';
+    // Money must actually have arrived. A zero-total invoice balances itself
+    // without being paid, and calling that PAID IN FULL would be a lie about a
+    // document nobody sent money against.
+    if (invoice.paidAmount <= 0.001) return null;
+    if (invoice.balanceDue > 0.001) return null;
+    return 'PAID IN FULL';
   }
 
   pw.Widget _wordsAndBank(SalesInvoiceEntity invoice) {
@@ -204,16 +273,21 @@ class InvoicePdf extends PdfSections {
         NumberToWords.indianCurrency(invoice.grandTotal, prefix: 'Rupees');
     // Only invoices (not quotes) get the collect-request QR — a quotation is
     // not yet payable, and a QR on it invites payment before there is a bill.
-    final isCollectable = invoice.docType == 'invoice';
-    final amount = invoice.grandTotal.toStringAsFixed(2);
-    final qr = isCollectable
+    final isCollectable = _isCollectable(invoice);
+    // The QR asks for what is *owed*, not what the invoice was worth — see
+    // [collectableAmount].
+    final amount = collectableAmount(invoice);
+    final qr = amount != null
         ? upiQrBlock(
             amount: amount,
             note: 'Invoice ${invoice.number}',
             invoiceNumber: invoice.number,
           )
         : null;
-    final bank = isCollectable ? bankBlock() : null;
+    // The bank details are the other half of "here is how to pay", so they go
+    // when the QR does: a settled invoice asking for a transfer is an invoice
+    // with a payment instruction on a document that is already paid.
+    final bank = isCollectable && amount != null ? bankBlock() : null;
 
     return panelOf([
       ...wordsBlock(label: 'Total Invoice Amount (in words)', words: words),

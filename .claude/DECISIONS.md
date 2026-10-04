@@ -1147,3 +1147,49 @@ hide, and one of them already had it.
   nearest named period. The list screens have never offered a quarter, and
   mapping it onto `thisMonth` would silently show them different days than the
   report computed. Preserving the days matters more than preserving the chip.
+
+## 2026-10-04 — Costing is weighted moving average, stamped on the movement
+
+- **Cost lives on `stock_movements.unitCost`, not on `items.purchasePrice`.**
+  `purchasePrice` is a *current* catalogue field. Valuing history at it means
+  last quarter's P&L changes the moment somebody buys the same item today — a
+  report that moves without a transaction is a report nobody trusts twice.
+- **Inbound cost is supplied by the caller; outbound cost never is.** A purchase
+  line knows exactly what it cost, so it passes `taxableValue / quantity`. A
+  sale does not: the whole point of a moving average is that goods leaving
+  stock are worth whatever the running average says at that moment. A null
+  `unitCost` on an outbound movement is the correct spelling, not an omission.
+- **`taxableValue`, never `total`.** Input tax credit is money the shop did not
+  spend and can set off against output tax. Capitalising it into stock inflates
+  every margin by the GST rate, and the error is invisible until someone
+  reconciles against a portal.
+- **Outbound precedence is `average ?? row.unitCost`.** A reversal already
+  carries the cost of the movement it reverses, and that cost is right *for
+  that reversal* — but it must not override the running average, or deleting
+  and re-saving an invoice would restate the cost of goods that never moved.
+- **Negative stock is allowed and must never divide.** The ledger deliberately
+  permits billing before buying, so a balance can go negative, and
+  `value / quantity` there is a negative cost — which reads as a profit on
+  every sale while the shop loses money. The last good average is carried
+  forward and the row is flagged via `usedFallback`.
+- **An oversold balance keeps its liability.** 10 @ 20, sold 15, then 10 bought
+  @ 30 leaves 5 units valued at 40, not 30: the 5 oversold units were valued at
+  20 each and are owed to a supplier. Zeroing the value on a negative balance
+  makes the stock valuation drift from the bank balance by exactly the amount
+  owed. Rejected the "reset to zero value" alternative deliberately.
+- **The accumulator is never rounded** — 4dp throughout, and only the reported
+  unit cost is rounded, at the end. Rounding per movement drifts by tens of
+  paise a year, and drift in a stock valuation is a number that never agrees
+  with the physical count.
+- **`sourceLineId` exists to make the backfill provable.** A bill may carry the
+  same item twice at different rates, so matching by item alone is right half
+  the time. Legacy rows fall back to `sourceId` + `itemId` → lines consumed in
+  `sort_order`, which reproduces save order; rows written by a current build
+  name their line outright.
+- **The backfill is a repository method run at launch, not a migration.** The
+  cost of a purchase is on the bill line, and joining the two needs the model
+  layer. It is idempotent (a second pass rewrites 0 rows) so it is safe to
+  re-run after a costing bug.
+- **Three movement writers, all stamped.** `_recordMovement`,
+  `sales_repository.stockMovementsInsert`, and `reverseStockForSource`. Found by
+  looking rather than by being told; only the first was obvious from the plan.

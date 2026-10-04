@@ -1,7 +1,7 @@
 # Project State
 
-_Last updated: 2026-10-04 (**reporting build, Phase 0 shipped**; the earlier
-six-phase build is complete)_
+_Last updated: 2026-10-04 (**reporting build, Phase 1 built and tested**; the
+earlier six-phase build is complete)_
 
 ## Current objective
 
@@ -15,9 +15,9 @@ Six phases, full plan in
 
 | Phase | Piece | State |
 |---|---|---|
-| 0 | one date window | **shipped** |
-| 1 | schema v11: costing, godown, party groups | next |
-| 2 | schema v12: bank accounts, loans, TDS metadata | — |
+| 0 | one date window | **shipped** (`3bfbe36`) |
+| 1 | schema v11: costing, godown, party groups | **built + tested, committing** |
+| 2 | schema v12: bank accounts, loans, TDS metadata | next |
 | 3 | the framework (spec / engine / view / export / catalogue) | — |
 | 4 | the 47 reports, one commit per category | — |
 | 5 | retire the dashboard to the menu + Overview | — |
@@ -38,7 +38,8 @@ Six phases, full plan in
 ## Current implementation state
 
 - `flutter analyze lib/ test/` → clean.
-- `flutter test` → **754 passed / 0 failed** (723 + 30 new in Phase 0).
+- `flutter test` → **779 passed / 0 failed** (723 + 30 Phase 0 + 25 Phase 1 +
+  1 backup-integrity).
 - Windows debug builds; APK debug **and** release build (release APK is
   debug-key-signed, `CN=Android Debug`, per `build.gradle.kts`'s deliberate
   fallback — 80.1 MB).
@@ -645,38 +646,106 @@ Also fixed this day (earlier audit pass, tests in place):
 - **LOW — the recycle bin's Restore icon had no error handling**; the invoice
   title printed the raw slug (`sales_order`) instead of "Sales order".
 
+## Phase 1 — schema v11: costing, godowns, party groups (built + tested)
+
+`schemaVersion` 10 → 11. Five columns and one table, and they unblock the five
+item/stock reports that need real cost.
+
+- **`lib/core/database/costing/moving_average.dart`** — the engine, and the
+  only place weighted-average arithmetic exists. Pure: no database, so it is
+  tested with hand-written rows. `CostedMovement`, `MovingAverageCosting`
+  (`apply()` returns the new state **and** the cost to stamp on that row), and
+  `replay(List)`. Two rules live here and nowhere else:
+  - **the accumulator is never rounded.** 4dp throughout; only
+    `MovingAverageCosting.report()` rounds, at the end. Rounding a running
+    average per movement drifts by tens of paise a year.
+  - **negative stock never divides.** The last good average is carried forward
+    and `usedFallback` is set, because a negative cost turns every downstream
+    margin upside down.
+- **`Decimal`'s `/` returns a `Rational`**, which is not a `Decimal`. Every
+  division goes through `_ratio(value, quantity, places: 4)`. Assigning the
+  result straight to a `Decimal` is a compile error, which is the good outcome.
+- **Three separate movement writers exist** and all three had to be stamped:
+  `item_repository._recordMovement` (purchases, openings, adjustments),
+  the `sales_repository.stockMovementsInsert` extension (sales, sale
+  returns), and `sales_repository.reverseStockForSource`. The reversal copies
+  the cost, the line reference and the godown of the row it reverses — if it
+  re-valued at today's average, every document edit would leak cost.
+- **Inbound is stamped by the caller, outbound never is.** The purchase path
+  passes `taxableValue / quantity`; passing `total` capitalises the input tax
+  credit into stock and inflates every margin by the GST rate. A sale has no
+  cost to give — the whole point of a moving average is that leaving stock is
+  valued at the running average — so a null `unitCost` is the correct spelling,
+  not an omission.
+- **Outbound precedence is `before ?? row.unitCost`.** An outbound row that
+  already carries a cost (a reversal) must still be valued at the average:
+  `row.unitCost` winning would restate the cost of goods that never moved.
+- **A purchase *return* is valued at the average, not at the debit note's
+  rate.** My first test asserted the opposite; the code was right.
+- **Oversold stock carries its liability.** 10 @ 20, sold 15, then 10 bought
+  @ 30 leaves 5 units at 40 — not 30. The 5 oversold units were valued at 20
+  each and are owed to a supplier; valuing the replacement at the full invoice
+  price as though the shortfall cost nothing is exactly how a stock valuation
+  drifts away from the bank balance.
+- **`ItemRepository.backfillUnitCosts()`** — the one-shot replay. Walks the log
+  in `date, id` order (the same order `_averageBefore` uses, or the two
+  disagree), groups by item (an average is per item; interleaving two items'
+  rows in one accumulator averages them together), and joins each inbound back
+  to its bill line. `sourceLineId` first; otherwise `sourceId` +
+  `itemId` → `purchase_bill_items`, consumed in `sort_order` so a bill with
+  the same item twice matches line-for-line. Idempotent — a second pass
+  rewrites 0 rows, which is what makes it safe to re-run after a costing fix.
+- **It runs at launch** from `lib/app.dart`, beside `_seedChart`, via
+  `backfillUnitCostsProvider`. Not a migration: the cost of a purchase is on
+  the bill line, and joining the two needs the model layer.
+- `items.costingMethod` / `defaultGodownId`, `parties.categoryId` (nullable,
+  plus free-text `kind == 'party'` on `Categories` — an application change,
+  no migration), and `godowns` (`lib/core/database/tables/godowns.dart`).
+
+### Things not to re-learn (Phase 1)
+
+- **`test/helpers/schema_rollback.dart` exists so the migration tests stay
+  honest.** A test that only drops the columns *its own* version added stops
+  testing anything the moment a later migration lands — the chain then adds a
+  column that is already there and dies on `duplicate column name`, which reads
+  as a broken migration and is actually a stale test. Add a block per version.
+- **A new table must be added in three places or it loses data silently:**
+  `settings_repository` (`export` / `import` / `_clearAll`) and
+  `firm_repository.purge`. `firm_purge_test.dart` and `backup_integrity_test.dart`
+  both find tables *by reading the schema*, so they catch a miss on the day it
+  is made rather than the day somebody needs the data back.
+- **Drift does not retro-fit `@TableIndex` for a table created in a
+  migration** — `createAll` skips a table that already exists. Needs an
+  explicit `m.createIndex(...)`. The v4 block is the template, and
+  `costing_test.dart` asserts `sqlite_master` for `idx_godowns_firm` because
+  nothing else notices a missing index.
+- **Perl on these files needs `\r?\n`** (they are CRLF) — a bare `\n` anchor
+  silently no-ops. Never `sed` across a Dart file here.
+
 ## Exact next action
 
-**Start the reporting build's Phase 1 — schema v11.** Phase 0 (one date window)
-is shipped and the plan's own ordering puts everything else behind it.
+**Phase 2 — schema v12: bank accounts, loans, TDS metadata.**
 
-Concretely, next:
+1. `schemaVersion` 11 → 12 in `app_database.dart`, one `if (from < 12)` block,
+   after the v11 one.
+2. `bank_accounts` table + `payments.bankAccountId`; `loans` +
+   `loan_transactions`; `purchase_bills.deducteePan` + `tdsSection` (27EQ needs
+   section + rate + PAN **per payment**, snapshotted at deduction time);
+   `expenses.itemId`; `gstr9_adjustments`.
+3. **Every new table goes into `settings_repository.export` / `_clearAll` /
+   `import` AND `firm_repository.purge` in the same commit.** Both backup
+   tests find tables by reading the schema and will fail if one is missed —
+   they are the reason this is cheap to get wrong.
+4. Extend `test/helpers/schema_rollback.dart` with a `bankingV12` block and
+   call it from **all three** existing migration tests, and assert
+   `schemaVersion` 12. This is the step that is easy to forget and expensive
+   to rediscover.
+5. `test/migration_v12_test.dart` — build a real v11 file, roll back, reopen,
+   assert rows survive with the new defaults, plus the same `sqlite_master`
+   index check for each new table.
 
-1. `schemaVersion` 10 → 11 in `app_database.dart`, one `if (from < 11)` block.
-2. Add `stock_movements.unitCost REAL DEFAULT 0 NOT NULL`,
-   `sourceLineId TEXT NULL`, `godownId TEXT NULL`; `items.costingMethod TEXT
-   DEFAULT 'moving_average'`, `defaultGodownId TEXT NULL`; `parties.categoryId
-   TEXT NULL`; and the `godowns` table (new file).
-3. **Create the new tables' indexes explicitly** — drift does not retro-fit
-   `@TableIndex` for a table made in a migration. The v4 block at
-   `app_database.dart:131` is the template.
-4. Stamp `unitCost` in `_recordMovement` (`item_repository.dart:262`): inbound =
-   the line's **taxable** unit cost (use `GstEngine`'s taxable value, never
-   `total`); outbound = the moving average at that moment; opening = the item's
-   `purchasePrice`, documented as an estimate.
-5. Negative stock under WMA: **never divide** — carry the last positive average
-   forward and flag the row. A negative average is a negative cost, which turns
-   every downstream margin upside down.
-6. A one-shot replay backfill computes `unitCost` for existing rows by walking
-   the movement log in `date, rowid` order and joining each inbound back through
-   `sourceId` → `purchase_bill_items`. `sourceLineId` is what makes that
-   backfill *provably* correct rather than accidentally correct.
-7. Migration test that builds a real v10 file, rolls it back, reopens, and
-   asserts rows survive with the new defaults — the only honest way to test a
-   migration.
-
-Then Phase 2 (schema v12), Phase 3 (the framework), Phase 4 (the 47 reports in
-six commits), Phase 5 (retire the dashboard to the menu).
+Then Phase 3 (the framework), Phase 4 (the 47 reports in six commits),
+Phase 5 (retire the dashboard to the menu).
 
 ---
 

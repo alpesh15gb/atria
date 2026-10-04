@@ -31,20 +31,37 @@ so nothing ships as a stub.
         name; `spanLabel` is always the days. Report subtitles print
         `spanLabel` — "This Quarter" beside a number tells the reader nothing
         about which three months it covers.
-- [ ] **Phase 1 — schema v11: costing, godown, party groups.**
-      `stock_movements.unitCost`/`sourceLineId`/`godownId`,
-      `items.costingMethod`/`defaultGodownId`, `parties.categoryId`,
-      `godowns` table, WMA costing in `_recordMovement`
-      (`item_repository.dart:262`), one-shot replay backfill. New tables made in
-      a migration need explicit `m.createIndex` per `@TableIndex` — drift does
-      not retro-fit them (the v4 block at `app_database.dart:131` is the
-      template).
+- [x] **Phase 1 — schema v11: costing, godown, party groups.** Built and
+      tested. `stock_movements.unitCost`/`sourceLineId`/`godownId`,
+      `items.costingMethod`/`defaultGodownId`, `parties.categoryId`, the
+      `godowns` table, WMA in `lib/core/database/costing/moving_average.dart`,
+      stamped in **all three** movement writers, and
+      `ItemRepository.backfillUnitCosts()` running at launch from `lib/app.dart`.
+      `test/costing_test.dart` (25). Suite **779 / 0 failed**.
+      - **A new table goes in three places or loses data silently:**
+        `settings_repository.export`/`import`/`_clearAll` *and*
+        `firm_repository.purge`. Both backup tests find tables by reading the
+        schema, so a miss fails on the day it is made.
+      - **`test/helpers/schema_rollback.dart`** now carries one block per schema
+        version. Every migration test must call the newest block and re-assert
+        the version, or the chain dies on `duplicate column name` and it reads
+        as a broken migration.
+      - **Three movement writers, not one:** `_recordMovement`, the
+        `sales_repository.stockMovementsInsert` extension, and
+        `reverseStockForSource`. Only the last was obvious; it copies the
+        cost/line/godown of the row it reverses, because re-valuing a reversal
+        at today's average leaks cost on every document edit.
+      - **Oversold stock carries its liability.** 10 @ 20, sold 15, then 10
+        bought @ 30 leaves 5 units at **40**, not 30.
 - [ ] **Phase 2 — schema v12: bank accounts, loans, TDS metadata.**
       `bank_accounts`, `loans` + `loan_transactions`,
       `purchase_bills.deducteePan`/`tdsSection`, `expenses.itemId`,
       `gstr9_adjustments`. **Every new table must also be added to
       `settings_repository.export`/`_clearAll`/`import`** — a table missing from
       the backup list loses its data on restore silently.
+      - Add a `bankingV12` block to `test/helpers/schema_rollback.dart`, call
+        it from all three existing migration tests, and re-assert
+        `schemaVersion` 12 in each.
 - [ ] **Phase 3 — the framework.** Spec layer, engine with `assertIntegrity`,
       `ReportViewPage` + `ReportDataTable`, `ReportExportService` +
       `ReportPdfBuilder`, `ReportCatalogue` with all 47 registered from day one

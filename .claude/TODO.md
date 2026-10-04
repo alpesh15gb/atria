@@ -77,14 +77,41 @@ so nothing ships as a stub.
       - TDS/interest fields are **snapshotted**, never re-derived. A 26Q filed
         against a guessed PAN is a notice, and a mid-term rate change must not
         rewrite what a February repayment was worth.
-- [ ] **Phase 3 — the framework.** Spec layer, engine with `assertIntegrity`
-      (**prove it has teeth by injecting an off-by-one into a group subtotal**),
-      `ReportViewPage` + `ReportDataTable`, `ReportExportService` +
-      `ReportPdfBuilder`, `ReportCatalogue` with all 47 registered from day one
-      so "which reports are done" is a `grep`.
+- [x] **Phase 3 — the framework.** Built and tested. `spec/report_spec.dart`;
+      `engine/{report_result,report_runner,report_source,report_providers}.dart`;
+      `catalogue/report_catalogue.dart` (9 categories, **46** definitions);
+      `export/{report_export_service,report_pdf_builder}.dart`;
+      `shared/widgets/report_data_table.dart`;
+      `features/reports/{report_view_page,report_document_view}.dart`.
+      `test/report_framework_test.dart` (25) + `report_export_test.dart` (21) +
+      `report_pdf_test.dart` (10) + `report_widget_test.dart` (13).
+      Suite **851 / 0 failed**, analyzer clean.
+      - **The grand total is summed from the GROUPS, never the rows**, so
+        `assertIntegrity` can check one against the other instead of trusting
+        either. It has **three** invariants (column coverage, subtotals-vs-total
+        in both directions, a declared column nothing ever filled), each
+        individually revert-proven — the plan asked for one.
+      - **`ReportCatalogue` registers 46, not 47.** The plan said 47; the
+        reference menu lists GSTR 2, which no application can produce (the
+        portal populates it). That slot ships as **"GSTR-2A Reconciliation"**,
+        which is real work the app already does.
+      - **The export button is unconditional** — it is the single line that
+        makes "every report has an export affordance" true rather than
+        aspirational.
+      - [ ] **Still open inside Phase 3's remit:** the nine bespoke
+            `ReportDocumentView` bodies lifted out of `reports_screen.dart`'s
+            private `_Card` classes. The registry (`registerDocumentBuilder`)
+            exists and is empty; `ReportDocumentView` falls back to the declared
+            columns, and **that fallback is tested**. Each body lands with its
+            own report in Phase 4a–4d.
+      - [ ] **Still open:** the route wiring for `ReportViewPage(reportId:)` into
+            `/reports` is Phase 5.
 - [ ] **Phase 4 — the 47 reports**, one commit per category: 4a Transaction (9),
       4b Party (6), 4c Item/Stock (11), 4d GST (6), 4e Business Status + Taxes
       (8), 4f Expense + Order + Loan (6).
+      **Next: 4a Transaction.** Cash flow is genuinely new (derived from
+      `_book`); P&L / Trial Balance / Balance Sheet register the first four
+      bespoke document bodies.
 - [ ] **Phase 5 — retire the dashboard** to the menu + Overview entry.
       `gst_reports_screen.dart` **stays**; `/gst-reports` keeps a `redirect`.
 

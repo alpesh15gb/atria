@@ -1,7 +1,7 @@
 # Project State
 
-_Last updated: 2026-10-05 (**reporting build, Phase 2 built, tested and committing**;
-Phases 0–1 shipped; the earlier six-phase build is complete)_
+_Last updated: 2026-10-05 (**reporting build, Phase 3 built, tested and committing**;
+Phases 0–2 shipped; the earlier six-phase build is complete)_
 
 ## Current objective
 
@@ -17,9 +17,9 @@ Six phases, full plan in
 |---|---|---|
 | 0 | one date window | **shipped** (`3bfbe36`) |
 | 1 | schema v11: costing, godown, party groups | **shipped** (`7da4eea`, `9931129`) |
-| 2 | schema v12: bank accounts, loans, TDS metadata | **built + tested, committing** |
-| 3 | the framework (spec / engine / view / export / catalogue) | next |
-| 4 | the 47 reports, one commit per category | — |
+| 2 | schema v12: bank accounts, loans, TDS metadata | **shipped** (`ce845e1`) |
+| 3 | the framework (spec / engine / view / export / catalogue) | **built + tested, committing** |
+| 4 | the 47 reports, one commit per category | next (4a Transaction) |
 | 5 | retire the dashboard to the menu + Overview | — |
 
 ### The earlier six-phase build — complete
@@ -38,8 +38,8 @@ Six phases, full plan in
 ## Current implementation state
 
 - `flutter analyze lib/ test/` → clean.
-- `flutter test` → **782 passed / 0 failed** (723 + 30 Phase 0 + 25 Phase 1 +
-  1 backup-integrity + 3 Phase 2).
+- `flutter test` → **851 passed / 0 failed** (723 + 30 Phase 0 + 25 Phase 1 +
+  1 backup-integrity + 3 Phase 2 + 69 Phase 3).
 - Windows debug builds; APK debug **and** release build (release APK is
   debug-key-signed, `CN=Android Debug`, per `build.gradle.kts`'s deliberate
   fallback — 80.1 MB).
@@ -782,37 +782,110 @@ Expense Item and GSTR-9 reports.
   `addColumn` dies on a duplicate. That is a property of the hand-rolled
   rollback, not of any real database.
 
+## Phase 3 — the framework (built + tested, committing)
+
+Nothing visible ships. It exists so the other 43 reports are cheap.
+
+| File | What it is |
+|---|---|
+| `lib/core/reports/spec/report_spec.dart` | `ReportSpec` / `ReportColumn` / `ReportGroupBy` / `ReportFilter<T>` / `ReportSort`. `ReportColumn.isSummable` excludes `rate`/`percent`/`running` — summing a percentage is meaningless. |
+| `lib/core/reports/engine/report_result.dart` | `ReportRow` (`number`/`text`/`export`/`formatNumber`/`exportNumber`), `ReportGroup`, `ReportResult`, `ReportIntegrity` + `ReportIntegrityChecks.assertIntegrity`. |
+| `lib/core/reports/engine/report_runner.dart` | `ReportRunner.fold()` — grouping, sorting, subtotals, grand total. |
+| `lib/core/reports/engine/report_source.dart` | `ReportSource`, `CallbackReportSource`, `ReportFilters` (the shared predicate helpers: `notBounced`, `notDeleted`, `notCancelled`, `isLive`, `within`, doc-type sets). |
+| `lib/core/reports/engine/report_providers.dart` | `reportWindowProvider`, `reportFiltersProvider`, `reportResultProvider`, `ReportQuery`. |
+| `lib/core/reports/catalogue/report_catalogue.dart` | 9 categories, **46** `ReportDefinition`s, most pointing at `PlaceholderReportSource`. |
+| `lib/core/reports/export/report_export_service.dart` | CSV / Excel / header block / `describe`. |
+| `lib/core/reports/export/report_pdf_builder.dart` | the fourth format: `build`, `write`, `print`. |
+| `lib/shared/widgets/report_data_table.dart` | the renderer — one list of lines, two renderers. |
+| `lib/features/reports/report_view_page.dart` | one screen for all of them + the export menu + the integrity banner + `registerDocumentBuilder`. |
+| `lib/features/reports/report_document_view.dart` | `ReportDocumentView`, `DocumentPair`, `DocumentSection`. |
+
+Tests: `test/report_framework_test.dart` (25), `test/report_export_test.dart` (21),
+`test/report_pdf_test.dart` (10), `test/report_widget_test.dart` (13). Suite
+**851 / 0 failed**, analyzer clean.
+
+### The decisions worth keeping
+
+- **The grand total is summed from the GROUPS, never from the rows.** Two paths,
+  one answer; summing both ways is what lets `assertIntegrity` check one against
+  the other instead of trusting either.
+- **`assertIntegrity` has three invariants, not one:** column coverage (a key no
+  row carries renders as a column of blanks, indistinguishable from "no data"),
+  subtotals against the total in **both** directions, and a declared column
+  nothing ever filled (which (1) cannot catch). All four checks are
+  individually revert-proven.
+- **The renderer flattens groups into a sealed `_Line` list once** (`_Heading` /
+  `_Data` / `_Subtotal`) and renders that list two ways. A subtotal that appears
+  in one view appears in the other in the same place, because there is only one
+  list of them.
+- **`StatelessWidget` has no `context` field.** Every helper takes
+  `BuildContext context` explicitly. My first fix here was a bulk perl regex that
+  injected a duplicate `context,` parameter and referenced constructors that do
+  not exist — the same trap that hit `gst_export_service.dart`.
+- **`ReportDocumentView`'s registry starts empty and the fallback is tested.**
+  The nine bespoke bodies get lifted out of `reports_screen.dart`'s private `_Card`
+  classes during 4a–4d; until one is registered, a document report shows its
+  declared columns rather than a blank screen that reads as a crash.
+
+### Things not to re-learn (Phase 3)
+
+- **`writeCsv` must write the BOM as `'﻿'` + `encoding: utf8`.** A literal
+  U+FEFF in the source survives editors and copy-pastes as the three visible
+  characters `ï»¿`, and the file then starts with the *text* `ï»¿` — proven by a
+  byte assertion (`[195,175,194]` instead of `[239,187,191]`). `gst_export_service.dart`
+  already got this right; copy it, do not retype it.
+- **The mojibake in those files was REAL, not a display artifact.** A UTF-8 →
+  CP1252 → UTF-8 round trip by an earlier perl pass had rewritten `·`, `—` and
+  `₹` into `Â·`, `â€"` and `â‚¹`. Proven by `od -c` and by a test asserting on a
+  middle dot. `describe()` was returning `'Sale Purchase By Party Â· 3 rows'`.
+- **`Decimal.round(scale: n)` returns the value UNCHANGED when its own scale is
+  already ≤ n.** `Decimal.fromInt(100).round(scale: 2)` is still `"100"`, not
+  `"100.00"`. `ReportRow.exportNumber` fixes it with `toStringAsFixed(2)`; use it
+  anywhere a figure is exported or subtotalled.
+- **pdf package 3.12:** `pw.TableHelper` is a mixin of static builders, NOT a
+  widget. `pw.Table` takes `columnWidths: Map<int, TableColumnWidth>` — use
+  `pw.FlexColumnWidth(double)`. The repeating header is `TableRow(repeat: true)`;
+  there is no `headerGroups`. `doc.save()` returns `Uint8List`.
+  Count pages with `RegExp(r'/Type\s*/Page[^s]')` on `latin1.decode(bytes)` — do
+  not trust `/Count`.
+- **Excel package 4.0.6:** `sheet.rows` is `List<List<Data?>>`; `Data` has
+  `.value` and `.cellStyle`; `CellStyle` exposes **`isBold`**, not `bold`.
+  `excel.save()` is synchronous and returns `List<int>?`.
+- **`PdfFonts.theme()` attaches Inter as a *fallback*** so `₹` (U+20B9) renders.
+  In unit tests the asset bundle is absent and `fallback()` returns `const []`,
+  producing harmless "Unable to find a font" warnings. Not a failure.
+- **Never `sed`/bulk-perl across a Dart file.** This session an encoding
+  round-trip reindented three committed files by 568 insertions / 395 deletions
+  with no semantic change, and another regex stripped a real `Expanded(`. Both
+  were caught before the commit; the first was reverted with `git checkout --`,
+  the second restored from a backup. Use `Edit`.
+- **`dart format` reformats ~200 unrelated files.** Named files only.
+
 ## Exact next action
 
-**Phase 3 — the framework.** Nothing visible ships; it exists so the other 40
-reports are cheap.
+**Phase 4a — the nine Transaction reports.** Sale · Purchase · Day book · All
+Transactions · Profit And Loss · Bill Wise Profit · Cash flow · Trial Balance
+Report · Balance Sheet.
 
-1. `lib/core/reports/spec/` — `ReportSpec` (id, title, columns, groupBy, filters,
-   totals, sort), `ReportColumn` (key, label, `ReportValueKind`, flex, `wideOnly`,
-   `emphasise`, `colorize`, `negate`), `ReportGroupBy`, `ReportFilter<T>`.
-2. `lib/core/reports/engine/` — `ReportSource` (the only layer that knows SQL),
-   `ReportRow`/`ReportGroupRow`/`ReportResult`, `ReportRunner.fold()`, and
-   **`assertIntegrity`** — group subtotals must sum *exactly* in `Decimal` to the
-   grand total. **Prove it has teeth by injecting an off-by-one into a group
-   subtotal and confirming it fails.**
-3. `lib/features/reports/report_view_page.dart` +
-   `lib/shared/widgets/report_data_table.dart` — one `ConsumerWidget` over
-   `AtriaListPage` keyed by `reportId`. Wide = sticky-header table, tabular
-   figures, pinned grand total. Narrow = cards, `wideOnly` columns drop.
-   Deliberately **not** `AtriaLineGrid` (it owns an editable-cell model a
-   read-only report has no use for). **Always put the export button in
-   `actions`** — that one line is what fixes "no report screen has any export
-   affordance today".
-4. `lib/core/reports/export/report_export_service.dart` — CSV via the existing
-   `CsvExport.esc`/`row`; Excel mirroring `StatementExport.exportExcel`; a **new**
-   `ReportPdfBuilder` (today's `PdfSections` is invoice-shaped — parties panel,
-   items table, totals — and a report has none of that anatomy).
-5. `ReportCatalogue` registers **all 47** from day one, most pointing at an empty
-   source, so "which reports are done" is a `grep` and not a guess.
+1. Nine `CallbackReportSource`s under `lib/core/reports/sources/transaction/`,
+   each pushing the window into SQL (plan rule 11 — never
+   `.list(limit: 1000000)`).
+2. **Cash flow is new** — derived from `_book`, not from any existing
+   repository. Nothing today produces one.
+3. **Register the four bespoke bodies** (P&L, Trial Balance, Balance Sheet, Cash
+   flow) via `registerDocumentBuilder`, lifting each out of
+   `reports_screen.dart`'s private `_Card` class into
+   `lib/features/reports/documents/`.
+4. Obey the shared helpers, not fresh predicates: `ReportFilters.notBounced`,
+   `notDeleted`, `notCancelled`, `isLive`; report `taxableValue` not
+   `grandTotal`; accumulate in `Decimal` via `Money`; exclude quotations, orders
+   and delivery notes; Trial Balance must agree with the P&L and surface the
+   delta as a banner rather than throwing (plan rule 13).
+5. Revert-proof each source, then commit.
 
-Then Phase 4 (the 47 reports in six commits: 4a Transaction 9, 4b Party 6,
-4c Item/Stock 11, 4d GST 6, 4e Business Status + Taxes 8, 4f Expense + Order +
-Loan 6), then Phase 5 (retire the dashboard to the menu).
+Then 4b Party (6), 4c Item/Stock (11, five of them on the v11 costing),
+4d GST (6), 4e Business Status + Taxes (8), 4f Expense + Order + Loan (6),
+then Phase 5 (retire the dashboard to the menu).
 
 The plan's fifteen correctness rules (bounced cheques, cancelled *and* deleted,
 `taxableValue` never `grandTotal`, `Decimal` accumulation, HSN vs SAC, 27EQ

@@ -25,6 +25,55 @@ final reportWindowProvider = StateProvider<ReportWindow>(
 final reportFiltersProvider =
     StateProvider.family<Map<String, Object?>, String>((ref, _) => const {});
 
+/// The live options for one filter of one report.
+///
+/// **A separate provider from the result, and it has to be.** The party list is
+/// the firm's and changes when a customer is added; folding it into
+/// [reportResultProvider] would mean re-running a five-thousand-row report every
+/// time the user typed a letter into the picker, which is the difference between
+/// a filter that feels instant and one that feels broken.
+///
+/// Keyed by the *value* rather than the id so that [ReportFilterOption.key] —
+/// which is what the dropdown actually holds — is the identity. Two options with
+/// the same label and different ids are different choices.
+final reportFilterOptionsProvider = FutureProvider.autoDispose
+    .family<List<ReportFilterOption<Object?>>, ReportFilterRequest>(
+      (ref, request) async {
+        final db = ref.watch(appDatabaseProvider);
+        final firmId = ref.watch(activeFirmIdProvider);
+        if (firmId == null) return const [];
+        final definition = ReportCatalogue.byId(request.reportId);
+        if (definition == null) return const [];
+        return definition.source.optionsFor(
+          db,
+          firmId,
+          definition.spec,
+          request.filterId,
+        );
+      },
+    );
+
+/// One filter's options, asked for by id.
+@immutable
+class ReportFilterRequest {
+  const ReportFilterRequest(this.reportId, this.filterId);
+
+  final String reportId;
+  final String filterId;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ReportFilterRequest &&
+      other.reportId == reportId &&
+      other.filterId == filterId;
+
+  @override
+  int get hashCode => Object.hash(reportId, filterId);
+
+  @override
+  String toString() => 'ReportFilterRequest($reportId, $filterId)';
+}
+
 /// Runs a report and caches it by [ReportSpec.cacheKey].
 ///
 /// **The cache key is the whole point.** Every input that changes the rows goes

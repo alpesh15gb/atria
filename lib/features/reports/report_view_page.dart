@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:open_filex/open_filex.dart';
 
+import '../../core/reports/catalogue/report_catalogue.dart';
 import '../../core/reports/engine/report_providers.dart';
 import '../../core/reports/engine/report_result.dart';
 import '../../core/reports/export/report_export_service.dart';
@@ -14,6 +15,7 @@ import '../../core/theme/app_sizes.dart';
 import '../../shared/widgets/atria_list_page.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/report_data_table.dart';
+import '../../shared/widgets/report_filter_bar.dart';
 import '../../shared/widgets/report_period_toolbar.dart';
 import 'document_registry.dart';
 import 'report_document_view.dart';
@@ -45,6 +47,10 @@ class ReportViewPage extends ConsumerWidget {
       filters: filters,
     );
     final async = ref.watch(reportResultProvider(query));
+    // The *declared* spec, not the one on the loaded result: the filter row must
+    // be on screen from the first frame, or a report whose query takes a moment
+    // pops its toolbar in and shifts the table down under the reader's thumb.
+    final spec = ReportCatalogue.byId(reportId)?.spec;
 
     return AtriaListPage(
       title: async.valueOrNull?.spec.title ?? reportId,
@@ -58,6 +64,15 @@ class ReportViewPage extends ConsumerWidget {
           onChanged: (next) =>
               ref.read(reportWindowProvider.notifier).state = next,
         ),
+        // The filter row, and only for a report that declares one — `hasFilters`
+        // rather than a check on the filter list, because a bar that renders as
+        // an empty strip is a strip the reader has to look at to learn nothing.
+        if (spec?.hasFilters ?? false)
+          ReportFilterBar(
+            reportId: reportId,
+            spec: spec!,
+            filters: filters,
+          ),
       ],
       body: SizedBox(
         // `AtriaListPage.body` needs a bounded height — see that class's doc.

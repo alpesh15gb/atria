@@ -67,6 +67,28 @@ abstract class ReportSource {
   /// would be wrong: a CA looking at an unbalanced book needs the book, not an
   /// error page.
   List<String> Function(ReportResult result)? notesFor(ReportSpec spec) => null;
+
+  /// The selectable values for one of this report's filters, read live.
+  ///
+  /// **Why a source supplies options at all**, when [ReportSpec.defaultFilters]
+  /// could just have declared them. Because a spec is a `const`, holds no
+  /// database handle, and is deliberately constructible in a test with no
+  /// fixture. The *party list* cannot be `const` — it is the firm's, and it
+  /// changes when somebody adds a customer. So the filter declares itself and
+  /// the source answers it, and the two halves stay independently testable: a
+  /// spec test checks the declaration, a source test checks the values against
+  /// a real database.
+  ///
+  /// The default reads the declared options, so a report whose filter really is
+  /// an enumeration (`paid | unpaid`) needs nothing here.
+  Future<List<ReportFilterOption<Object?>>> optionsFor(
+    AppDatabase db,
+    String firmId,
+    ReportSpec spec,
+    String filterId,
+  ) async {
+    return spec.filterWithId(filterId)?.options ?? const [];
+  }
 }
 
 /// A source built from a closure, for the reports that are one query and no
@@ -82,6 +104,7 @@ class CallbackReportSource extends ReportSource {
     this.groupLabel,
     this.sortKey,
     this.notes,
+    this.options,
   });
 
   @override
@@ -99,6 +122,16 @@ class CallbackReportSource extends ReportSource {
   final String Function(ReportRow row)? groupLabel;
   final String Function(ReportRow row)? sortKey;
   final List<String> Function(ReportResult result)? notes;
+
+  /// The live values for this report's filters, by filter id. A report with no
+  /// dynamic filter omits it and the spec's own declared options stand.
+  final Future<List<ReportFilterOption<Object?>>> Function(
+    AppDatabase db,
+    String firmId,
+    ReportSpec spec,
+    String filterId,
+  )?
+  options;
 
   @override
   Future<List<ReportRow>> build(
@@ -121,6 +154,15 @@ class CallbackReportSource extends ReportSource {
   @override
   List<String> Function(ReportResult result)? notesFor(ReportSpec spec) =>
       notes;
+
+  @override
+  Future<List<ReportFilterOption<Object?>>> optionsFor(
+    AppDatabase db,
+    String firmId,
+    ReportSpec spec,
+    String filterId,
+  ) => options?.call(db, firmId, spec, filterId) ??
+      super.optionsFor(db, firmId, spec, filterId);
 }
 
 /// The cell each [ReportGroupBy] reads its group name from.

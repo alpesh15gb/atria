@@ -117,15 +117,21 @@ void main() {
 
       // `implemented` is the number that has to be right. It grew from zero
       // when Transaction landed, and it must be exactly the set of categories
-      // that are finished — so this asserts the Transaction set by name rather
-      // than by count, and would catch a report quietly claiming to be built.
+      // that are finished — so this asserts those sets by name rather than by
+      // count alone, and would catch a report quietly claiming to be built.
+      //
+      // **Adding a category means adding it here.** The list is deliberately the
+      // union of the two finished categories rather than a number: a number goes
+      // stale silently, a name does not.
+      final finished = {
+        ...ReportCatalogue.inCategory(ReportCategory.transaction),
+        ...ReportCatalogue.inCategory(ReportCategory.party),
+      };
       expect(
         ReportCatalogue.implemented.map((d) => d.spec.id).toSet(),
-        ReportCatalogue.inCategory(ReportCategory.transaction)
-            .map((d) => d.spec.id)
-            .toSet(),
+        finished.map((d) => d.spec.id).toSet(),
       );
-      expect(ReportCatalogue.implemented, hasLength(9));
+      expect(ReportCatalogue.implemented, hasLength(15));
     });
   });
 

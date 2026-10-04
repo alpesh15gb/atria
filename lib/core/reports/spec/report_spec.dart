@@ -314,6 +314,26 @@ class ReportSpec {
 
   bool get isGrouped => groupBy.isGrouped;
 
+  /// Whether this report declares any filter at all.
+  ///
+  /// A getter rather than `defaultFilters.isNotEmpty` at the call site, because
+  /// the screen asks it before every report and the answer decides whether a
+  /// filter bar is drawn above the table.
+  bool get hasFilters => defaultFilters.isNotEmpty;
+
+  /// The filter declared under [id], or null.
+  ///
+  /// The lookup a dynamic filter needs. `defaultFilters` is a `const` list
+  /// precisely so a spec can be built in a test with no database — which means
+  /// its **options** cannot come from the firm's parties or items. The filter is
+  /// declared here; its values are read at run time by the source.
+  ReportFilter<Object?>? filterWithId(String id) {
+    for (final filter in defaultFilters) {
+      if (filter.id == id) return filter;
+    }
+    return null;
+  }
+
   /// The columns a narrow screen shows.
   List<ReportColumn> get narrowColumns =>
       columns.where((c) => !c.wideOnly).toList(growable: false);

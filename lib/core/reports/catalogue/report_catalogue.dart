@@ -4,6 +4,12 @@ import '../../database/app_database.dart';
 import '../engine/report_result.dart';
 import '../engine/report_runner.dart';
 import '../engine/report_source.dart';
+import '../sources/party/all_parties.dart';
+import '../sources/party/party_report_by_item.dart';
+import '../sources/party/party_statement.dart';
+import '../sources/party/party_wise_pnl.dart';
+import '../sources/party/sale_purchase_by_party.dart';
+import '../sources/party/sale_purchase_by_party_group.dart';
 import '../sources/transaction/all_transactions.dart';
 import '../sources/transaction/balance_sheet.dart';
 import '../sources/transaction/bill_wise_profit.dart';
@@ -168,25 +174,18 @@ class ReportCatalogue {
   ];
 
   // ---- Party (6) ----
+  //
+  // The second category built for real, and the first whose reports are all
+  // scoped by a **filter** rather than by their own window. Every one of them
+  // shares `partyOptions`, so the picker offers the same list in the same order,
+  // and opening Party Statement then Party Report By Item keeps the party.
   static final List<ReportDefinition> _party = [
-    _placeholder('party_statement', 'Party Statement', ReportCategory.party),
-    _placeholder('party_wise_pnl', 'Party wise P&L', ReportCategory.party),
-    _placeholder('all_parties', 'All parties', ReportCategory.party),
-    _placeholder(
-      'party_report_by_item',
-      'Party Report By Item',
-      ReportCategory.party,
-    ),
-    _placeholder(
-      'sale_purchase_by_party',
-      'Sale Purchase By Party',
-      ReportCategory.party,
-    ),
-    _placeholder(
-      'sale_purchase_by_party_group',
-      'Sale Purchase By Party Group',
-      ReportCategory.party,
-    ),
+    allParties,
+    partyReportByItem,
+    partyStatement,
+    partyWisePnl,
+    salePurchaseByParty,
+    salePurchaseByPartyGroup,
   ];
 
   // ---- GST (6) ----

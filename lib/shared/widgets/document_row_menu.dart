@@ -334,7 +334,7 @@ class DocumentRowMenu extends ConsumerWidget {
       if (bytes == null) return;
       final dir = await getApplicationDocumentsDirectory();
       final outDir = Directory(
-        p.join(dir.path, 'atria', _isSalesDoc ? 'invoices' : 'purchases'),
+        p.join(dir.path, 'apexbooks', _isSalesDoc ? 'invoices' : 'purchases'),
       );
       if (!outDir.existsSync()) outDir.createSync(recursive: true);
       final stem = await _pdfFileStem(ref);

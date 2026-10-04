@@ -1059,8 +1059,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SectionHeader(
-          title: 'Atria account',
-          subtitle: 'Optional. It is what lets Atria erase or sync your books '
+          title: 'Apex Books account',
+          subtitle: 'Optional. It is what lets Apex Books erase or sync your books '
               'on the server for you.',
         ),
         AtriaCard(
@@ -1140,8 +1140,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SectionHeader(
-          title: 'Atria server',
-          subtitle: 'Where this device signs in and syncs. Atria works fully '
+          title: 'Apex Books server',
+          subtitle: 'Where this device signs in and syncs. Apex Books works fully '
               'offline either way.',
         ),
         AtriaCard(

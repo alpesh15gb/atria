@@ -15,7 +15,7 @@ import 'status_chip.dart';
 /// purchase, expenses): one totals card up top, a search + period toolbar,
 /// clean rows with a kebab of actions, and an aligned table on desktop.
 ///
-/// Inspired by the desktop billing suites, rebuilt with Atria's own theme —
+/// Inspired by the desktop billing suites, rebuilt with Apex Books's own theme —
 /// nothing here is a copy: no sidebar chrome, no fake filter chips for
 /// features this app does not have. Every building block is optional so a
 /// screen can adopt just the row, just the card, or the whole scaffold.

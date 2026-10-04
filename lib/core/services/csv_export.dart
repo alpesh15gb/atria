@@ -7,10 +7,10 @@ import 'package:path_provider/path_provider.dart';
 import '../database/app_database.dart';
 import '../utils/formatters.dart';
 
-/// The single place that decides where Atria writes an export.
+/// The single place that decides where Apex Books writes an export.
 ///
 /// `getApplicationDocumentsDirectory()` is right on Windows — it is the user's
-/// visible `Documents` folder, so `Documents\atria\...` is something a person
+/// visible `Documents` folder, so `Documents\apexbooks\...` is something a person
 /// can open, mail, or copy onto a pen drive without the app's help.
 ///
 /// On **Android** the same call returns `/data/user/0/<pkg>/app_flutter`:
@@ -202,7 +202,7 @@ class CsvExport {
 
   Future<File> _write(String name, StringBuffer buf) async {
     final dir = await outputDir();
-    final outDir = Directory(p.join(dir.path, 'atria', 'exports'));
+    final outDir = Directory(p.join(dir.path, 'apexbooks', 'exports'));
     if (!outDir.existsSync()) outDir.createSync(recursive: true);
     final stamp = exportTimestamp();
     final file = File(p.join(outDir.path, '${name}_$stamp.csv'));

@@ -203,7 +203,7 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
     }
     // Not `accessToken()`: a null token means two different things, and this
     // screen used to report the wrong one. Being offline reads as "Sign in to
-    // Atria", which is both untrue and unactionable — the fix is to try again
+    // Apex Books", which is both untrue and unactionable — the fix is to try again
     // on a better connection, not to sign in again.
     final session = await ref
         .read(authControllerProvider.notifier)
@@ -213,11 +213,11 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
       if (!mounted) return;
       setState(() {
         _error = session.temporarilyUnavailable
-            ? 'Could not reach Atria to scan this bill. The reading happens on '
-                'the Atria server, not on this device - check your connection '
+            ? 'Could not reach Apex Books to scan this bill. The reading happens on '
+                'the Apex Books server, not on this device - check your connection '
                 'and try again.'
-            : 'Sign in to Atria to scan bills - the reading happens on the '
-                'Atria server, not on this device.';
+            : 'Sign in to Apex Books to scan bills - the reading happens on the '
+                'Apex Books server, not on this device.';
       });
       return;
     }
@@ -306,7 +306,7 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'The photo goes to your Atria server, an AI vision '
+                        'The photo goes to your Apex Books server, an AI vision '
                         'model reads it there, and every field comes back '
                         'for you to check before anything is saved. The '
                         'picture itself is not stored.',

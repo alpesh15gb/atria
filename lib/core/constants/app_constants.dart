@@ -2,10 +2,14 @@
 class AppConstants {
   AppConstants._();
 
-  static const String appName = 'Atria';
+  static const String appName = 'Apex Books';
   static const String appTagline = 'Vyapar, simplified.';
   static const String appVersion = '1.0.0';
-  static const String supportEmail = 'hello@atria.app';
+  /// **Unverified.** The old address was `hello@atria.app`, a domain that goes
+  /// away with the rename. This follows the one domain that demonstrably
+  /// exists — the sync API already answers on `api.apexbooks.in`. Confirm the
+  /// mailbox is actually set up before this is printed on a support screen.
+  static const String supportEmail = 'hello@apexbooks.in';
 
   static const String currencySymbol = '₹';
   static const String currencyCode = 'INR';

@@ -308,7 +308,7 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
       iconBackground: colors.saffronGradientStart,
       title: 'Restore backup',
       subtitle: 'Replace the books on this device with the contents of a '
-          'previously exported Atria JSON file.',
+          'previously exported Apex Books JSON file.',
       action: importing
           ? const _ProgressButton(label: 'Restoring…')
           : OutlinedButton.icon(

@@ -1,5 +1,52 @@
 # Decisions
 
+## The product is Apex Books; the Dart package is still `atria` (2026-10-04)
+
+**Decision:** the rename covered everything a person can see — brand strings,
+Android `applicationId`, the Windows binary name and version resource, the
+installer, and the on-disk folders — but **not** the Dart package name, the
+`Atria*` class names, or the `atria_*.dart` filenames.
+
+**Why:** the package name is internal. Renaming it means rewriting every one of
+the ~2,000 `package:atria/…` imports and every `.g.dart` codegen file, for zero
+user-visible difference and a large chance of a mechanical mistake in 59 files.
+The class names are the same story: `AtriaApp`, `AtriaLogo` and `AtriaListPage`
+are identifiers, not branding. The rename used the regex `\bAtria\b` precisely
+so these survived — `\bAtria\b` does not match `AtriaApp` because `A` is a word
+character after it.
+
+**Consequence:** a future developer will find `Atria` in the source and should
+not "finish the rename" by sweeping it. The remaining occurrences are
+deliberate, and this entry is the reason why.
+
+**Deliberately not renamed:** `AppConstants.backupFileExt` (`.atriabak`,
+declared and referenced nowhere), the Vyapar importer's `atriaId` locals and
+`atria_vyapar_` temp dir (internal), and the server's `ATRIA_*` env vars
+(a separately deployed service — changing them would break a running deploy).
+
+## Changing `applicationId` is a data-loss event on Android (2026-10-04)
+
+**Decision:** the rename changed `com.atria.atria` -> `com.apexbooks.app`, with
+the user's explicit sign-off after being told what it costs.
+
+**Why it matters:** Android's app-private directory is keyed by the application
+id. The new id is a **different app** to Android — installing it is a fresh
+install with no data, and the old package's database is unreadable to the new
+package by design. There is no migration that can reach it.
+
+**The asymmetry that makes this survivable:** on Windows the app-support root is
+shared per-machine-user, so an in-place upgrade *does* find its books.
+`AppDatabase.adoptLegacyDataDir` moves the old `atria/` folder across on first
+launch, gated on the new folder not existing (so it is a no-op on every launch
+after the first) and swallowing a failed move rather than refusing to start.
+
+**Consequence:** an Android operator upgrading across this rename has **no** path
+to their books except a backup. That is why `validateBackupJson` accepts both
+the `Apex Books` and the legacy `atria` marker — refusing a pre-rename archive
+would make every backup a customer had already taken worthless on the day they
+needed it. If Android identity ever has to change again, the release note must
+say "restore a backup", not "upgrade in place".
+
 ## The ledger is derived from documents, never written to (2026-10-03)
 
 **Decision:** `LedgerRepository._book` re-reads the source tables (sales,

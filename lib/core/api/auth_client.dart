@@ -25,7 +25,7 @@ class AuthTokens {
   final String email;
 }
 
-/// Sign-up, sign-in, refresh and sign-out against the Atria API.
+/// Sign-up, sign-in, refresh and sign-out against the Apex Books API.
 ///
 /// Deliberately a separate class from [ServerClient]: sign-in has no token to
 /// present, and everything else does, so mixing them would mean an
@@ -202,7 +202,7 @@ class AuthClient {
   ///
   /// A 200 with no `accessToken` would otherwise become a session with an empty
   /// token, and every later request would fail as "signed out" — a confusing
-  /// way to learn the server is not the Atria API.
+  /// way to learn the server is not the Apex Books API.
   AuthTokens _tokensFrom(
     Map<String, Object?> json, {
     required String fallbackEmail,
@@ -211,8 +211,8 @@ class AuthClient {
     final refreshToken = (json['refreshToken'] as String? ?? '').trim();
     if (accessToken.isEmpty || refreshToken.isEmpty) {
       throw const ServerRequestException(
-        'Atria answered without a session token. Check the server address in '
-        'Settings — it may not be an Atria server.',
+        'Apex Books answered without a session token. Check the server address in '
+        'Settings — it may not be an Apex Books server.',
       );
     }
 

@@ -14,7 +14,7 @@ import 'vyapar_backup.dart';
 // Callers should not have to reach past this file to catch a bad backup.
 export 'vyapar_backup.dart' show VyaparFormatException;
 
-/// Imports a Vyapar `.vyb` backup into Atria.
+/// Imports a Vyapar `.vyb` backup into Apex Books.
 ///
 /// Vyapar's backup *is* its SQLite database, so this is a real migration rather
 /// than a spreadsheet import: parties, items, GST rates, stock, sales,
@@ -23,7 +23,7 @@ export 'vyapar_backup.dart' show VyaparFormatException;
 ///
 /// ## Document types
 ///
-/// | Vyapar (`kb_transactions.txn_type`) | Atria `docType` |
+/// | Vyapar (`kb_transactions.txn_type`) | Apex Books `docType` |
 /// | --- | --- |
 /// | 1 sale invoice | `invoice` |
 /// | 24 sale order | `sales_order` |
@@ -44,7 +44,7 @@ export 'vyapar_backup.dart' show VyaparFormatException;
 /// * **Document numbers are kept.** A Vyapar invoice numbered `19` stays `19`;
 ///   only real collisions inside one series get a `-2` suffix.
 /// * **Line rates are GST-exclusive.** `kb_lineitems.priceperunit` is the
-///   taxable rate even where `txn_tax_inclusive` is set, so Atria's GST engine
+///   taxable rate even where `txn_tax_inclusive` is set, so Apex Books's GST engine
 ///   reproduces Vyapar's line totals rather than inflating them.
 /// * **Balances come from Vyapar.** Each document's outstanding is
 ///   `txn_balance_amount` less the payments Vyapar recorded as transactions of
@@ -54,7 +54,7 @@ export 'vyapar_backup.dart' show VyaparFormatException;
 ///   being imported, so closing stock lands exactly on Vyapar's figure.
 /// * **Opening balances absorb the remainder.** A party balance is Vyapar's
 ///   balance minus what the imported documents explain, which keeps money owed
-///   correct even when the backup holds documents Atria does not import.
+///   correct even when the backup holds documents Apex Books does not import.
 ///
 /// The write is not one transaction — each repository opens its own — so failure
 /// is handled by deleting everything created for the new firm and rethrowing.
@@ -177,7 +177,7 @@ class VyaparImportService {
       final total = unsupported.values.fold(0, (a, b) => a + b);
       final codes = unsupported.keys.toList()..sort();
       warnings.add(
-        '$total transaction(s) use a Vyapar document type Atria does not '
+        '$total transaction(s) use a Vyapar document type Apex Books does not '
         'import yet (type code ${codes.join(', ')}), so they were left behind '
         'rather than guessed at.',
       );
@@ -192,13 +192,13 @@ class VyaparImportService {
     if (cessLines > 0) {
       warnings.add(
         'Additional cess is stored per unit in Vyapar and as a percentage in '
-        'Atria, so $cessLines line(s) came across without cess.',
+        'Apex Books, so $cessLines line(s) came across without cess.',
       );
     }
 
     if (snapshot.partyGroups.isNotEmpty) {
       warnings.add(
-        'Party groups were not imported — Atria separates parties by type '
+        'Party groups were not imported — Apex Books separates parties by type '
         '(customer, supplier) instead.',
       );
     }
@@ -219,7 +219,7 @@ class _ImportRun {
 
   late FirmEntity firm;
 
-  /// Vyapar id → Atria id.
+  /// Vyapar id → Apex Books id.
   final Map<int, String> partyIds = {};
   final Map<int, String> itemIds = {};
   final Map<int, String> unitIds = {};
@@ -232,7 +232,7 @@ class _ImportRun {
   final Map<int, String?> itemHsn = {};
   final Map<int, String> partyName = {};
 
-  /// Vyapar transaction id → what it became in Atria.
+  /// Vyapar transaction id → what it became in Apex Books.
   final Map<int, VyaparDocKind> importedKinds = {};
   final Map<int, String> documentIds = {};
   final Map<int, double> documentTotals = {};
@@ -449,7 +449,7 @@ class _ImportRun {
       final openingStock = vyaparStock - stockFromDocuments;
 
       // Vyapar tracks stock on services too — an annual maintenance contract
-      // routinely sits at a negative quantity — but Atria stops moving stock
+      // routinely sits at a negative quantity — but Apex Books stops moving stock
       // entirely for anything flagged as a service. So the flag is only applied
       // to items that genuinely carry no stock; otherwise the quantity would
       // quietly vanish from the stock report.
@@ -460,7 +460,7 @@ class _ImportRun {
       if (asDouble(row['item_additional_cess_per_unit']) != 0) {
         _warn(
           'Item-level additional cess could not be imported — Vyapar stores it '
-          'per unit and Atria stores a percentage.',
+          'per unit and Apex Books stores a percentage.',
         );
       }
 
@@ -527,7 +527,7 @@ class _ImportRun {
               invoiceDiscountPercent: _decimalOrNull(document.discountPercent),
               notes: document.notes,
             ),
-            // Only a real invoice moves goods. Atria's sales repository already
+            // Only a real invoice moves goods. Apex Books's sales repository already
             // skips quotations and delivery notes, but it does *not* skip
             // sales orders, so an order would have deducted stock here.
             affectStock: document.kind == VyaparDocKind.saleInvoice,
@@ -781,7 +781,7 @@ class _ImportRun {
 
   // ---- Expenses ----------------------------------------------------------
 
-  /// Writes Vyapar's journal-entry expenses and other income to Atria.
+  /// Writes Vyapar's journal-entry expenses and other income to Apex Books.
   ///
   /// The reader has already thrown away anything whose two sides it could not
   /// tell apart, so every entry here is a real book entry: an expense head paid
@@ -792,7 +792,7 @@ class _ImportRun {
     final expenses = db.expenseRepositoryFor(firm.id);
 
     // Vyapar's own reference is kept when it has one, so `EXP-3` in Vyapar is
-    // `EXP-3` in Atria and the two books can be read side by side.
+    // `EXP-3` in Apex Books and the two books can be read side by side.
     final used = <String>{};
     var fallback = 0;
     for (final expense in snapshot.expenses) {
@@ -825,7 +825,7 @@ class _ImportRun {
   ///
   /// The payments above get most of the way there, but Vyapar is the source of
   /// truth for what is still owed. Re-deriving it would let rounding — and any
-  /// document type Atria does not import — drift the ageing report away from
+  /// document type Apex Books does not import — drift the ageing report away from
   /// what the user was looking at before switching.
   Future<void> _reconcileBalances() async {
     for (final document in snapshot.documents) {
@@ -867,7 +867,7 @@ class _ImportRun {
   /// imported documents do not already explain.
   ///
   /// When every document came across this is zero, which is the point: it only
-  /// moves when the backup holds something Atria did not import, and then it
+  /// moves when the backup holds something Apex Books did not import, and then it
   /// keeps the party's statement agreeing with Vyapar instead of silently
   /// losing the difference.
   Future<void> _importOpeningBalances() async {
@@ -920,7 +920,7 @@ class _ImportRun {
           .clamp(0, grandTotal)
           .toDouble();
 
-  /// Moves Atria's own counters past the numbers Vyapar already used, so the
+  /// Moves Apex Books's own counters past the numbers Vyapar already used, so the
   /// next invoice the user raises does not repeat an imported one.
   Future<void> _advanceSequences() async {
     int highest(VyaparDocKind kind) {
@@ -1103,7 +1103,7 @@ class _PartyRef {
 
 // ---- Shared pure helpers -------------------------------------------------
 
-/// Vyapar units are a fixed list of thirty; Atria ships its own standard set, so
+/// Vyapar units are a fixed list of thirty; Apex Books ships its own standard set, so
 /// anything that matches maps onto it and the rest become firm-defined units
 /// (which the item editor already lists alongside the standard ones).
 String? _standardUnitId(String? name, String? short) {
@@ -1187,7 +1187,7 @@ Map<int, double> _stockDeltaByItem(VyaparSnapshot snapshot) {
 }
 
 /// Vyapar does not distinguish customers from suppliers — a party is simply a
-/// party. Atria does, so the documents decide: whoever was invoiced is a
+/// party. Apex Books does, so the documents decide: whoever was invoiced is a
 /// customer, whoever billed us is a supplier, and anyone both ways is both.
 Map<int, String> _partyTypes(VyaparSnapshot snapshot) {
   final sells = <int>{};
@@ -1248,7 +1248,7 @@ class _ParsedAddress {
 /// Vyapar stores one free-text address block, e.g.
 /// `"8-2-350/5/1 Road Number 3 Hyderabad\nHyderabad, Telangana-500034\nIndia"`.
 /// The second line carries city and pincode when the party was filled in
-/// properly, which is worth picking out because Atria's forms and e-way bills
+/// properly, which is worth picking out because Apex Books's forms and e-way bills
 /// want them apart.
 _ParsedAddress _parseAddress(String? raw) {
   if (raw == null) return const _ParsedAddress();

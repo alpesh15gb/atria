@@ -444,7 +444,7 @@ void main() {
       final preview = await service.preview(bytes);
       final result = await service.run(bytes);
 
-      // Every party's balance in Atria must equal the balance Vyapar showed.
+      // Every party's balance in Apex Books must equal the balance Vyapar showed.
       final parties = await db.partyRepositoryFor(result.firmId).all();
       expect(parties, isNotEmpty);
 
@@ -473,7 +473,7 @@ void main() {
         0,
         (sum, invoice) => sum + invoice.balanceDue,
       );
-      // Rounded to the paise: Atria recomputes line tax itself, so a document
+      // Rounded to the paise: Apex Books recomputes line tax itself, so a document
       // can differ from Vyapar by a rounding step.
       expect(
         (actualOutstanding - expectedOutstanding).abs(),
@@ -745,7 +745,7 @@ VALUES (3, 'INSTALLATION SERVICE', 22, '998721', 24, 2, 500.0, 0.0, 0.0, 0.0,
   line(5, 5, 1, 10, 800, 9440, 1440);
   // 6 — payment in against invoice 2.
   doc(6, '2026-04-20 00:00:00', 6, 3, 1, '1', 0, 1180, paymentStatus: 3);
-  // 7 — a document type Atria does not import.
+  // 7 — a document type Apex Books does not import.
   doc(7, '2026-04-21 00:00:00', 6, 99, 0, '1', 0, 0);
 
   db.execute('INSERT INTO kb_txn_links VALUES (1, 2, 6, 1180.0, 1, 3)');

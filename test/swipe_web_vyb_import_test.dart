@@ -8,7 +8,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// A Swipe book pulled out of the **web app** — no API key, just the session
-/// token that is already in the user's browser — has to land in Atria exactly
+/// token that is already in the user's browser — has to land in Apex Books exactly
 /// the way a Partner-API export does, because both write the same `.vyb` and go
 /// through the same reader and importer.
 ///
@@ -28,7 +28,7 @@ import 'package:flutter_test/flutter_test.dart';
 ///
 /// Two things are being pinned down here at once: that the web-API shapes are
 /// mapped onto the `.vyb` correctly, and that Vyapar's journal-entry expenses
-/// are read back out as Atria expenses instead of silently disappearing.
+/// are read back out as Apex Books expenses instead of silently disappearing.
 void main() {
   const fixture = 'test/fixtures/swipe_web_sample.vyb';
 

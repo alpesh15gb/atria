@@ -16,7 +16,7 @@ import '../../shared/widgets/atria_field_icon.dart';
 ///
 /// QBO's top-bar search is a *product-wide* find: it reaches pages and
 /// documents, not just the list you are standing on (each list keeps its own
-/// filter field for that). This panel is the same idea, scoped to what Atria
+/// filter field for that). This panel is the same idea, scoped to what Apex Books
 /// actually stores — every navigation page, plus invoices.
 Future<void> showAtriaGlobalSearch(BuildContext context) {
   return showDialog<void>(

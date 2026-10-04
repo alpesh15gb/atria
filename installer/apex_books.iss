@@ -1,21 +1,21 @@
-; Atria — Windows installer.
+; Apex Books — Windows installer.
 ;
 ; Build the app first, then compile this file:
 ;
 ;     flutter build windows --release
-;     "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\atria.iss
+;     "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\apex_books.iss
 ;
-; Output: installer\output\Atria-<version>-setup.exe
+; Output: installer\output\Apex-Books-<version>-setup.exe
 ;
 ; Signing (optional, and required before this can ship to strangers):
 ;
-;     ISCC.exe /DSign=True /DSignToolName=atria installer\atria.iss
+;     ISCC.exe /DSign=True /DSignToolName=apexbooks installer\apex_books.iss
 ;
 ; with a code-signing tool registered once in the Inno IDE (Tools > Configure
 ; Sign Tools), or defined for CI on the ISCC command line. Registering the
 ; tool with Inno rather than shelling out afterwards is what lets it sign the
 ; uninstaller and the setup exe itself, which is the part SmartScreen actually
-; looks at; a script that signs atria.exe only still shows the warning. Set
+; looks at; a script that signs apex_books.exe only still shows the warning. Set
 ; SIGNTOOL_COMMAND (see installer/README.md) and pass the tool name in.
 
 ; Without /DSign=True nothing is signed and the build still works, so a
@@ -24,10 +24,10 @@
 ; Source paths below are relative to this file, which is Inno's default for
 ; SourceDir, so no absolute paths are baked in.
 
-#define MyAppName "Atria"
+#define MyAppName "Apex Books"
 #define MyAppVersion "1.0.0"
-#define MyAppPublisher "com.atria"
-#define MyAppExeName "atria.exe"
+#define MyAppPublisher "Apex Books"
+#define MyAppExeName "apex_books.exe"
 #define MyBundleDir "..\build\windows\x64\runner\Release"
 
 ; The version an update check compares against, so the number lives in one
@@ -57,7 +57,7 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir=output
-OutputBaseFilename=Atria-{#MyAppVersion}-setup
+OutputBaseFilename=Apex-Books-{#MyAppVersion}-setup
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -74,8 +74,8 @@ UninstallDisplayName={#MyAppName}
 SignTool={#SignToolName}
 SignedUninstaller=yes
 #endif
-; Let the Restart Manager close a running copy, so upgrading while Atria is open
-; does not fail half-way with "file in use".
+; Let the Restart Manager close a running copy, so upgrading while Apex Books is
+; open does not fail half-way with "file in use".
 CloseApplications=yes
 RestartApplications=no
 
@@ -87,7 +87,7 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Name: "startmenuicon"; Description: "Create a Start Menu shortcut"; GroupDescription: "Shortcuts:"
 
 [Files]
-; The whole release bundle: atria.exe, flutter_windows.dll, the plugin DLLs,
+; The whole release bundle: apex_books.exe, flutter_windows.dll, the plugin DLLs,
 ; the bundled MSVC runtime, and data\ (the AOT payload and assets).
 Source: "{#MyBundleDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
@@ -103,5 +103,5 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: no
 
 ; Deliberately no [UninstallDelete] for data. The books live in the user's own
 ; profile — the drift database under the app support directory and JSON backups
-; under Documents\atria\backups — not under {app}. Uninstalling the program must
+; under Documents\apexbooks\backups — not under {app}. Uninstalling the program must
 ; never be the thing that deletes someone's accounting records.

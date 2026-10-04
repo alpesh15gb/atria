@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:drift/native.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -63,7 +64,7 @@ class AppDatabase extends _$AppDatabase {
           // to do about it.
           if (from > to) {
             throw StateError(
-              'This database was created by a newer version of Atria '
+              'This database was created by a newer version of Apex Books '
               '(schema v$from, this build understands v$to). Put the newer '
               'version back, or restore a backup taken with this version.',
             );
@@ -175,13 +176,67 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  /// Where the books live under the platform's app-support directory.
+  ///
+  /// Renamed from `atria` when the product became Apex Books. Everything in
+  /// that folder belongs to one business's ledger, so the rename cannot simply
+  /// pick a new path — see [adoptLegacyDataDir], which moves the old folder
+  /// across on first launch. Without it every existing install would open an
+  /// empty set of books and read as a first run.
+  ///
+  /// This only reaches installs that keep the *same* app-support root. On
+  /// Windows that root is shared across the machine's user, so an in-place
+  /// upgrade finds its books. On Android it is private to the application id,
+  /// and the rename also changed that id (`com.atria.atria` ->
+  /// `com.apexbooks.app`), so Android starts the new app in a fresh directory
+  /// and the old package's data is unreachable by design. An Android operator
+  /// upgrading across the rename has to restore a backup — which is why
+  /// [validateBackupJson] accepts pre-rename backups.
+  static const String dataDirName = 'apexbooks';
+
+  /// The pre-rename folder, kept only so [adoptLegacyDataDir] can find it.
+  /// Do not write here again.
+  static const String _legacyDirName = 'atria';
+
   static Future<File> _file() async {
     final dir = await getApplicationSupportDirectory();
-    final dbDir = Directory(p.join(dir.path, 'atria'));
+    adoptLegacyDataDir(dir.path);
+    final dbDir = Directory(p.join(dir.path, dataDirName));
     if (!dbDir.existsSync()) {
       dbDir.createSync(recursive: true);
     }
-    return File(p.join(dbDir.path, 'atria.db'));
+    return File(p.join(dbDir.path, '$dataDirName.db'));
+  }
+
+  /// Moves a pre-rename `atria/` folder to `apexbooks/` on first launch.
+  ///
+  /// Only when the new folder does not exist. That condition is what makes this
+  /// safe to run on every launch: once the folder is there — migrated, or
+  /// created fresh by an install that never had the old one — this returns
+  /// immediately and never touches live data.
+  ///
+  /// The old folder is *moved*, not copied, so a failed launch cannot leave two
+  /// diverging ledgers and leave the operator choosing between them. If the
+  /// move throws partway the books stay where they were and the next launch
+  /// retries, because the new folder still will not exist.
+  @visibleForTesting
+  static void adoptLegacyDataDir(String supportPath) {
+    final newDir = Directory(p.join(supportPath, dataDirName));
+    if (newDir.existsSync()) return;
+
+    final oldDir = Directory(p.join(supportPath, _legacyDirName));
+    if (!oldDir.existsSync()) return;
+    // An empty leftover is not someone's ledger; do not rename a folder the
+    // rename itself created on a previous failed attempt.
+    if (oldDir.listSync().isEmpty) return;
+
+    try {
+      oldDir.renameSync(newDir.path);
+    } catch (_) {
+      // A cross-volume rename, a locked file, or a permission problem. The
+      // books are still in the old folder and still readable; opening a fresh
+      // database is far better than refusing to start.
+    }
   }
 
   /// Path used by backup/restore and by the demo seeder.

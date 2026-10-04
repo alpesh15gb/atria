@@ -30,11 +30,11 @@ final Provider<AppDatabase> appDatabaseProvider = Provider((ref) {
 final Provider<SettingsRepository> settingsRepositoryProvider =
     Provider((ref) => SettingsRepository(ref.read(appDatabaseProvider)));
 
-/// Where the app talks to the Atria server, and this install's identity.
+/// Where the app talks to the Apex Books server, and this install's identity.
 final Provider<ApiConfig> apiConfigProvider =
     Provider((ref) => ApiConfig(ref.read(settingsRepositoryProvider)));
 
-/// This install's Atria session. Not signed in is the normal state today —
+/// This install's Apex Books session. Not signed in is the normal state today —
 /// sign-in is not built yet — so callers must handle a null [SignedIn] rather
 /// than assume one. See [ServerSession].
 final Provider<ServerSession> serverSessionProvider =

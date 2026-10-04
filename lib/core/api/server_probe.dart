@@ -2,21 +2,21 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-/// The outcome of asking a server "are you the Atria API?".
+/// The outcome of asking a server "are you the Apex Books API?".
 class ServerProbeResult {
   const ServerProbeResult({required this.ok, required this.message});
 
   final bool ok;
 
   /// Wording shown in Settings, so it has to be specific: "something answered"
-  /// and "the Atria API answered" are different facts, and telling them apart
+  /// and "the Apex Books API answered" are different facts, and telling them apart
   /// is the entire point of the check. Pointing the app at a different server
   /// that happens to return 200 for everything is easy to do and impossible to
   /// notice otherwise.
   final String message;
 }
 
-/// Asks a server whether it is the Atria API.
+/// Asks a server whether it is the Apex Books API.
 ///
 /// Uses `dart:io` rather than adding an HTTP package: the app ships on desktop
 /// and mobile, both of which provide `HttpClient`, and this is the first and so
@@ -89,7 +89,7 @@ class ServerProbe {
   /// interesting cases are all malformed replies, and a unit test is the only
   /// way to produce those on demand.
   ///
-  /// `status: ok` alone is *not* enough to pass. The server Atria replaced on
+  /// `status: ok` alone is *not* enough to pass. The server Apex Books replaced on
   /// `api.apexbooks.in` answered HTTP 200 with exactly `{"status":"ok"}` and
   /// nothing else — so accepting that would have reported a healthy connection
   /// to a different application, which is precisely the mistake this check is
@@ -101,7 +101,7 @@ class ServerProbe {
     } on FormatException {
       return const ServerProbeResult(
         ok: false,
-        message: 'Something answered, but it is not the Atria API — the reply '
+        message: 'Something answered, but it is not the Apex Books API — the reply '
             'was not JSON.',
       );
     }
@@ -109,7 +109,7 @@ class ServerProbe {
     if (decoded is! Map || decoded['status'] != 'ok') {
       return const ServerProbeResult(
         ok: false,
-        message: 'Something answered, but it is not the Atria API.',
+        message: 'Something answered, but it is not the Apex Books API.',
       );
     }
 
@@ -117,14 +117,14 @@ class ServerProbe {
     if (version is! String || version.isEmpty) {
       return const ServerProbeResult(
         ok: false,
-        message: 'Something healthy answered, but without the Atria API\'s '
+        message: 'Something healthy answered, but without the Apex Books API\'s '
             'version — so it is probably a different application.',
       );
     }
 
     return ServerProbeResult(
       ok: true,
-      message: 'Connected to the Atria API v$version.',
+      message: 'Connected to the Apex Books API v$version.',
     );
   }
 }

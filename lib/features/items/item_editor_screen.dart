@@ -545,7 +545,7 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
       final doc = await BarcodeLabels.build(items: [existing]);
       final bytes = await doc.save();
       final dir = await getApplicationDocumentsDirectory();
-      final outDir = Directory(p.join(dir.path, 'atria', 'labels'));
+      final outDir = Directory(p.join(dir.path, 'apexbooks', 'labels'));
       if (!outDir.existsSync()) outDir.createSync(recursive: true);
       final file = File(
         p.join(

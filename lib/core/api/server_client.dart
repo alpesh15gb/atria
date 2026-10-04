@@ -17,7 +17,7 @@ enum FirmErasure {
   alreadyGone,
 }
 
-/// A request to the Atria API that failed in a way worth putting in front of a
+/// A request to the Apex Books API that failed in a way worth putting in front of a
 /// person. Anything not thrown as one of these is a bug, not a condition.
 class ServerRequestException implements Exception {
   const ServerRequestException(
@@ -39,7 +39,7 @@ class ServerRequestException implements Exception {
   String toString() => message;
 }
 
-/// The Atria API client, for the calls that are not sign-in.
+/// The Apex Books API client, for the calls that are not sign-in.
 ///
 /// `dart:io`'s [HttpClient] rather than an HTTP package, for the same reason
 /// [ServerProbe] uses it: both mobile and desktop provide it, and the app has no
@@ -92,7 +92,7 @@ class ServerClient {
         case 401:
         case 403:
           throw const ServerRequestException(
-            'Atria no longer accepts this device\'s session. Sign in again, '
+            'Apex Books no longer accepts this device\'s session. Sign in again, '
             'then retry.',
             signedOut: true,
           );
@@ -112,11 +112,11 @@ class ServerClient {
       );
     } on SocketException {
       throw const ServerRequestException(
-        'Could not reach Atria. Check this device is online, then retry.',
+        'Could not reach Apex Books. Check this device is online, then retry.',
       );
     } on TimeoutException {
       throw ServerRequestException(
-        'Atria did not answer within ${timeout.inSeconds} seconds, so nothing '
+        'Apex Books did not answer within ${timeout.inSeconds} seconds, so nothing '
         'was deleted there.',
       );
     } on HttpException catch (error) {

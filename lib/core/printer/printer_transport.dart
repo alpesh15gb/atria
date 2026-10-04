@@ -547,7 +547,7 @@ _SpoolResult _spoolJob(
   final bytes = request.bytes;
 
   final printerName = queue.toNativeUtf16();
-  final docName = 'Atria label'.toNativeUtf16();
+  final docName = 'Apex Books label'.toNativeUtf16();
   final datatype = 'RAW'.toNativeUtf16();
   final handle = calloc<IntPtr>();
   // DOC_INFO_1W is { pDocName, pOutputFile, pDatatype } — three pointers.
@@ -677,7 +677,7 @@ final _Spooler _spooler = _Spooler();
 String spoolErrorText(int code) => switch (code) {
       0 => 'no error',
       2 => 'the printer could not be found',
-      5 => 'access denied — try running Atria as an administrator',
+      5 => 'access denied — try running Apex Books as an administrator',
       87 => 'the printer name is not valid',
       1801 => 'the printer name is not recognised by Windows',
       1909 => 'the printer is not enabled right now',

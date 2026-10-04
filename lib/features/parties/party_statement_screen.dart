@@ -453,7 +453,7 @@ class _PartyStatementScreenState extends ConsumerState<PartyStatementScreen> {
     buffer
       ..writeln()
       ..writeln('Closing balance: ${Formatters.money(statement.closing)}')
-      ..writeln('— Shared from Atria');
+      ..writeln('— Shared from Apex Books');
     await Share.share(buffer.toString());
   }
 

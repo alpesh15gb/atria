@@ -14,7 +14,7 @@ import '../../core/utils/formatters.dart';
 import '../../shared/widgets/atria_field_icon.dart';
 import '../../shared/widgets/common_widgets.dart';
 
-/// The Atria account this device signs in to.
+/// The Apex Books account this device signs in to.
 ///
 /// Signing in is what makes the account-scoped half of the app possible at all:
 /// erasing a business from the server, and (with the sync engine) pushing local
@@ -71,7 +71,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
     final auth = ref.watch(authControllerProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Atria account')),
+      appBar: AppBar(title: const Text('Apex Books account')),
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) => Center(
@@ -146,7 +146,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                     ? 'This device holds a session for this account.'
                     : 'Session valid until '
                         '${Formatters.dateTime(auth.expiresAt!.toLocal())}. '
-                        'It renews by itself while Atria is reachable.',
+                        'It renews by itself while Apex Books is reachable.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: scheme.onSurfaceVariant,
                       height: 1.5,
@@ -191,7 +191,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Signing in never moves your books by itself. Atria only sends '
+              'Signing in never moves your books by itself. Apex Books only sends '
               'data when you ask it to — erasing a business from the server, '
               'or turning on sync in Settings.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -350,9 +350,9 @@ class _SignInFormState extends ConsumerState<SignInForm> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SectionHeader(
-          title: _createAccount ? 'Create an Atria account' : 'Sign in',
+          title: _createAccount ? 'Create an Apex Books account' : 'Sign in',
           subtitle: 'Businesses stay on this device and work offline either '
-              'way. Signing in is what lets Atria erase or sync them for you.',
+              'way. Signing in is what lets Apex Books erase or sync them for you.',
         ),
         AtriaCard(
           padding: const EdgeInsets.all(16),
@@ -373,7 +373,7 @@ class _SignInFormState extends ConsumerState<SignInForm> {
                       labelText: 'Server address',
                       hintText: 'https://api.apexbooks.in',
                       prefixIcon: AtriaFieldIcon(Icons.link_rounded),
-                      helperText: 'Leave as is for the standard Atria server.',
+                      helperText: 'Leave as is for the standard Apex Books server.',
                     ),
                     // Empty is valid on purpose: it means "keep whatever is
                     // configured" (a fresh install falls back to the built-in

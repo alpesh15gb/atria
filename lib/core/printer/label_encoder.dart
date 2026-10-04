@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import 'printer_profile.dart';
 
-/// The barcode symbologies Atria will print.
+/// The barcode symbologies Apex Books will print.
 ///
 /// All three exist in both TSPL and ZPL, which is why these are the only ones
 /// offered — a symbology the target printer cannot render prints as literal
@@ -49,7 +49,7 @@ class LabelException implements Exception {
 
 /// One thing to print: a product sticker.
 ///
-/// Money arrives here already formatted. Atria's own `Formatters` owns how money
+/// Money arrives here already formatted. Apex Books's own `Formatters` owns how money
 /// reads (lakh/crore grouping, the rupee glyph), and a printer has no locale —
 /// so re-deriving the amount inside the encoder would be a second
 /// implementation of the one thing that must never disagree with the invoice.
@@ -145,10 +145,10 @@ sealed class LabelEncoder {
   Uint8List encodeTestLabel() => encode(
         LabelDocument(
           title: 'Test label',
-          subtitle: 'Atria',
+          subtitle: 'Apex Books',
           // Code 128 accepts any printable ASCII, so the test print cannot be
           // defeated by whatever symbology is configured.
-          barcode: 'ATRIA123456',
+          barcode: 'APEX123456',
           symbology: BarcodeSymbology.code128,
           priceLine: 'Rs 1234.00',
           footer: profile.name,

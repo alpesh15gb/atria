@@ -1,4 +1,4 @@
-package com.atria.atria
+package com.apexbooks.app
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -85,7 +85,7 @@ void main() {
       });
       expect(profile.brand, PrinterBrand.zebra);
       expect(profile.transport, PrinterTransport.usb);
-      // 999 dpi is not a head Atria can lay out for, so it falls back to 203
+      // 999 dpi is not a head Apex Books can lay out for, so it falls back to 203
       // rather than silently mis-scaling every coordinate.
       expect(profile.dpi, 203);
       expect(profile.darkness, 15);

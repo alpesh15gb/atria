@@ -6,7 +6,7 @@ import 'app_radius.dart';
 import 'app_sizes.dart';
 import 'app_typography.dart';
 
-/// Builds the Atria [ThemeData] for light and dark modes.
+/// Builds the Apex Books [ThemeData] for light and dark modes.
 ///
 /// Uses an explicit [ColorScheme] (not fromSeed) so brand tones stay exact.
 class AppTheme {
@@ -650,7 +650,7 @@ class AtriaColorsExtension extends ThemeExtension<AtriaColorsExtension> {
   ///
   /// Falls back to the light extension when the enclosing [ThemeData] does not
   /// provide one — e.g. a widget rendered under a plain `MaterialApp` in a
-  /// test or an isolated overlay — instead of throwing. Any Atria screen is
+  /// test or an isolated overlay — instead of throwing. Any Apex Books screen is
   /// always under [AppTheme], so this only guards the edge.
   static AtriaColorsExtension of(BuildContext context) =>
       Theme.of(context).extension<AtriaColorsExtension>() ??

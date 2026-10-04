@@ -67,7 +67,7 @@ enum PrinterKind {
       );
 }
 
-/// How Atria reaches the printer.
+/// How Apex Books reaches the printer.
 enum PrinterTransport {
   /// Raw TCP to the printer's own port — 9100 on virtually every network
   /// printer, and the only path that works on Android without a plugin.
@@ -90,7 +90,7 @@ enum PrinterTransport {
 
   final String label;
 
-  /// Whether Atria can reach a printer over this transport on the device it is
+  /// Whether Apex Books can reach a printer over this transport on the device it is
   /// currently running on.
   ///
   /// One predicate, in one place, so every entry point that could hand a

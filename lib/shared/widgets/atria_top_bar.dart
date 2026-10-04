@@ -322,7 +322,7 @@ class _AccountMenu extends ConsumerWidget {
           enabled: false,
           height: 30,
           child: Text(
-            (firmName ?? 'Atria').toUpperCase(),
+            (firmName ?? 'Apex Books').toUpperCase(),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: text.labelSmall?.copyWith(
@@ -353,7 +353,7 @@ class _AccountMenu extends ConsumerWidget {
       // words of the firm name ("Shri Balaji Traders" -> "ST") while the party
       // list built the same name as "SB".
       child: AtriaAvatar.initials(
-        name: firmName ?? 'Atria',
+        name: firmName ?? 'Apex Books',
         radius: AtriaAvatar.row,
       ),
     );

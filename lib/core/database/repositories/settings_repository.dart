@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../app_database.dart';
+import '../../constants/app_constants.dart';
 import '../../utils/file_names.dart';
 import 'sync_mixin.dart';
 
@@ -101,7 +102,7 @@ class SettingsRepository with SyncQueueMixin {
   static const String kSupabaseUrl = 'supabase_url';
   static const String kSupabaseAnonKey = 'supabase_anon_key';
 
-  // ---- Atria server (see core/api/api_config.dart) ----
+  // ---- Apex Books server (see core/api/api_config.dart) ----
   /// Overrides the built-in production address. Global: the server a person
   /// signs in to is not a per-firm choice.
   static const String kApiBaseUrl = 'api_base_url';
@@ -268,7 +269,7 @@ class BackupRepository {
         .get();
 
     return {
-      'app': 'atria',
+      'app': AppConstants.appName,
       'version': _version,
       'exportedAt': DateTime.now().toIso8601String(),
       'firms': firms.map((e) => _rowToMap(e.toCompanion(true))).toList(),
@@ -306,14 +307,14 @@ class BackupRepository {
   Future<String> exportToFile({String? firmId, String? fileName}) async {
     final data = await export(firmId: firmId);
     final dir = await getApplicationDocumentsDirectory();
-    final backupDir = Directory(p.join(dir.path, 'atria', 'backups'));
+    final backupDir = Directory(p.join(dir.path, 'apexbooks', 'backups'));
     if (!backupDir.existsSync()) {
       backupDir.createSync(recursive: true);
     }
     final name = fileName ??
-        'atria-backup-${DateTime.now().toIso8601String().split('T').first}';
+        'apexbooks-backup-${DateTime.now().toIso8601String().split('T').first}';
     final file = File(p.join(backupDir.path,
-        '${sanitizeFileName(name, fallback: 'atria-backup')}.json'));
+        '${sanitizeFileName(name, fallback: 'apexbooks-backup')}.json'));
     await file.writeAsString(jsonEncode(data), flush: true);
     return file.path;
   }
@@ -322,7 +323,7 @@ class BackupRepository {
   /// Returns the number of rows restored.
   ///
   /// Throws [FormatException] WITHOUT touching the database when [json] is
-  /// not an Atria backup — validation must run before any destructive write.
+  /// not an Apex Books backup — validation must run before any destructive write.
   Future<int> importFromJson(Map<String, dynamic> json) async {
     validateBackupJson(json);
 
@@ -360,13 +361,17 @@ class BackupRepository {
     return count;
   }
 
-  /// Verifies [json] is an Atria backup this version can restore. Public so
+  /// Verifies [json] is an Apex Books backup this version can restore. Public so
   /// the restore screen can reject a wrong file before showing the
   /// destructive "Replace all data?" confirmation.
   static void validateBackupJson(Map<String, dynamic> json) {
-    if (json['app'] != 'atria') {
+    // Backups written before the rename carry the old marker. They are the same
+    // format and the same data — refusing them would make every archive a
+    // customer had already taken worthless on the day they upgraded.
+    const acceptedMarkers = {'Apex Books', 'atria'};
+    if (!acceptedMarkers.contains(json['app'])) {
       throw const FormatException(
-          'This file is not an Atria backup (missing the "app: atria" '
+          'This file is not an Apex Books backup (missing the "app" '
           'marker). Nothing was restored.');
     }
     final version = json['version'];
@@ -376,7 +381,7 @@ class BackupRepository {
     }
     if (version > _version) {
       throw FormatException(
-          'This backup was created by a newer version of Atria '
+          'This backup was created by a newer version of Apex Books '
           '(backup v$version, app v$_version). Update the app and try '
           'again. Nothing was restored.');
     }

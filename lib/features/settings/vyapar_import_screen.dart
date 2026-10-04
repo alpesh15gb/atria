@@ -33,7 +33,7 @@ class VyaparImportScreen extends ConsumerStatefulWidget {
 
 /// [reading] is separate from [importing] on purpose: the first is unpacking a
 /// ZIP and parsing a whole foreign SQLite database — minutes on a big company,
-/// with no progress to report — and the second is writing into Atria. Showing
+/// with no progress to report — and the second is writing into Apex Books. Showing
 /// "Importing…" for the parse told the user their books were already being
 /// rewritten when nothing had been touched yet, and gave the genuine import the
 /// same vague spinner.
@@ -146,7 +146,7 @@ class _VyaparImportScreenState extends ConsumerState<VyaparImportScreen> {
         ),
         title: Text('Import ${preview.firmName}?'),
         content: Text(
-          'Atria will create a new business called "${preview.firmName}" and '
+          'Apex Books will create a new business called "${preview.firmName}" and '
           'copy ${preview.counts.total} records into it. The books already on '
           'this device are not changed.',
         ),
@@ -287,7 +287,7 @@ class _VyaparImportScreenState extends ConsumerState<VyaparImportScreen> {
           Expanded(
             child: Text(
               'In Vyapar, open Backup & Restore and create a backup — the file '
-              'it saves ends in .vyb. Choose that file here and Atria will read '
+              'it saves ends in .vyb. Choose that file here and Apex Books will read '
               'the company out of it. Nothing is uploaded anywhere.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: scheme.onPrimaryContainer.withValues(alpha: 0.9),
@@ -338,7 +338,7 @@ class _VyaparImportScreenState extends ConsumerState<VyaparImportScreen> {
           const SizedBox(height: 6),
           Text(
             _fileName == null
-                ? 'A single .vyb file. Atria reads it on this device.'
+                ? 'A single .vyb file. Apex Books reads it on this device.'
                 : _stage == _Stage.reading
                     // No percentage is available — the ZIP gives none — so this
                     // says what is happening and how long it can take, rather
@@ -378,7 +378,7 @@ class _VyaparImportScreenState extends ConsumerState<VyaparImportScreen> {
         children: [
           const SectionHeader(
             title: 'What will be imported',
-            subtitle: 'The numbers Atria read out of the backup.',
+            subtitle: 'The numbers Apex Books read out of the backup.',
           ),
           _KeyValue(label: 'Business', value: preview.firmName),
           if (preview.gstin != null)
@@ -456,7 +456,7 @@ class _VyaparImportScreenState extends ConsumerState<VyaparImportScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            '${counts.total} records are now in Atria, and these books are '
+            '${counts.total} records are now in Apex Books, and these books are '
             'open. Balances and stock match what Vyapar was showing.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,

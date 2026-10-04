@@ -300,7 +300,7 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
         items: _items,
       );
       final dir = await getApplicationDocumentsDirectory();
-      final outDir = Directory(p.join(dir.path, 'atria', 'invoices'));
+      final outDir = Directory(p.join(dir.path, 'apexbooks', 'invoices'));
       if (!outDir.existsSync()) outDir.createSync(recursive: true);
       final file = File(p.join(outDir.path, _pdfFileName));
       await file.writeAsBytes(bytes, flush: true);

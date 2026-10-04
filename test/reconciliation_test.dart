@@ -26,7 +26,7 @@ void main() {
   setUp(() async {
     db = AppDatabase.test(NativeDatabase.memory());
     final firm = await db.firmRepository.create(
-      name: 'Atria Enterprise',
+      name: 'Apex Books Enterprise',
       stateCode: '24',
       gstin: '24AABCA1234A1Z5',
     );

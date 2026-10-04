@@ -1,6 +1,6 @@
 # Project State
 
-_Last updated: 2026-10-04 (Phases 0–2 shipped; Phase 3 bulk actions is next)_
+_Last updated: 2026-10-04 (renamed to Apex Books; Phase 3 bulk actions is next)_
 
 ## Current objective
 
@@ -15,6 +15,7 @@ local PIN roles.** Ship one piece per commit. Full plan:
 | — | `PdfSections` extraction | `954cb09` | **shipped** |
 | 1 | purchase-side PDFs | `7bf9a6b` | **shipped** |
 | 2 | paid / balance / stamp + UPI QR fix | `bd860de` | **shipped** |
+| — | rename to Apex Books | this commit | **shipped** |
 | 3 | bulk actions | — | **next** |
 | 4 | quotation lifecycle | — | not started |
 | 5 | optional PIN roles | — | not started |
@@ -22,11 +23,33 @@ local PIN roles.** Ship one piece per commit. Full plan:
 ## Current implementation state
 
 - `flutter analyze lib/ test/` → clean.
-- `flutter test` → **602 passed / 1 skipped / 0 failed.**
+- `flutter test` → **612 passed / 1 skipped / 0 failed.**
 - Windows debug builds; APK debug/release build (release APK is debug-key-signed,
   `CN=Android Debug`, per `build.gradle.kts`'s deliberate fallback).
 - **No phone attached** (`adb devices` empty) — the sync fix is proven against a
   faithful fake server only, never on hardware.
+
+## The app is Apex Books (2026-10-04)
+
+Renamed app-wide at the user's request. See `DECISIONS.md` for the two entries
+that matter: what was deliberately *not* renamed (Dart package `atria`, the
+`Atria*` class names — a future sweep will find `Atria` in the source and it is
+not a bug), and why changing `applicationId` is a data-loss event on Android.
+
+Verified from the built artifacts, not the source:
+
+- APK: `package: name='com.apexbooks.app'`, `application-label:'Apex Books'`.
+- Windows: `build\windows\x64\runner\Debug\apex_books.exe`, version resource
+  `ProductName=Apex Books`.
+
+**Data migration:** `AppDatabase.adoptLegacyDataDir` moves the old `atria/`
+books folder to `apexbooks/` on first launch — Windows only, because that
+app-support root is shared per user. Android's is private to the application id,
+so an Android operator upgrading across the rename has no path to their books
+except a backup. Covered by `test/app_data_dir_migration_test.dart` (10 tests).
+
+**A stale Windows CMake cache broke the first build** after the binary rename:
+`No target "atria"`. `build\windows` has to be deleted, not just rebuilt.
 
 ## Phases 1–2 shipped (2026-10-04)
 

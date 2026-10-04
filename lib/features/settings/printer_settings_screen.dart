@@ -230,7 +230,7 @@ class _Intro extends StatelessWidget {
           Text('Thermal barcode printers', style: text.titleSmall),
           const SizedBox(height: 6),
           Text(
-            'Atria sends the printer its own language — TSPL for TSC, ZPL for '
+            'Apex Books sends the printer its own language — TSPL for TSC, ZPL for '
             'Zebra — so labels come out crisp and instant instead of being '
             'rendered to a PDF and sent through a driver. A printer on the shop '
             'network is reached by its IP; a USB printer is reached through the '

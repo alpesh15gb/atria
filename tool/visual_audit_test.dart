@@ -349,7 +349,7 @@ void main() {
           const MethodChannel('dev.fluttercommunity.plus/package_info'),
           (call) async => call.method == 'getAll'
               ? <String, dynamic>{
-                  'appName': 'Atria',
+                  'appName': 'Apex Books',
                   'packageName': 'com.example.atria',
                   'version': '1.0.0',
                   'buildNumber': '1',

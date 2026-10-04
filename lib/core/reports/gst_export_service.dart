@@ -8,7 +8,7 @@ import '../services/csv_export.dart';
 import 'gst_return_builder.dart';
 import 'gstr1_report.dart';
 
-/// Writes GST return files to `<exports>/atria/gst/<gstin>/<period>/`:
+/// Writes GST return files to `<exports>/apexbooks/gst/<gstin>/<period>/`:
 ///  * `gstr1_<gstin>_<fp>.json` — upload-ready for the GST portal's Returns
 ///    Offline Tool (v1.1 schema);
 ///  * `gstr1_<section>.csv` — spreadsheet-readable worksheets per GSTR-1 table;
@@ -287,7 +287,7 @@ class GstExportService {
   Future<Directory> _periodDir(String gstin, String fp) async {
     final root = await exportRootDirectory();
     final safeGstin = gstin.trim().isEmpty ? 'NOGSTIN' : gstin.trim();
-    final dir = Directory(p.join(root.path, 'atria', 'gst', safeGstin, fp));
+    final dir = Directory(p.join(root.path, 'apexbooks', 'gst', safeGstin, fp));
     if (!dir.existsSync()) dir.createSync(recursive: true);
     return dir;
   }

@@ -39,14 +39,14 @@ class SyncReport {
   /// drain once the device is signed in again.
   final bool needsSignIn;
 
-  /// True when the session is fine and Atria could not be reached this run, so
+  /// True when the session is fine and Apex Books could not be reached this run, so
   /// the outbox is equally untouched — but nothing is wrong with the account
   /// and there is no password for the user to type.
   ///
   /// Separate from [needsSignIn] because the two used to be the same report:
   /// `AuthController.accessToken()` returns null both when there is no session
   /// and when the renewal could not be delivered, so being on a train produced
-  /// "Sign in to Atria to sync" across the app. Only one of them can be acted
+  /// "Sign in to Apex Books to sync" across the app. Only one of them can be acted
   /// on, and the action is not the same, so they are not the same field.
   final bool temporarilyUnavailable;
 
@@ -61,9 +61,9 @@ class SyncReport {
   /// A one-line summary for the settings screen.
   String get describe {
     if (skipped) return 'Sync is switched off.';
-    if (needsSignIn) return 'Sign in to Atria to sync.';
+    if (needsSignIn) return 'Sign in to Apex Books to sync.';
     if (temporarilyUnavailable) {
-      return 'Atria is unreachable right now, so nothing was sent or received. '
+      return 'Apex Books is unreachable right now, so nothing was sent or received. '
           'Your changes are safe on this device and will go up on the next run.';
     }
     if (error != null) return error!;
@@ -440,7 +440,7 @@ class SyncEngine {
       }
     } on ServerRequestException catch (failure) {
       error = failure.signedOut
-          ? 'Atria no longer accepts this device\'s session. Sign in again to '
+          ? 'Apex Books no longer accepts this device\'s session. Sign in again to '
               'resume syncing.'
           : failure.message;
     } on Object catch (failure) {
@@ -501,7 +501,7 @@ class SyncEngine {
         pulled += await _pullFirm(firmId, token);
       } on ServerRequestException catch (failure) {
         pullError = failure.signedOut
-            ? 'Atria no longer accepts this device\'s session. Sign in again to '
+            ? 'Apex Books no longer accepts this device\'s session. Sign in again to '
                 'resume syncing.'
             : failure.message;
         // Only the token check can make this run "unreachable"; a 500 from a
@@ -555,7 +555,7 @@ class SyncEngine {
         // train the books are still safe on the other device and this one
         // simply has to wait.
         describe: token.temporarilyUnavailable
-            ? 'Could not reach Atria, so nothing was restored. Check this '
+            ? 'Could not reach Apex Books, so nothing was restored. Check this '
                 'device is online and try again.'
             : 'Your session has expired. Sign in again.',
       );
@@ -667,8 +667,8 @@ class SyncEngine {
     if (accessToken == null) {
       throw ServerRequestException(
         token.temporarilyUnavailable
-            ? 'Could not reach Atria, so nothing was received.'
-            : 'Atria no longer accepts this device\'s session. Sign in again '
+            ? 'Could not reach Apex Books, so nothing was received.'
+            : 'Apex Books no longer accepts this device\'s session. Sign in again '
                 'to resume syncing.',
         signedOut: !token.temporarilyUnavailable,
       );

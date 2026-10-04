@@ -16,7 +16,7 @@ plugins {
 //
 // key.properties is deliberately not committed. Create it with:
 //
-//   storeFile=C:/keys/atria-upload.jks
+//   storeFile=C:/keys/apexbooks-upload.jks
 //   storePassword=...
 //   keyAlias=upload
 //   keyPassword=...
@@ -31,7 +31,7 @@ if (hasReleaseKeystore) {
 }
 
 android {
-    namespace = "com.atria.atria"
+    namespace = "com.apexbooks.app"
     // file_picker 8.x ships AAR metadata requiring compileSdk 36; the Flutter
     // template default (flutter.compileSdkVersion) is lower. Raising compileSdk
     // only affects available APIs, not runtime behavior (that's targetSdk).
@@ -45,7 +45,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.atria.atria"
+        applicationId = "com.apexbooks.app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -79,7 +79,7 @@ android {
             } else {
                 signingConfig = signingConfigs.getByName("debug")
                 logger.warn(
-                    "Atria: android/key.properties not found — the release APK is "
+                    "Apex Books: android/key.properties not found — the release APK is "
                         + "signed with the debug key and must not be distributed."
                 )
             }

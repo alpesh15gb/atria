@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'server_client.dart' show ServerRequestException;
 
-/// The one way this app talks to the Atria API.
+/// The one way this app talks to the Apex Books API.
 ///
 /// [ServerClient] predates this helper and keeps its own copy of the error
 /// mapping; everything added since (sign-in, the sync push) goes through here
@@ -60,10 +60,10 @@ class ServerHttp {
         final decoded = jsonDecode(raw);
         if (decoded is Map) return decoded.cast<String, Object?>();
         // A success that is not a JSON object means the address is not the
-        // Atria API — most likely a proxy or a captive portal answering 200
+        // Apex Books API — most likely a proxy or a captive portal answering 200
         // with HTML. Failing here is far better than a null-pointer later.
         throw const ServerRequestException(
-          'The server answered, but not in the shape Atria expects. Check the '
+          'The server answered, but not in the shape Apex Books expects. Check the '
           'server address in Settings.',
         );
       }
@@ -71,7 +71,7 @@ class ServerHttp {
       if (status == 401 || status == 403) {
         throw ServerRequestException(
           messageFrom(raw) ??
-              'Atria no longer accepts this device\'s session. Sign in again, '
+              'Apex Books no longer accepts this device\'s session. Sign in again, '
                   'then retry.',
           statusCode: status,
           signedOut: true,
@@ -91,16 +91,16 @@ class ServerHttp {
       );
     } on SocketException {
       throw const ServerRequestException(
-        'Could not reach Atria. Check this device is online, then retry.',
+        'Could not reach Apex Books. Check this device is online, then retry.',
       );
     } on TimeoutException {
       throw ServerRequestException(
         timeoutMessage ??
-            'Atria did not answer within ${timeout.inSeconds} seconds.',
+            'Apex Books did not answer within ${timeout.inSeconds} seconds.',
       );
     } on FormatException catch (error) {
       throw ServerRequestException(
-        'The server sent something Atria could not read (${error.message}). '
+        'The server sent something Apex Books could not read (${error.message}). '
         'Check the server address in Settings.',
       );
     } on HttpException catch (error) {

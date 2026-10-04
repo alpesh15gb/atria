@@ -101,7 +101,7 @@ class PdfTotalRow {
   final bool emphasize;
 }
 
-/// Everything on an Atria document that does not depend on what kind of
+/// Everything on an Apex Books document that does not depend on what kind of
 /// document it is: the header band, the party boxes, the items table, the
 /// totals block, the words, the signature line and the page footer.
 ///

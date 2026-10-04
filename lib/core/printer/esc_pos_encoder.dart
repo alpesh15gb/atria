@@ -6,7 +6,7 @@ import 'printer_profile.dart';
 /// One item line on a receipt.
 ///
 /// Money and quantities arrive **already formatted**: the receipt must read
-/// exactly like the invoice, and Atria's `Formatters` already owns how money
+/// exactly like the invoice, and Apex Books's `Formatters` already owns how money
 /// reads (lakh/crore grouping, the rupee glyph). Re-deriving an amount inside a
 /// printer encoder would be a second implementation of the one thing that must
 /// never disagree with the document.
@@ -219,17 +219,17 @@ class EscPosEncoder {
   /// A short receipt that proves a fresh setup: paper width, alignment, bold,
   /// double height, and (if enabled) the drawer. Kept in the same encoder so a
   /// test print exercises exactly the code path a real receipt does.
-  Uint8List encodeTest({String printerName = 'Atria test receipt'}) =>
+  Uint8List encodeTest({String printerName = 'Apex Books test receipt'}) =>
       encode(testDocument(printerName: printerName));
 
   /// The test receipt's layout, as text — what a test asserts on, and what a
   /// future preview would show, without decoding bytes.
-  List<String> textLinesForTest({String printerName = 'Atria test receipt'}) =>
+  List<String> textLinesForTest({String printerName = 'Apex Books test receipt'}) =>
       textLines(testDocument(printerName: printerName));
 
   /// The test receipt itself. Built here rather than in [encodeTest] so the
   /// text form and the byte form can never describe different receipts.
-  ReceiptDocument testDocument({String printerName = 'Atria test receipt'}) =>
+  ReceiptDocument testDocument({String printerName = 'Apex Books test receipt'}) =>
       ReceiptDocument(
         firmName: printerName,
         title: 'TEST PRINT',
@@ -360,7 +360,7 @@ class EscPosEncoder {
         ops.add(_TextOp(line, align: _Align.center));
       }
     }
-    ops.add(_TextOp('Powered by Atria', align: _Align.center));
+    ops.add(_TextOp('Powered by Apex Books', align: _Align.center));
     ops.add(const _FeedOp(3));
     return ops;
   }

@@ -310,7 +310,7 @@ class _FirmSetupScreenState extends ConsumerState<FirmSetupScreen> {
         if (!mounted) return;
         setState(() {
           _restoreMessage = session.temporarilyUnavailable
-              ? 'Could not reach Atria, so nothing could be checked for restore. '
+              ? 'Could not reach Apex Books, so nothing could be checked for restore. '
                   'Check your connection and try again.'
               : 'Your session has expired. Sign in again.';
           _restoreFirms = null;
@@ -505,7 +505,7 @@ class _FirmSetupScreenState extends ConsumerState<FirmSetupScreen> {
         _PathCard(
           icon: PhosphorIconsRegular.signIn,
           title: 'Sign in with email',
-          subtitle: 'Use an Atria account on this device, so a later backup '
+          subtitle: 'Use an Apex Books account on this device, so a later backup '
               'or sync can reach the server.',
           onTap: () => setState(() => _path = _Path.signIn),
         ),
@@ -530,7 +530,7 @@ class _FirmSetupScreenState extends ConsumerState<FirmSetupScreen> {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'Everything stays on this device. Atria works fully offline and '
+              'Everything stays on this device. Apex Books works fully offline and '
               'never uploads your books anywhere.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: scheme.onSurfaceVariant,

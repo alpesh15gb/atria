@@ -15,7 +15,7 @@ import '../utils/formatters.dart';
 import '../utils/number_words.dart';
 
 /// Statement of Account exports — a print-ready A4 PDF and a real .xlsx
-/// workbook, both written to `<exports>/atria/statements` and opened with the
+/// workbook, both written to `<exports>/apexbooks/statements` and opened with the
 /// system viewer.
 class StatementExport {
   StatementExport._();
@@ -443,7 +443,7 @@ class StatementExport {
     // Android the latter is app-private, so a statement the user cannot open
     // or send anywhere. See that function for the per-platform reasoning.
     final dir = await exportRootDirectory();
-    final statements = Directory(p.join(dir.path, 'atria', 'statements'));
+    final statements = Directory(p.join(dir.path, 'apexbooks', 'statements'));
     if (!statements.existsSync()) statements.createSync(recursive: true);
     final safeName = sanitizeFileName(partyName, fallback: 'party');
     // BOTH the period and a minute-resolution stamp go in the name. The old

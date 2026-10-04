@@ -48,7 +48,7 @@ class SyncClient {
       accessToken: accessToken,
       timeout: timeout,
       body: {'changes': changes},
-      timeoutMessage: 'Atria did not answer within ${timeout.inSeconds} '
+      timeoutMessage: 'Apex Books did not answer within ${timeout.inSeconds} '
           'seconds, so nothing left this device. It will be sent again on the '
           'next sync.',
     );
@@ -81,7 +81,7 @@ class SyncClient {
       method: 'GET',
       accessToken: accessToken,
       timeout: timeout,
-      timeoutMessage: 'Atria did not answer within ${timeout.inSeconds} '
+      timeoutMessage: 'Apex Books did not answer within ${timeout.inSeconds} '
           'seconds while fetching changes. Nothing was applied; try again.',
     );
 

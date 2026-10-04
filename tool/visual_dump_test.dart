@@ -134,7 +134,7 @@ void main() {
           (call) async {
             if (call.method != 'getAll') return null;
             return <String, dynamic>{
-              'appName': 'Atria',
+              'appName': 'Apex Books',
               'packageName': 'com.example.atria',
               'version': '1.0.0',
               'buildNumber': '1',

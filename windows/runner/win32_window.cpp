@@ -205,7 +205,7 @@ Win32Window::MessageHandler(HWND hwnd,
       return 0;
 
     case WM_GETMINMAXINFO: {
-      // The window may not be resized below the point at which Atria's own
+      // The window may not be resized below the point at which Apex Books' own
       // layout is valid. Windows sends this before every resize and every
       // maximize, so this is also what pins the minimum during a maximize —
       // handling it on WM_SIZE would be too late, the frame has already moved.

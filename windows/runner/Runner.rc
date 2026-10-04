@@ -89,17 +89,15 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "Atria" "\0"
-            VALUE "FileDescription", "Atria - Accounting and GST Billing" "\0"
+            VALUE "CompanyName", "Apex Books" "\0"
+            VALUE "FileDescription", "Apex Books - Accounting and GST Billing" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "Atria" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 Atria. All rights reserved." "\0"
-            // Left as `atria.exe`: that is what the build actually emits
-            // (`BINARY_NAME` in windows/CMakeLists.txt), and this field is
-            // supposed to name the real file. Renaming the artefact is an
-            // installer/shortcut decision, not a bug fix.
-            VALUE "OriginalFilename", "atria.exe" "\0"
-            VALUE "ProductName", "Atria" "\0"
+            VALUE "InternalName", "Apex Books" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Apex Books. All rights reserved." "\0"
+            // Matches `BINARY_NAME` in windows/CMakeLists.txt, which is what the
+            // build actually emits. This field is supposed to name the real file.
+            VALUE "OriginalFilename", "apex_books.exe" "\0"
+            VALUE "ProductName", "Apex Books" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

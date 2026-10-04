@@ -3,7 +3,7 @@ import 'dart:io';
 import '../database/repositories/settings_repository.dart';
 import '../utils/id_utils.dart';
 
-/// How this install reaches the Atria server, and how it identifies itself.
+/// How this install reaches the Apex Books server, and how it identifies itself.
 ///
 /// The app is offline-first, so nothing here is required for it to work: no
 /// request is made until a feature asks for one. This class answers only two

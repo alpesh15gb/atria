@@ -1,6 +1,6 @@
 import 'package:pdf/pdf.dart';
 
-/// The look of a printed Atria document.
+/// The look of a printed Apex Books document.
 ///
 /// Three templates, chosen per firm in Firm Settings and stored on
 /// `firms.pdfTemplate`. The reason it is per firm rather than per document:
@@ -82,7 +82,7 @@ class PdfTemplateStyle {
   /// Whether alternating item rows are shaded at all.
   final bool usesZebraRows;
 
-  /// The current Atria layout: violet accents on a bordered, mostly white page.
+  /// The current Apex Books layout: violet accents on a bordered, mostly white page.
   ///
   /// This is what the app printed before templates existed, deliberately
   /// unchanged, so upgrading a firm changes nothing about its output until its
@@ -90,7 +90,7 @@ class PdfTemplateStyle {
   static const classic = PdfTemplateStyle(
     id: 'classic',
     name: 'Classic',
-    description: 'Bordered and formal — the Atria default',
+    description: 'Bordered and formal — the Apex Books default',
     brand: PdfColor.fromInt(0xFF6D28D9), // violet-700
     brandDeep: PdfColor.fromInt(0xFF4C1D95), // violet-900
     ink: PdfColor.fromInt(0xFF16141F),

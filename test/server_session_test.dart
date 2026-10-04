@@ -75,7 +75,7 @@ void main() {
       refreshToken: 'refresh-1',
       expiresAt: DateTime.now().toUtc().add(const Duration(minutes: 15)),
     );
-    expect((await session.current())!.label, 'your Atria account');
+    expect((await session.current())!.label, 'your Apex Books account');
   });
 
   test('clear wipes the whole session, not just the access token', () async {

@@ -4,7 +4,7 @@ import '../api/auth_client.dart';
 import '../api/server_client.dart' show ServerRequestException;
 import '../api/server_session.dart';
 
-/// What the app knows about this device's Atria account.
+/// What the app knows about this device's Apex Books account.
 class AuthState {
   const AuthState({
     required this.ready,
@@ -30,7 +30,7 @@ class AuthState {
   bool get signedIn => email.trim().isNotEmpty;
 
   /// An address worth showing in a menu.
-  String get label => signedIn ? email : 'your Atria account';
+  String get label => signedIn ? email : 'your Apex Books account';
 
   AuthState copyWith({
     bool? ready,
@@ -46,14 +46,14 @@ class AuthState {
       );
 }
 
-/// Which of the three answers to "can this device talk to Atria right now?"
+/// Which of the three answers to "can this device talk to Apex Books right now?"
 /// came back.
 ///
 /// They are not three flavours of one answer, and the app used to report two
 /// of them as the third: a renewal that failed because the phone was on a train
 /// returned the same null as a renewal the server had rejected, so the sync
-/// engine stamped "Sign in to Atria to sync" and the business-removal sheet
-/// disabled its server option with "Sign in to Atria on this device first".
+/// engine stamped "Sign in to Apex Books to sync" and the business-removal sheet
+/// disabled its server option with "Sign in to Apex Books on this device first".
 /// Only [noSession] is actionable by the user; offering a sign-in prompt for
 /// [temporarilyUnavailable] sends someone to a password screen they do not
 /// need, on the one screen that then tells them the books are not syncing.
@@ -66,7 +66,7 @@ enum TokenRefreshOutcome {
   /// refresh token (401/403) and the stored one was cleared.
   noSession,
 
-  /// A session exists and is intact, but Atria could not be reached this time
+  /// A session exists and is intact, but Apex Books could not be reached this time
   /// (offline, DNS, timeout, server down). Nothing has been lost and nothing
   /// needs to be re-entered — the pending work simply has to wait.
   temporarilyUnavailable,
@@ -205,9 +205,9 @@ class AuthController extends StateNotifier<AuthState> {
         await _client.signOut(refreshToken: refresh);
       } on ServerRequestException catch (error) {
         note = error.statusCode == null
-            ? 'Signed out on this device. Atria was unreachable, so the '
+            ? 'Signed out on this device. Apex Books was unreachable, so the '
                 'session stays listed until it expires.'
-            : 'Signed out on this device. Atria said: ${error.message}';
+            : 'Signed out on this device. Apex Books said: ${error.message}';
       }
     }
     await _session.clear();
@@ -281,7 +281,7 @@ class AuthController extends StateNotifier<AuthState> {
         return const AccessTokenResult.noSession();
       }
       // Offline, or the server is down. Keep the session: the user is still
-      // signed in, they just cannot reach Atria right now.
+      // signed in, they just cannot reach Apex Books right now.
       //
       // The state is settled here rather than by the caller because this is
       // the only path that can strand `refreshing` on: _load sets it true and

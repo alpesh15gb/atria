@@ -1,6 +1,6 @@
 /// Filename safety for documents whose names come from user-facing labels.
 ///
-/// Atria numbers documents with slashes — `INV/2026-27/001`, `EST/24-25/07` —
+/// Apex Books numbers documents with slashes — `INV/2026-27/001`, `EST/24-25/07` —
 /// because that is how a GST series is written on paper. That string is a
 /// label, not a path: handing it straight to `File` makes the OS read each
 /// slash as a directory separator, so sharing an invoice looked for

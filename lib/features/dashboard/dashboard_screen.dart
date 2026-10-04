@@ -171,7 +171,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                         ),
                       ),
                       Text(
-                        firm?.name ?? 'Atria',
+                        firm?.name ?? 'Apex Books',
                         style: Theme.of(context).textTheme.headlineMedium
                             ?.copyWith(fontWeight: FontWeight.w700),
                         maxLines: 1,
@@ -362,7 +362,7 @@ class _NoFirmState extends StatelessWidget {
       title: 'No business yet',
       message:
           'Create your first business or start with sample data to '
-          'explore Atria end to end.',
+          'explore Apex Books end to end.',
       actionLabel: 'Set up business',
       onAction: () => context.push('/onboarding/firm-setup'),
     );

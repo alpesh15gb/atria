@@ -23,6 +23,13 @@ new tests proven to fail against reverted code) before its commit.
       `afterGrand`; the header carries PAID IN FULL / CANCELLED. Purchase bills
       too. `test/invoice_settlement_pdf_test.dart` (12); six of them confirmed
       failing against reverted code.
+- [x] **Rename to Apex Books.** Shipped. Brand strings, Android `applicationId`
+      (`com.apexbooks.app`), Windows binary + version resource, installer, and
+      the `apexbooks` export/book folder. Old books folder is moved across on
+      first launch (Windows only — see `DECISIONS.md`);
+      `test/app_data_dir_migration_test.dart` (10). **Left as `Atria` on
+      purpose:** Dart package name, `Atria*` classes, `atria_*.dart` filenames,
+      the `.atriabak` constant, the server's `ATRIA_*` env vars.
 - [ ] **Phase 3 — bulk actions.** Extract the 8 hand-rolled confirm dialogs into
       one `confirmDestructive` first. `SelectionBar` for
       `AtriaListPage.toolbar`; reuse the selection highlight currently trapped

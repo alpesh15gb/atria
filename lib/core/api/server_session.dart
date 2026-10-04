@@ -1,6 +1,6 @@
 import '../database/repositories/settings_repository.dart';
 
-/// A signed-in Atria account, as far as this device is concerned.
+/// A signed-in Apex Books account, as far as this device is concerned.
 class SignedIn {
   const SignedIn({
     required this.email,
@@ -12,12 +12,12 @@ class SignedIn {
   final String accessToken;
   final DateTime expiresAt;
 
-  /// An address worth showing in a menu, or 'your Atria account' when sign-in
+  /// An address worth showing in a menu, or 'your Apex Books account' when sign-in
   /// did not record one.
-  String get label => email.trim().isEmpty ? 'your Atria account' : email;
+  String get label => email.trim().isEmpty ? 'your Apex Books account' : email;
 }
 
-/// The Atria account this install is signed in to, and the token requests carry.
+/// The Apex Books account this install is signed in to, and the token requests carry.
 ///
 /// Sign-in itself is not built yet, so nothing in the app calls [save] and
 /// [current] returns null on every install today. That is the point of the

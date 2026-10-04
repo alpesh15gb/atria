@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
-/// The Atria brand mark. Renders the bundled SVG on a transparent background,
+/// The Apex Books brand mark. Renders the bundled SVG on a transparent background,
 /// or falls back to a painted gradient tile if the asset is unavailable.
 class AtriaLogo extends StatelessWidget {
   const AtriaLogo({
@@ -70,7 +70,7 @@ class _FallbackTile extends StatelessWidget {
   }
 }
 
-/// A wordmark: logo + "Atria" text.
+/// A wordmark: logo + "Apex Books" text.
 class AtriaWordmark extends StatelessWidget {
   const AtriaWordmark({
     super.key,
@@ -98,7 +98,7 @@ class AtriaWordmark extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Atria',
+              'Apex Books',
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     fontSize: fontSize,
                     fontWeight: FontWeight.w700,

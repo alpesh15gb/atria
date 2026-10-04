@@ -14,7 +14,7 @@ import 'package:sqlite3/sqlite3.dart';
 ///
 /// This file is the *format* layer only: it opens the archive and hands back
 /// [VyaparSnapshot], a version-tolerant, plain-Dart view of the tables.
-/// Translating that into Atria's schema lives in `vyapar_import.dart`.
+/// Translating that into Apex Books's schema lives in `vyapar_import.dart`.
 ///
 /// [VyaparBackupReader.read] never writes to the archive, and never keeps the
 /// temporary extracted database alive — the caller gets values, not a handle.
@@ -40,7 +40,7 @@ enum VyaparDocKind {
   paymentOut,
   unsupported;
 
-  /// Document types that post to a party ledger in Atria, and so are the only
+  /// Document types that post to a party ledger in Apex Books, and so are the only
   /// ones a payment may be applied against.
   bool get isLedgerDocument => this == saleInvoice || this == purchaseBill;
 }
@@ -72,7 +72,7 @@ VyaparDocKind vyaparDocKindFor(int? type, [int? subType]) {
     case 30:
       return VyaparDocKind.deliveryNote;
     case 83:
-      // Proforma invoice — no Atria equivalent, and it is a pre-sale
+      // Proforma invoice — no Apex Books equivalent, and it is a pre-sale
       // document, so it lands as a quotation rather than being dropped.
       return VyaparDocKind.quotation;
     default:
@@ -251,7 +251,7 @@ class VyaparExpense {
   /// `journal_entry.id`, used to keep references stable across runs.
   final int id;
 
-  /// Atria's own split: `expense` for money out, `income` for money in.
+  /// Apex Books's own split: `expense` for money out, `income` for money in.
   final String type;
 
   /// `journal_entry.reference_number`, or a generated `VYP-JE-<id>`.
@@ -259,7 +259,7 @@ class VyaparExpense {
 
   final DateTime? date;
 
-  /// The name of the expense head (or the income account) — Atria's category.
+  /// The name of the expense head (or the income account) — Apex Books's category.
   final String category;
 
   final double amount;
@@ -355,7 +355,7 @@ class _JournalSide {
   /// `1` for a debit, `-1` for a credit.
   final int side;
 
-  /// The account name, which becomes Atria's expense category.
+  /// The account name, which becomes Apex Books's expense category.
   final String name;
 
   final double amount;
@@ -431,7 +431,7 @@ class VyaparBackupReader {
     if (content.length < 16 ||
         String.fromCharCodes(content.take(15)) != 'SQLite format 3') {
       throw const VyaparFormatException(
-        'This Vyapar backup is not in the readable format Atria supports. '
+        'This Vyapar backup is not in the readable format Apex Books supports. '
         'Vyapar versions before 3 used an encrypted container.',
       );
     }
@@ -637,7 +637,7 @@ class VyaparBackupReader {
     if (accounts.isEmpty) {
       warnings.add(
         'This backup keeps its expenses as journal entries but names their '
-        'accounts in a way Atria could not read, so those expenses were left '
+        'accounts in a way Apex Books could not read, so those expenses were left '
         'behind.',
       );
       return const [];
@@ -735,7 +735,7 @@ class VyaparBackupReader {
   /// Whether a ledger name is a cash or bank account.
   ///
   /// `other_accounts.account_type` is not documented and differs between Vyapar
-  /// versions, so the name decides. An account Atria cannot recognise is *not* a
+  /// versions, so the name decides. An account Apex Books cannot recognise is *not* a
   /// money account, which keeps an unknown ledger out of the cash column.
   static bool _isMoneyAccount(String name) {
     final text = name.toLowerCase();

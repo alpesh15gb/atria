@@ -514,7 +514,7 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
           const SizedBox(height: 12),
           const Text(
             'Import the GSTR-2A JSON you downloaded from the GST portal,'
-            ' and Atria matches it against your purchase bills.',
+            ' and Apex Books matches it against your purchase bills.',
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 16),

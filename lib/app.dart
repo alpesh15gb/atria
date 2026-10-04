@@ -160,7 +160,7 @@ class _AtriaAppState extends ConsumerState<AtriaApp>
     final themeMode = ref.watch(themeModeProvider);
 
     return MaterialApp.router(
-      title: 'Atria — Accounting & GST Billing',
+      title: 'Apex Books — Accounting & GST Billing',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),

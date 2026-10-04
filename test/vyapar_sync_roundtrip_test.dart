@@ -18,7 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 /// The reported bug, reproduced as the pipeline it actually happens in.
 ///
-/// A Vyapar `.vyb` is imported on one device, that device syncs to the Atria
+/// A Vyapar `.vyb` is imported on one device, that device syncs to the Apex Books
 /// server, and a second device (an Android phone) pulls the books and finds
 /// saved bills and estimates whose totals arrived but whose line items did not.
 ///

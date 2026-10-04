@@ -1,10 +1,10 @@
 # Project-level configuration.
 cmake_minimum_required(VERSION 3.14)
-project(atria LANGUAGES CXX)
+project(apex_books LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
-set(BINARY_NAME "atria")
+set(BINARY_NAME "apex_books")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
@@ -84,7 +84,7 @@ set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 # `install(PROGRAMS ... DESTINATION bin)`, and a *relative* destination cannot
 # be combined with the generator expression this file sets as
 # CMAKE_INSTALL_PREFIX — the install script then tries to create a literal
-# directory named `$<TARGET_FILE_DIR:atria>/bin` and fails the whole build.
+# directory named `$<TARGET_FILE_DIR:apex_books>/bin` and fails the whole build.
 set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)
 include(InstallRequiredSystemLibraries)
 if(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS)

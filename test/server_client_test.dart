@@ -111,14 +111,14 @@ void main() {
       () async {
     status = 409;
     body = '{"error":{"code":"conflict","message":'
-        '"That business was deleted from Atria."}}';
+        '"That business was deleted from Apex Books."}}';
 
     await expectLater(
       client.eraseFirm(firmId: firmId, accessToken: 'access-1'),
       throwsA(isA<ServerRequestException>().having(
         (error) => error.message,
         'message',
-        contains('deleted from Atria'),
+        contains('deleted from Apex Books'),
       )),
     );
   });
@@ -162,7 +162,7 @@ void main() {
       throwsA(isA<ServerRequestException>().having(
         (error) => error.message,
         'message',
-        contains('Could not reach Atria'),
+        contains('Could not reach Apex Books'),
       )),
     );
   });

@@ -154,7 +154,7 @@ void main() {
 
   test('a 200 without tokens is refused rather than becoming an empty session',
       () async {
-    // What a non-Atria server answering 200 looks like.
+    // What a non-Apex Books server answering 200 looks like.
     body = jsonEncode({'ok': true});
 
     await expectLater(

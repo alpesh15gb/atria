@@ -1188,7 +1188,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
                 title: const Text('Only on this device'),
                 subtitle: const Text(
                   'The books disappear from here. Anything already synced to '
-                  'Atria stays on the server, and comes back if you sign this '
+                  'Apex Books stays on the server, and comes back if you sign this '
                   'account in again.',
                 ),
                 onTap: () => Navigator.of(sheetContext).pop(false),
@@ -1201,10 +1201,10 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
                       ? scheme.error
                       : scheme.onSurfaceVariant,
                 ),
-                title: const Text('Here and on the Atria server'),
+                title: const Text('Here and on the Apex Books server'),
                 subtitle: Text(
                   account == null
-                      ? 'Sign in to Atria on this device first: without a '
+                      ? 'Sign in to Apex Books on this device first: without a '
                           'session the server has no way to know this is your '
                           'business.'
                       : 'Erases it from $account and from every other device '
@@ -1243,7 +1243,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
                   eraseRemote
                       ? 'Every invoice, purchase, payment, expense, party and '
                           'item in this business will be destroyed on this '
-                          'device and erased from Atria\'s servers. This cannot '
+                          'device and erased from Apex Books\'s servers. This cannot '
                           'be undone, and no backup is taken for you.'
                       : 'Every invoice, purchase, payment, expense, party and '
                           'item in this business will be destroyed on this '
@@ -1305,7 +1305,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
         //
         // `resolveAccessToken` rather than `accessToken`, because a null token
         // means two different things here. Being offline used to produce "this
-        // device is no longer signed in to Atria, so nothing was removed" —
+        // device is no longer signed in to Apex Books, so nothing was removed" —
         // which blames the account for a network problem and is thrown BEFORE
         // the local purge runs, so a shop that merely lost signal could not
         // delete its own business from the device.
@@ -1316,14 +1316,14 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
         if (accessToken == null) {
           if (session.temporarilyUnavailable) {
             throw const ServerRequestException(
-              'Could not reach Atria, so nothing was removed from the server '
+              'Could not reach Apex Books, so nothing was removed from the server '
               'or from this device. Check your connection and try again — the '
               'business was left untouched.',
               signedOut: false,
             );
           }
           throw const ServerRequestException(
-            'This device is no longer signed in to Atria, so nothing was '
+            'This device is no longer signed in to Apex Books, so nothing was '
             'removed from the server or from this device.',
             signedOut: true,
           );
@@ -1343,7 +1343,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
       _dirty = false;
       messenger?.showSnackBar(SnackBar(
         content: Text(eraseRemote
-            ? '"${firm.name}" was removed from this device and from Atria'
+            ? '"${firm.name}" was removed from this device and from Apex Books'
             : '"${firm.name}" was removed from this device'),
       ));
       context.go('/dashboard');
@@ -1371,7 +1371,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
     final session = await controller.resolveAccessToken();
     if (session.needsSignIn) return null;
     final email = ref.read(authControllerProvider).email;
-    return email.trim().isEmpty ? 'your Atria account' : email;
+    return email.trim().isEmpty ? 'your Apex Books account' : email;
   }
 
   /// Moves the app off the business that was just removed.

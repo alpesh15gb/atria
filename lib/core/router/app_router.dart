@@ -574,8 +574,8 @@ class _BootFailure extends ConsumerWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Atria stores everything on this device and the book file '
-                  'would not open. Another copy of Atria may be running, or '
+                  'Apex Books stores everything on this device and the book file '
+                  'would not open. Another copy of Apex Books may be running, or '
                   'the file may be damaged.',
                   textAlign: TextAlign.center,
                   style: theme.textTheme.bodyMedium?.copyWith(

@@ -2,7 +2,7 @@ import 'package:atria/core/api/server_probe.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// The Settings "Test connection" button exists to tell apart three things that
-/// look identical from a browser tab: the Atria API answered, *something else*
+/// look identical from a browser tab: the Apex Books API answered, *something else*
 /// answered, and nothing answered. Only the first is a pass.
 ///
 /// This is not hypothetical. `api.apexbooks.in` used to be served by a different
@@ -11,7 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 /// through the wrong application.
 void main() {
   group('describeHealthBody', () {
-    test('accepts the Atria API payload and names its version', () {
+    test('accepts the Apex Books API payload and names its version', () {
       final result = ServerProbe.describeHealthBody(
         '{"status":"ok","version":"0.1.0","uptimeSeconds":42}',
       );
@@ -41,7 +41,7 @@ void main() {
     test('rejects a JSON reply that is healthy but not ours', () {
       final result = ServerProbe.describeHealthBody('{"error":"nope"}');
       expect(result.ok, isFalse);
-      expect(result.message, contains('not the Atria API'));
+      expect(result.message, contains('not the Apex Books API'));
     });
 
     test('rejects a JSON array, which some proxies return', () {

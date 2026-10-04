@@ -159,7 +159,7 @@ class ScannedBill {
 /// The server's bill-scan endpoint.
 ///
 /// One method: send a photo, get the model's reading. The vendor key lives on
-/// the server; this client authenticates with the same Atria session every
+/// the server; this client authenticates with the same Apex Books session every
 /// other call uses.
 class ScanClient {
   ScanClient(this._config, {this.timeout = const Duration(seconds: 90)});

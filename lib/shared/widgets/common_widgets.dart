@@ -29,7 +29,7 @@ String atriaErrorMessage(Object? error, {String? retry}) {
       text.contains('database table is locked') ||
       text.contains('sqlite_busy')) {
     message =
-        'Atria is busy writing — another window or a sync is using the books. '
+        'Apex Books is busy writing — another window or a sync is using the books. '
         'Close the other window, or try again in a moment.';
   } else if (text.contains('disk i/o') ||
       text.contains('no space left') ||
@@ -37,25 +37,25 @@ String atriaErrorMessage(Object? error, {String? retry}) {
       text.contains('permission denied') ||
       text.contains('errno 13')) {
     message =
-        'Atria could not write to its books folder. Check that the drive still '
+        'Apex Books could not write to its books folder. Check that the drive still '
         'has free space and is not write-protected.';
   } else if (text.contains('unable to open database') ||
       text.contains('malformed') ||
       text.contains('not a database') ||
       text.contains('file is encrypted')) {
     message =
-        'Atria\'s books file could not be opened. Nothing has been changed — '
-        'restore a backup, or put the newer version of Atria back if you have '
+        'Apex Books\'s books file could not be opened. Nothing has been changed — '
+        'restore a backup, or put the newer version of Apex Books back if you have '
         'just downgraded.';
   } else if (text.contains('no such table') || text.contains('no such column')) {
     message =
-        'These books were written by a different version of Atria. Update '
-        'Atria and try again.';
+        'These books were written by a different version of Apex Books. Update '
+        'Apex Books and try again.';
   } else if (text.contains('socket') ||
       text.contains('connection refused') ||
       text.contains('failed host lookup') ||
       text.contains('network')) {
-    message = 'Atria could not reach the server. Check your connection.';
+    message = 'Apex Books could not reach the server. Check your connection.';
   } else {
     message = 'Something went wrong loading this. $retry';
   }

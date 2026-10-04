@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Atria color tokens — QuickBooks Online parity.
+/// Apex Books color tokens — QuickBooks Online parity.
 ///
 /// Design intent: Intuit's accounting language. A single saturated brand
 /// **green** carries every primary action and the active navigation state,

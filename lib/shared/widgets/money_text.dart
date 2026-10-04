@@ -16,6 +16,7 @@ class MoneyText extends StatelessWidget {
     this.compact = false,
     this.colorize = true,
     this.decimals = 2,
+    this.textAlign = TextAlign.left,
   });
 
   final Decimal amount;
@@ -26,6 +27,11 @@ class MoneyText extends StatelessWidget {
   final bool colorize;
   final int decimals;
 
+  /// How the figure sits in a column wider than itself. Tables right-align
+  /// their figures under right-aligned headers; a bare [Text] is left-aligned
+  /// and the column reads as skewed.
+  final TextAlign textAlign;
+
   @override
   Widget build(BuildContext context) {
     final colors = atriaColors(context);
@@ -33,8 +39,8 @@ class MoneyText extends StatelessWidget {
     final sign = signMode == MoneySignMode.always
         ? (negative ? '-' : '+')
         : (signMode == MoneySignMode.auto && negative)
-            ? '-'
-            : '';
+        ? '-'
+        : '';
 
     // For `never` we rely on the formatter's own minus sign, so the value
     // must go in un-negated-of-magnitude: passing the magnitude here would
@@ -43,14 +49,20 @@ class MoneyText extends StatelessWidget {
     if (signMode == MoneySignMode.never) {
       text = compact
           ? Formatters.moneyCompact(amount)
-          : Formatters.money(amount,
-              showSymbol: showSymbol, decimals: decimals);
+          : Formatters.money(
+              amount,
+              showSymbol: showSymbol,
+              decimals: decimals,
+            );
     } else {
       final magnitude = negative ? -amount : amount;
       final magnitudeText = compact
           ? Formatters.moneyCompact(magnitude)
-          : Formatters.money(magnitude,
-              showSymbol: showSymbol, decimals: decimals);
+          : Formatters.money(
+              magnitude,
+              showSymbol: showSymbol,
+              decimals: decimals,
+            );
       text = '$sign$magnitudeText';
     }
     final display = text;
@@ -66,10 +78,11 @@ class MoneyText extends StatelessWidget {
 
     return Text(
       display,
+      textAlign: textAlign,
       style: (style ?? Theme.of(context).textTheme.titleMedium)?.copyWith(
-            color: color,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
+        color: color,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      ),
     );
   }
 }
@@ -77,8 +90,10 @@ class MoneyText extends StatelessWidget {
 enum MoneySignMode {
   /// Never show a leading sign (uses the minus from formatting only).
   never,
+
   /// Show + or - based on the value.
   auto,
+
   /// Always show a sign, even for positive amounts (ledger style).
   always,
 }

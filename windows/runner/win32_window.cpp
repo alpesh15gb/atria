@@ -18,6 +18,23 @@ namespace {
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
+/// Smallest window the app can lay itself out in, in *logical* pixels.
+///
+/// Without a WM_GETMINMAXINFO the window can be dragged to any size the mouse
+/// can reach, and Flutter then paints broken layouts rather than refusing: the
+/// chrome band overflows below ~256dp of width, the shell's bare Column throws
+/// a vertical RenderFlex below ~52dp of height, and the shell's 62dp
+/// NavigationBar overflows below ~114dp. A minimum that only clears the last
+/// of those is the floor, not a usable window, so this is the tallest chrome
+/// the shell has (top band + NavigationBar, ~114dp) plus room for at least one
+/// content row.
+///
+/// These are dp, not physical pixels: [Scale] converts them for the monitor the
+/// window is on, so the minimum stays correct at 125/150/200% display scaling
+/// instead of shrinking to 420 physical px (280dp) on a 150% screen.
+constexpr int kMinWindowWidthDp = 420;
+constexpr int kMinWindowHeightDp = 160;
+
 /// Registry key for app theme preference.
 ///
 /// A value of 0 indicates apps should use dark mode. A non-zero or missing
@@ -186,6 +203,25 @@ Win32Window::MessageHandler(HWND hwnd,
         PostQuitMessage(0);
       }
       return 0;
+
+    case WM_GETMINMAXINFO: {
+      // The window may not be resized below the point at which Atria's own
+      // layout is valid. Windows sends this before every resize and every
+      // maximize, so this is also what pins the minimum during a maximize —
+      // handling it on WM_SIZE would be too late, the frame has already moved.
+      //
+      // DPI is read from the monitor the window is on, not from the primary
+      // monitor, so dragging a maximized window to a 4K display re-asks with
+      // the new scale factor and the minimum is still 420x160 dp there.
+      HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY);
+      UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
+      double scale_factor = dpi / 96.0;
+
+      MINMAXINFO* minmax = reinterpret_cast<MINMAXINFO*>(lparam);
+      minmax->ptMinTrackSize.x = Scale(kMinWindowWidthDp, scale_factor);
+      minmax->ptMinTrackSize.y = Scale(kMinWindowHeightDp, scale_factor);
+      return 0;
+    }
 
     case WM_DPICHANGED: {
       auto newRectSize = reinterpret_cast<RECT*>(lparam);

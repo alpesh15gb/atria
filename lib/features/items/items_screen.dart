@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:decimal/decimal.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,6 +14,10 @@ import '../../core/state/providers.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/money.dart';
+import '../../core/theme/app_sizes.dart';
+import '../../shared/widgets/atria_list_toolbar.dart';
+import '../../shared/widgets/atria_list_page.dart';
+import '../../shared/widgets/atria_page_header.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/money_text.dart';
 import '../../shared/widgets/status_chip.dart';
@@ -24,49 +30,50 @@ final _itemFilterProvider = StateProvider<_ItemFilter>(
 );
 final _itemSearchProvider = StateProvider<String>((ref) => '');
 
+/// The whole catalogue, watched with NO row cap and no search term.
+///
+/// Used only for the two totals, which must describe every item — a stock value
+/// computed from a page of the catalogue is simply wrong.
+///
+/// This used to be `repo.watchAll()` at its default cap of 1000, and the list
+/// below was filtered from THAT in memory: anything past the first thousand
+/// rows alphabetically could neither be seen nor searched, while the search box
+/// claimed "Search name, SKU, HSN or barcode" and answered "No matching items".
+/// Because the cap is gone here, the list is no longer truncated and there is
+/// nothing left for the screen to warn about.
 final _allItemsProvider = StreamProvider<List<ItemEntity>>((ref) {
   final repo = ref.watch(itemRepositoryProvider);
   if (repo == null) return Stream.value(const <ItemEntity>[]);
-  return repo.watchAll();
+  return repo.watchAll(limit: 0);
 });
 
-/// Search and chip filtering applied on top of [_allItemsProvider].
-final _visibleItemsProvider = Provider<AsyncValue<List<ItemEntity>>>((ref) {
+/// The rows the grid renders.
+///
+/// Search runs in SQL over every row (the repository's LIKE covers name, SKU,
+/// HSN and barcode), so it is unbounded and reactive. Only the chip filter is
+/// applied in memory: `lowStock` and `services` are column predicates, and
+/// pushing them down would mean three near-identical queries for no gain on a
+/// list that is already local.
+final _visibleItemsProvider = StreamProvider<List<ItemEntity>>((ref) {
+  final repo = ref.watch(itemRepositoryProvider);
+  if (repo == null) return Stream.value(const <ItemEntity>[]);
   final filter = ref.watch(_itemFilterProvider);
-  final search = ref.watch(_itemSearchProvider).trim().toLowerCase();
-  return ref
-      .watch(_allItemsProvider)
-      .whenData((items) => _applyFilter(items, filter, search));
+  final search = ref.watch(_itemSearchProvider);
+  return repo
+      .watchAll(search: search, limit: 0)
+      .map((items) => _applyChip(items, filter));
 });
 
-List<ItemEntity> _applyFilter(
-  List<ItemEntity> items,
-  _ItemFilter filter,
-  String search,
-) {
-  var out = items;
-  if (search.isNotEmpty) {
-    out = items
-        .where(
-          (item) =>
-              item.name.toLowerCase().contains(search) ||
-              (item.sku ?? '').toLowerCase().contains(search) ||
-              (item.hsn ?? '').toLowerCase().contains(search) ||
-              (item.barcode ?? '').toLowerCase().contains(search),
-        )
-        .toList(growable: false);
-  }
-  switch (filter) {
-    case _ItemFilter.lowStock:
-      return out.where(_isLowStock).toList(growable: false);
-    case _ItemFilter.services:
-      return out.where((item) => item.isService).toList(growable: false);
-    case _ItemFilter.all:
-      return out;
-  }
-}
+List<ItemEntity> _applyChip(List<ItemEntity> items, _ItemFilter filter) =>
+    switch (filter) {
+      _ItemFilter.all => items,
+      _ItemFilter.lowStock => items.where(_isLowStock).toList(growable: false),
+      _ItemFilter.services =>
+        items.where((item) => item.isService).toList(growable: false),
+    };
 
 bool _isLowStock(ItemEntity item) =>
+    !item.isService &&
     item.stockType == 'tracked' &&
     item.lowStockAlert > 0 &&
     item.currentStock <= item.lowStockAlert;
@@ -82,7 +89,9 @@ _StockStats _computeStats(List<ItemEntity> items) {
   var sale = Decimal.zero;
   var low = 0;
   for (final item in items) {
-    if (item.stockType != 'tracked') continue;
+    // Services carry no stock; the movement writer skips them, so leaving one
+    // tracked would freeze its opening balance in these totals forever.
+    if (item.isService || item.stockType != 'tracked') continue;
     sale += Money.mulN(Money.of(item.currentStock), item.salePrice);
     if (_isLowStock(item)) low++;
   }
@@ -140,41 +149,44 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
     final search = ref.watch(_itemSearchProvider);
     final filter = ref.watch(_itemFilterProvider);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Items'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.assignment_outlined),
-            tooltip: 'Stock summary',
-            onPressed: () => context.push('/stock'),
-          ),
-        ],
-      ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final count = _crossAxisCount(constraints.windowSize);
-          return CustomScrollView(
+    // The shared page frame owns the heading, its inset and the position of
+    // the actions, so this page lines up with every other list. The body stays
+    // a sliver list because the grid size depends on the window bucket.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final count = _crossAxisCount(constraints.windowSize);
+        return AtriaListPage(
+          title: 'Products and services',
+          actions: [
+            AtriaHeaderIconAction(
+              icon: Icons.assignment_outlined,
+              tooltip: 'Stock summary',
+              // `/stock` is a branch root and this screen lives in the items
+              // branch: `push`ing it would render a second, shell-less copy on
+              // the root navigator. `go` switches the branch.
+              onPressed: () => context.go('/stock'),
+            ),
+            AtriaPrimaryAction(
+              label: 'New item',
+              onPressed: () => context.push('/items/new'),
+            ),
+          ],
+          body: CustomScrollView(
             slivers: [
               SliverToBoxAdapter(child: _statsRow(context, stats)),
               SliverToBoxAdapter(child: _searchRow(context, search, filter)),
               ..._itemSlivers(context, repo, visible, count),
             ],
-          );
-        },
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('Add Item'),
-        onPressed: () => context.push('/items/new'),
-      ),
+          ),
+        );
+      },
     );
   }
 
   Widget _statsRow(BuildContext context, _StockStats stats) {
     final text = Theme.of(context).textTheme;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      padding: const EdgeInsets.fromLTRB(0, AppSpace.md, 0, AppSpace.xs),
       child: Row(
         children: [
           Expanded(
@@ -213,7 +225,7 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
 
   Widget _searchRow(BuildContext context, String search, _ItemFilter filter) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+      padding: const EdgeInsets.fromLTRB(0, 0, 0, AppSpace.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -229,19 +241,27 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
               ref.read(_itemSearchProvider.notifier).state = '';
             },
           ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final f in _ItemFilter.values)
-                FilterChip(
-                  label: Text(_filterLabel(f)),
-                  avatar: Icon(_filterIcon(f), size: 16),
-                  selected: filter == f,
-                  onSelected: (_) =>
-                      ref.read(_itemFilterProvider.notifier).state = f,
-                ),
+          // The shared filter strip: a labelled select on a desktop window,
+          // segmented pills on a phone — the same control every other list
+          // screen uses, so the active filter always reads the same way.
+          AtriaFilterBar(
+            padding: const EdgeInsets.only(top: AppSpace.md),
+            filters: [
+              AtriaAdaptiveFilter<_ItemFilter>(
+                label: 'Show',
+                scrollable: false,
+                value: filter,
+                onChanged: (f) =>
+                    ref.read(_itemFilterProvider.notifier).state = f,
+                segments: [
+                  for (final f in _ItemFilter.values)
+                    AtriaSegment(
+                      value: f,
+                      label: _filterLabel(f),
+                      icon: _filterIcon(f),
+                    ),
+                ],
+              ),
             ],
           ),
         ],
@@ -316,7 +336,7 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
   ) {
     final rowCount = (items.length / crossAxisCount).ceil();
     return SliverPadding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
+      padding: const EdgeInsets.fromLTRB(0, 4, 0, 96),
       sliver: SliverList(
         delegate: SliverChildBuilderDelegate((context, rowIndex) {
           final start = rowIndex * crossAxisCount;
@@ -337,9 +357,22 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
                       // from this one — the fastest way to add a variant.
                       onLongPress: () =>
                           context.push('/items/new?from=${rowItems[i].id}'),
+                      // Deleting used to require opening the editor and
+                      // scrolling to the bottom of the page for a Danger Zone
+                      // nobody reaches. Same confirm-and-soft-delete the editor
+                      // performs, offered where the item is.
+                      onDelete: () => _confirmDeleteFromList(
+                        context,
+                        ref,
+                        rowItems[i],
+                      ),
                     ),
                   ),
-                  if (i < rowItems.length - 1) const SizedBox(width: 16),
+                  if (i < crossAxisCount - 1) const SizedBox(width: 16),
+                ],
+                for (int i = rowItems.length; i < crossAxisCount; i++) ...[
+                  const Expanded(child: SizedBox()),
+                  if (i < crossAxisCount - 1) const SizedBox(width: 16),
                 ],
               ],
             ),
@@ -347,6 +380,58 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
         }, childCount: rowCount),
       ),
     );
+  }
+
+  /// Deletes [item] after a confirmation, reusing the item editor's own copy
+  /// and its soft-delete call so the two entry points cannot drift apart.
+  Future<void> _confirmDeleteFromList(
+    BuildContext context,
+    WidgetRef ref,
+    ItemEntity item,
+  ) async {
+    final repo = ref.read(itemRepositoryProvider);
+    if (repo == null) return;
+    // Captured before the dialog: the `await` is an async gap, and a
+    // ScaffoldMessenger looked up afterwards can belong to a dead element.
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Delete ${item.name}?'),
+        content: const Text(
+          'This removes the item from your catalogue. Documents that '
+          'already use it are not changed. You can restore it later from '
+          'the recycle bin.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.tonal(
+            style: FilledButton.styleFrom(
+              foregroundColor: Theme.of(dialogContext).colorScheme.error,
+            ),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      // ItemRepository.delete is a SOFT delete: it cannot fail with a
+      // foreign-key error the way a hard delete would, which is why the copy
+      // above promises a restore rather than a failure.
+      await repo.delete(item.id);
+      messenger?.showSnackBar(
+        const SnackBar(content: Text('Item deleted — restore it from the recycle bin')),
+      );
+    } catch (error) {
+      messenger?.showSnackBar(
+        SnackBar(content: Text('Could not delete the item: $error')),
+      );
+    }
   }
 }
 
@@ -407,11 +492,20 @@ class _StatCard extends StatelessWidget {
 }
 
 class _ItemTile extends StatelessWidget {
-  const _ItemTile({required this.item, required this.onTap, this.onLongPress});
+  const _ItemTile({
+    required this.item,
+    required this.onTap,
+    this.onLongPress,
+    this.onDelete,
+  });
 
   final ItemEntity item;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
+
+  /// Bins the item after a confirmation. Null hides the entry (create mode
+  /// has nothing to bin).
+  final Future<void> Function()? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -464,7 +558,9 @@ class _ItemTile extends StatelessWidget {
                 ),
               ),
               // Duplicate was reachable only by long-press — undiscoverable.
-              // A visible menu puts it on the tile like every other list row.
+              // A visible menu puts it on the tile like every other list row,
+              // and now carries Delete too, so binning an item no longer means
+              // opening the editor and scrolling to a Danger Zone.
               PopupMenuButton<String>(
                 tooltip: 'More actions',
                 padding: EdgeInsets.zero,
@@ -474,23 +570,54 @@ class _ItemTile extends StatelessWidget {
                     onTap();
                   } else if (value == 'duplicate') {
                     onLongPress?.call();
+                  } else if (value == 'delete') {
+                    // The popup route is gone by the time this runs, so the
+                    // future cannot be awaited here — the delete shows its own
+                    // progress of its own (dialog + snackbar).
+                    unawaited(onDelete?.call());
                   }
                 },
-                itemBuilder: (context) => const [
-                  PopupMenuItem(
-                      value: 'edit',
-                      child: Row(children: [
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'edit',
+                    child: Row(
+                      children: [
                         Icon(Icons.edit_outlined, size: 18),
                         SizedBox(width: 10),
                         Text('Edit'),
-                      ])),
-                  PopupMenuItem(
-                      value: 'duplicate',
-                      child: Row(children: [
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'duplicate',
+                    child: Row(
+                      children: [
                         Icon(Icons.copy_rounded, size: 18),
                         SizedBox(width: 10),
                         Text('Duplicate'),
-                      ])),
+                      ],
+                    ),
+                  ),
+                  if (onDelete != null)
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.delete_outline_rounded,
+                            size: 18,
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            'Delete',
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                 ],
               ),
             ],

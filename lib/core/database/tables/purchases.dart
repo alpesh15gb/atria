@@ -49,6 +49,10 @@ class PurchaseBills extends Table {
   RealColumn get igst => real().withDefault(const Constant(0))();
   RealColumn get cess => real().withDefault(const Constant(0))();
   RealColumn get tds => real().withDefault(const Constant(0))();
+  /// The TDS percentage the deduction was worked out from, so the bill can
+  /// print "TDS @ 0.1%" and the deduction can be re-derived rather than
+  /// guessed from the amount.
+  RealColumn get tdsRate => real().withDefault(const Constant(0))();
   RealColumn get roundOff => real().withDefault(const Constant(0))();
   RealColumn get grandTotal => real().withDefault(const Constant(0))();
 
@@ -110,6 +114,20 @@ class Payments extends Table {
   TextColumn get mode => text().withDefault(const Constant('cash'))();
   TextColumn get reference => text().nullable()(); // UTR / cheque no.
   DateTimeColumn get clearanceDate => dateTime().nullable()();
+  /// Where a cheque has got to: null for money that is not a cheque, otherwise
+  /// pending | deposited | cleared | bounced.
+  ///
+  /// A lifecycle rather than a boolean because the three states mean different
+  /// things to the books: a cheque in hand is not money (it can bounce), a
+  /// deposited cheque is still not money until the bank clears it, and only a
+  /// cleared one is. The bucket in the payments screen and "cash in hand" both
+  /// read from here.
+  TextColumn get chequeStatus => text().nullable()();
+  DateTimeColumn get depositedAt => dateTime().nullable()();
+  DateTimeColumn get bouncedAt => dateTime().nullable()();
+  /// Why the bank returned it, in the operator's own words ("insufficient
+  /// funds", "signature mismatch") — what a follow-up call is about.
+  TextColumn get bounceReason => text().nullable()();
   TextColumn get linkedInvoiceId => text().nullable()();
   TextColumn get linkedInvoiceNumber => text().nullable()();
   TextColumn get bankAccount => text().nullable()();

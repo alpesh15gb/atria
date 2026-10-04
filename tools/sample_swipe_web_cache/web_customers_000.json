@@ -1,0 +1,44 @@
+{
+  "success": true,
+  "total": 2,
+  "columns": [],
+  "tags": [],
+  "you_will_get": 0,
+  "you_will_give": 0,
+  "allData": [
+    {
+      "customer_id": 5,
+      "name": "Keystone Infra Pvt Ltd",
+      "company_name": "KEYSTONE INFRA PRIVATE LIMITED",
+      "gstin": "36AACCK6531F1ZP",
+      "email": "accounts@keystoneinfra.com",
+      "phone": "9515819556",
+      "dial_code": "91",
+      "billing_address_1": "8-2-338/6, keystone house",
+      "billing_address_2": "Road No 3, Panchvathi Colony Banjara hills",
+      "billing_city": "Hyderabad",
+      "billing_state": "36-TELANGANA",
+      "billing_pincode": "500034",
+      "state": "36-TELANGANA",
+      "type": "customer",
+      "is_delete": 0
+    },
+    {
+      "customer_id": 3,
+      "name": "Kamala Consumer Care PVT LTD",
+      "company_name": "KAMALA CONSUMER CARE PVT LTD",
+      "gstin": "36AABCC0896L1ZD",
+      "email": "viren@sweetworld.co.in",
+      "phone": "9949094023",
+      "dial_code": "91",
+      "billing_address_1": "SY. NO 160",
+      "billing_address_2": "Village and Mandal Kottur, Kottur",
+      "billing_city": "Mahabubnagar",
+      "billing_state": "36-TELANGANA",
+      "billing_pincode": "509228",
+      "state": "36-TELANGANA",
+      "type": "customer",
+      "is_delete": 0
+    }
+  ]
+}

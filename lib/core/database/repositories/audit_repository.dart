@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:drift/drift.dart';
 
+import '../../utils/id_utils.dart';
 import '../app_database.dart';
 import 'settings_repository.dart';
 
@@ -22,8 +23,11 @@ class AuditRepository {
     Map<String, Object?>? details,
   }) async {
     await db.into(db.auditLogs).insert(AuditLogsCompanion.insert(
-          id: 'aud_${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}'
-              '_${DateTime.now().microsecond}',
+          // Must not be derived from the clock alone. Windows reports time in
+          // coarse ticks, so two entries written back to back (a bulk import,
+          // the demo seeder) came out with the same id and the second one hit
+          // the primary key.
+          id: 'aud_${IdUtils.newId()}',
           firmId: Value(firmId),
           actor: Value(actor),
           action: action,

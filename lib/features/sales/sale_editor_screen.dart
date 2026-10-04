@@ -6,18 +6,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
-import '../../core/constants/gst.dart';
 import '../../core/constants/indian_states.dart';
-import '../../core/constants/units.dart';
 import '../../core/database/app_database.dart';
 import '../../core/database/repositories/firm_repository.dart';
 import '../../core/database/repositories/sales_repository.dart';
 import '../../core/engine/gst_engine.dart';
 import '../../core/state/providers.dart';
 import '../../core/theme/app_radius.dart';
+import '../../core/theme/app_sizes.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/id_utils.dart';
 import '../../core/utils/money.dart';
+import '../../shared/widgets/atria_field_icon.dart';
+import '../../shared/widgets/atria_form_section.dart';
+import '../../shared/widgets/atria_grid_cell.dart';
+import '../../shared/widgets/atria_line_grid.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/editor_shell.dart';
 import '../../shared/widgets/editor_totals.dart';
@@ -71,6 +74,10 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
   final _discountPercentController = TextEditingController(text: '0');
   final _discountAmountController = TextEditingController(text: '0');
   final _shippingController = TextEditingController(text: '0');
+  /// TCS percentage. Defaults to the firm's `invoiceTcsRate` on a new invoice
+  /// and comes from the stored document on an edit, so a shop that always
+  /// collects 0.1% under s.206C(1H) types it once in the firm profile.
+  final _tcsRateController = TextEditingController(text: '0');
   bool _applyRoundOff = true;
 
   /// One-tap settlement: records a payment covering the invoice as soon as
@@ -82,6 +89,9 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
 
   // Catalog lookups
   List<ItemEntity> _items = const [];
+
+  /// Firm-defined units, for the line-grid unit picker.
+  List<UnitEntity> _customUnits = const [];
   List<PartyEntity> _parties = const [];
 
   /// Live item feed so the line picker sees items saved after this editor
@@ -97,16 +107,24 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
   double _partyOutstanding = 0;
   double? _partyCreditLimit;
 
+  /// The firm's own TCS rate (0 when it collects none) — the default this
+  /// invoice's field is prefilled with.
+  double get _firmTcsRate =>
+      ref.read(activeFirmProvider).valueOrNull?.invoiceTcsRate ?? 0;
+
+  String get _firmTcsRateText => Formatters.rateInput(_firmTcsRate);
+
   String? get _creditLimitMessage {
     final limit = _partyCreditLimit;
     if (limit == null || limit <= 0) return null;
-    final grandTotal = _totals.grandTotal +
+    final grandTotal =
+        _totals.grandTotal +
         (Money.tryParse(_shippingController.text) ?? Decimal.zero);
-    final projected =
-        _partyOutstanding + grandTotal.toDouble();
+    final projected = _partyOutstanding + grandTotal.toDouble();
     if (projected <= limit) return null;
     String fmt(double v) => Formatters.money(
-        Decimal.tryParse(v.toStringAsFixed(2)) ?? Decimal.zero);
+      Decimal.tryParse(v.toStringAsFixed(2)) ?? Decimal.zero,
+    );
     return 'Credit limit exceeded: ${fmt(_partyOutstanding)} '
         'outstanding + this ${fmt(grandTotal.toDouble())} crosses the '
         '${fmt(limit)} limit. You can still save.';
@@ -149,15 +167,14 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
       !_isQuotation && !_isOrder && !_isDeliveryNote;
 
   String get _docNoun => switch (widget.docType) {
-        'quotation' => 'Quotation',
-        'sales_order' => 'Sales Order',
-        'delivery_note' => 'Delivery Note',
-        'credit_note' => 'Credit Note',
-        _ => 'Invoice',
-      };
+    'quotation' => 'Quotation',
+    'sales_order' => 'Sales Order',
+    'delivery_note' => 'Delivery Note',
+    'credit_note' => 'Credit Note',
+    _ => 'Invoice',
+  };
 
-  String get _title =>
-      '${_isEditing ? 'Edit' : 'New'} $_docNoun';
+  String get _title => '${_isEditing ? 'Edit' : 'New'} $_docNoun';
 
   @override
   void initState() {
@@ -169,6 +186,10 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
       _discountPercentController,
       _discountAmountController,
       _shippingController,
+      // TCS was missing from this list, so typing a rate called `_recalc()`
+      // (the totals redrew) while `UnsavedGuard.hasChanges` stayed false —
+      // Back or Escape then discarded the rate with no warning.
+      _tcsRateController,
     ]) {
       controller.addListener(_markDirty);
     }
@@ -183,6 +204,7 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
     _discountPercentController.dispose();
     _discountAmountController.dispose();
     _shippingController.dispose();
+    _tcsRateController.dispose();
     for (final l in _lines) {
       l.dispose();
     }
@@ -195,6 +217,11 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
     final partyRepo = ref.read(partyRepositoryProvider);
     if (itemRepo != null) {
       _items = await itemRepo.all(limit: 2000);
+      // The firm's own units, so a unit created in the item editor stays
+      // selectable on a line. Without these the picker offered only the
+      // standard set, and changing a line's unit made the custom one vanish
+      // with no way back to it.
+      _customUnits = await itemRepo.units();
       // Keep the line-item picker live: an item saved after this editor
       // opened (e.g. added from the Items tab, or created during the same
       // session) must appear without reopening the editor. Pushed into
@@ -213,7 +240,10 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
         _parties = await partyRepo.all(limit: 2000);
       }
       // ?party=<id>: the Parties pane's "New invoice" affordance lands here
-      // with the customer already chosen.
+      // with the customer already chosen. The preset has to survive the rest of
+      // this method — nothing below may fall back to "pick something" (see the
+      // plain-new branch further down), which is what used to make this deep
+      // link dead.
       final preset = widget.presetPartyId;
       if (_party == null && preset != null) {
         _party = _parties
@@ -233,12 +263,14 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
         _invoiceDate = DateTime.now();
         _dueDate = DateTime.now().add(const Duration(days: 15));
         _notesController.text = doc.notes ?? '';
-        _discountPercentController.text =
-            doc.invoiceDiscountPercent.toStringAsFixed(2);
-        _discountAmountController.text =
-            doc.invoiceDiscountAmount.toStringAsFixed(2);
+        _discountPercentController.text = doc.invoiceDiscountPercent
+            .toStringAsFixed(2);
+        _discountAmountController.text = doc.invoiceDiscountAmount
+            .toStringAsFixed(2);
         _shippingController.text = doc.shippingCharge.toStringAsFixed(2);
-        _applyRoundOff = doc.roundOff.abs() > 0.000001;
+        _tcsRateController.text = Formatters.rateInput(doc.tcsRate);
+        _applyRoundOff = doc.roundOff.abs() > 0.000001 ||
+            (doc.grandTotal - doc.grandTotal.round()).abs() < 0.001;
         _party = _parties
             .where((p) => p.id == doc.partyId)
             .cast<PartyEntity?>()
@@ -263,8 +295,9 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
         final sourceLines = await sales!.itemsFor(doc.id);
         _lines.clear();
         for (final l in sourceLines) {
-          _lines.add(_LineController.fromEntity(l, _items,
-              onChanged: _onLineChanged));
+          _lines.add(
+            _LineController.fromEntity(l, _items, onChanged: _onLineChanged),
+          );
         }
         if (_lines.isEmpty) _addLine();
         _convertSourceId = doc.id;
@@ -279,12 +312,14 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
         _invoiceDate = doc.invoiceDate;
         _dueDate = doc.dueDate;
         _notesController.text = doc.notes ?? '';
-        _discountPercentController.text =
-            doc.invoiceDiscountPercent.toStringAsFixed(2);
-        _discountAmountController.text =
-            doc.invoiceDiscountAmount.toStringAsFixed(2);
+        _discountPercentController.text = doc.invoiceDiscountPercent
+            .toStringAsFixed(2);
+        _discountAmountController.text = doc.invoiceDiscountAmount
+            .toStringAsFixed(2);
         _shippingController.text = doc.shippingCharge.toStringAsFixed(2);
-        _applyRoundOff = doc.roundOff.abs() > 0.000001;
+        _tcsRateController.text = Formatters.rateInput(doc.tcsRate);
+        _applyRoundOff = doc.roundOff.abs() > 0.000001 ||
+            (doc.grandTotal - doc.grandTotal.round()).abs() < 0.001;
         _party = _parties
             .where((p) => p.id == doc.partyId)
             .cast<PartyEntity?>()
@@ -309,17 +344,36 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
         final savedLines = await sales!.itemsFor(doc.id);
         _lines.clear();
         for (final l in savedLines) {
-          _lines.add(_LineController.fromEntity(l, _items,
-              onChanged: _onLineChanged));
+          _lines.add(
+            _LineController.fromEntity(l, _items, onChanged: _onLineChanged),
+          );
         }
         if (_lines.isEmpty) _addLine();
         _recalcPartyDerived();
       }
     } else {
-      // Pre-select the last-used customer for convenience.
-      if (_parties.isNotEmpty) {
-        _selectParty(_parties.first);
-      }
+      // No silent pre-selection.
+      //
+      // This used to call `_selectParty(_parties.first)` under the comment
+      // "Pre-select the last-used customer" — but `_parties` is a name-ordered,
+      // 2000-row snapshot, so `_parties.first` is the ALPHABETICALLY FIRST
+      // customer. A new invoice therefore opened against a shop the user never
+      // mentioned, and the `_dirty = false` below meant the unsaved-changes
+      // guard never warned. It also overwrote the `?party=<id>` deep link set
+      // above (D15), which is how the Parties pane's "New invoice" landed on
+      // the wrong customer.
+      //
+      // Why stop rather than implement "last used": the id belongs in the
+      // firm's settings, and this screen owns neither that table nor a place to
+      // cache it — an in-memory "last used" would be wrong after a restart and
+      // wrong on the next device. An empty field makes the user pick the
+      // customer once (and Save refuses an invoice with none), which is a far
+      // smaller cost than an invoice raised against the wrong party.
+      //
+      // A firm that collects TCS sets the rate once in its profile; retyping it
+      // on every invoice is how a rate gets typed wrong. An edit keeps
+      // whatever the document was issued with instead.
+      _tcsRateController.text = _firmTcsRateText;
     }
     // Neither prefilling an existing document nor pre-selecting the usual
     // customer counts as an edit the user would lose by going back.
@@ -332,11 +386,17 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
     _recalc();
   }
 
-  void _addLine() {
-    setState(() {
-      _lines.add(_LineController(items: _items, onChanged: _onLineChanged));
-    });
+  /// Appends a line. [focus] moves the caret into the new line's item cell —
+  /// the spreadsheet behaviour of Enter at the end of the sheet. Only user
+  /// initiated adds ask for it, so opening an invoice does not pop a keyboard.
+  void _addLine({bool focus = false}) {
+    final line = _LineController(items: _items, onChanged: _onLineChanged);
+    setState(() => _lines.add(line));
     _recalc();
+    if (!focus) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) line.nameFocus.requestFocus();
+    });
   }
 
   void _removeLine(int index) {
@@ -387,6 +447,20 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
     setState(() {});
   }
 
+  GstSplit get _split =>
+      _isInterState ? GstSplit.interState : GstSplit.intraState;
+
+  /// [GstSplit] with the Union-Territory case resolved, for LABELS only: the
+  /// engine still computes with [_split] (an inter-state document charges IGST
+  /// whatever the state codes say), and an unregistered or state-less party
+  /// stays intra-state, exactly as [_isInterState] decided.
+  GstSplit get _documentSplit => _isInterState
+      ? GstSplit.interState
+      : resolveGstSplit(
+          supplierState: _party?.stateCode,
+          buyerState: ref.read(activeFirmProvider).valueOrNull?.stateCode,
+        );
+
   bool get _isInterState {
     final firm = ref.read(activeFirmProvider).valueOrNull;
     if (_party == null || firm == null || _party!.stateCode == null) {
@@ -427,29 +501,14 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
   }
 
   GstResult get _totals {
-    final lines = _lines
-        .where((l) => l.isValid)
-        .map((l) => TaxLine(
-              id: l.id,
-              itemId: l.itemId,
-              name: l.name.isEmpty ? 'Item' : l.name,
-              hsn: l.hsn,
-              quantity: l.qtyDecimal,
-              unit: l.unit,
-              rate: l.rateDecimal,
-              discountPercent: l.discountPercentDecimal,
-              gstRate: l.gstRate,
-              cessRate: l.cessRate,
-              taxMode: l.taxMode,
-            ))
-        .toList();
+    final lines = _lines.where((l) => l.isValid).map((l) => l.taxLine).toList();
     final discountPercent =
         Money.tryParse(_discountPercentController.text) ?? Decimal.zero;
     final discountAmount =
         Money.tryParse(_discountAmountController.text) ?? Decimal.zero;
     return GstEngine.computeDocument(
       lines: lines,
-      split: _isInterState ? GstSplit.interState : GstSplit.intraState,
+      split: _split,
       invoiceDiscountPercent: discountPercent,
       invoiceDiscountAmount: discountAmount,
       applyRoundOff: _applyRoundOff,
@@ -486,8 +545,23 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
       int sequence;
       if (_isEditing) {
         final existing = await sales.getById(widget.editId!);
-        number = existing?.number ?? 'INV-1';
-        sequence = existing?.sequence ?? 0;
+        if (existing == null || existing.isDeleted) {
+          // The document vanished (binned or purged elsewhere) between
+          // opening this editor and saving. The repository treats a missing
+          // live row as a NEW insert, so saving here would resurrect it —
+          // and hard-deletion would insert it under a placeholder number.
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('This document no longer exists — it may '
+                    'have been deleted. Nothing was saved.'),
+              ),
+            );
+          }
+          return false;
+        }
+        number = existing.number;
+        sequence = existing.sequence;
       } else {
         final docSequence = switch (widget.docType) {
           'quotation' => DocSequence.quotation,
@@ -503,6 +577,7 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
       }
 
       final shipping = Money.tryParse(_shippingController.text) ?? Decimal.zero;
+      final tcsRate = Money.tryParse(_tcsRateController.text) ?? Decimal.zero;
       final discountPercent =
           Money.tryParse(_discountPercentController.text) ?? Decimal.zero;
       final discountAmount =
@@ -519,19 +594,21 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
         // silently re-activated a cancelled/converted document on any edit.
         status: _isEditing ? (_existingStatus ?? 'confirmed') : 'confirmed',
         lines: validLines
-            .map((l) => SalesLineDraft(
-                  id: l.id.isEmpty ? IdUtils.newId() : l.id,
-                  itemId: l.itemId,
-                  name: l.name,
-                  hsn: l.hsn,
-                  quantity: l.qtyDecimal,
-                  unit: l.unit,
-                  rate: l.rateDecimal,
-                  discountPercent: l.discountPercentDecimal,
-                  gstRate: l.gstRate,
-                  cessRate: l.cessRate,
-                  taxMode: l.taxMode,
-                ))
+            .map(
+              (l) => SalesLineDraft(
+                id: l.id.isEmpty ? IdUtils.newId() : l.id,
+                itemId: l.itemId,
+                name: l.name,
+                hsn: l.hsn,
+                quantity: l.qtyDecimal,
+                unit: l.unit,
+                rate: l.rateDecimal,
+                discountPercent: l.discountPercentDecimal,
+                gstRate: l.gstRate,
+                cessRate: l.cessRate,
+                taxMode: l.taxMode,
+              ),
+            )
             .toList(),
         partyName: _party!.name,
         partyGstin: _party!.gstin,
@@ -544,6 +621,7 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
         invoiceDiscountPercent: discountPercent,
         invoiceDiscountAmount: discountAmount,
         shippingCharge: shipping,
+        tcsRate: tcsRate,
         applyRoundOff: _applyRoundOff,
         notes: _notesController.text.trim().isEmpty
             ? null
@@ -559,7 +637,10 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
       // Non-invoice document types must not touch stock or party balances:
       // the repository already special-cases credit notes and quotations,
       // and delivery notes get the same treatment.
-      await sales.save(draft, affectStock: _affectsStockAndBalances);
+      final savedDoc = await sales.save(
+        draft,
+        affectStock: _affectsStockAndBalances,
+      );
 
       // One-tap "Mark as fully paid": settle the invoice immediately with a
       // payment_in, the way a counter sale is completed on the desktop
@@ -589,6 +670,21 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
         }
       }
 
+      // An edit that takes the invoice below what has already been received
+      // leaves no honest balance to show: the repository clamps it to ₹0 and
+      // the payments ledger stands as it is. The success message carries that
+      // warning instead of hiding it behind "saved".
+      final settlement = DocumentSettlement.of(
+        grandTotal: savedDoc.grandTotal,
+        paidAmount: savedDoc.paidAmount,
+      );
+      final overpayment = settlement.overpaid
+          ? 'Saved, but ${Formatters.money(Decimal.parse(savedDoc.paidAmount.toStringAsFixed(2)))} '
+              'was already received and this invoice is now worth only '
+              '${Formatters.money(Decimal.parse(savedDoc.grandTotal.toStringAsFixed(2)))}. '
+              'The balance shows as zero — check the payments recorded against it.'
+          : null;
+
       // A converted quotation/order is flagged so it shows its badge in the
       // list and cannot be converted a second time.
       final sourceId = _convertSourceId;
@@ -599,16 +695,21 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${_title.replaceFirst('New ', '')} saved')),
+          SnackBar(
+            content: Text(
+                overpayment ?? '${_title.replaceFirst('New ', '')} saved'),
+            duration: overpayment == null
+                ? const Duration(seconds: 4)
+                : const Duration(seconds: 8),
+          ),
         );
         _dirty = false;
       }
       return true;
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not save: $e')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Could not save: $e')));
       }
       return false;
     } finally {
@@ -636,6 +737,7 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
       _discountPercentController.text = '0';
       _discountAmountController.text = '0';
       _shippingController.text = '0';
+      _tcsRateController.text = _firmTcsRateText;
       _applyRoundOff = true;
       for (final l in _lines) {
         l.dispose();
@@ -645,6 +747,9 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
       _dirty = false;
     });
     _recalcPartyDerived();
+    // The saved document just increased the party's outstanding; without
+    // this the credit-limit banner keeps quoting the pre-save figure.
+    _loadPartyCreditInfo();
   }
 
   String _partyAddress(PartyEntity? party) {
@@ -652,10 +757,277 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
     return [
       party.addressLine1,
       party.addressLine2,
-      [party.city, party.pincode]
-          .where((e) => e != null && e.isNotEmpty)
-          .join(' '),
+      [
+        party.city,
+        party.pincode,
+      ].where((e) => e != null && e.isNotEmpty).join(' '),
     ].where((e) => e != null && e.trim().isNotEmpty).join(', ');
+  }
+
+  /// The line sheet's columns. Fixed here (not per document type) so an
+  /// invoice, a quotation, a sales order and a credit note are all entered
+  /// with the same eye movement.
+  // The sheet is full-bleed, so the prose column carries the slack and the
+  // figure columns stay tight enough to read a column of numbers down.
+  static const List<AtriaLineColumn> _lineColumns = [
+    AtriaLineColumn('Item / Description', flex: 6),
+    AtriaLineColumn('HSN/SAC', flex: 2),
+    AtriaLineColumn('Qty', flex: 3, numeric: true),
+    AtriaLineColumn('Rate', flex: 3, numeric: true),
+    AtriaLineColumn('Disc %', flex: 2, numeric: true),
+    AtriaLineColumn('GST', flex: 3),
+    AtriaLineColumn('Amount', flex: 3, numeric: true),
+  ];
+
+  Widget _lineGrid() {
+    return AtriaLineGrid(
+      columns: _lineColumns,
+      addLabel: 'Add lines',
+      onAddRow: () => _addLine(focus: true),
+      rows: [
+        for (var i = 0; i < _lines.length; i++)
+          AtriaLineGridRow(
+            cells: _lineCells(i),
+            onRemove: _lines.length == 1 ? null : () => _removeLine(i),
+          ),
+      ],
+    );
+  }
+
+  List<Widget> _lineCells(int index) {
+    final c = _lines[index];
+    final isLastRow = index == _lines.length - 1;
+    final scheme = Theme.of(context).colorScheme;
+
+    // Enter at the end of the sheet starts the next line, exactly like a
+    // spreadsheet; anywhere else it moves on and lets traversal take over.
+    void advance() {
+      if (isLastRow) {
+        _addLine(focus: true);
+      } else {
+        FocusScope.of(context).nextFocus();
+      }
+    }
+
+    // The row's own figure must describe what the save will write. An
+    // incomplete line (no name, or no quantity) is excluded from the
+    // document totals, so printing an amount next to it made the rows add up
+    // to more than the invoice is worth.
+    final lineTotals = c.isValid ? c.totalsFor(_split) : LineTotals.empty();
+
+    return [
+      ItemTypeAheadField(
+        key: ValueKey('${c.id}-item'),
+        controller: c.nameController,
+        focusNode: c.nameFocus,
+        label: 'Item',
+        hintText: 'Item or service',
+        validator: (value) =>
+            (value == null || value.trim().isEmpty) ? 'Required' : null,
+        decoration: (context) =>
+            AtriaGridCell.decorationFor(context, hint: 'Item or service'),
+        items: [for (final item in c.items) _CatalogueSuggestion(item)],
+        onPickItem: (s) {
+          // The suggestion carries the catalogue row it was built from, so
+          // two items differing only by case ("Laptop"/"laptop") resolve to the
+          // one the user actually clicked. Resolving by name equality made them
+          // indistinguishable rows with the first always winning.
+          final picked = s is _CatalogueSuggestion ? s.item : null;
+          if (picked == null) return;
+          c.applyItem(picked);
+          _recalc();
+        },
+        onCreateItem: (name) => _createItemFromLine(c, name),
+      ),
+      AtriaGridInput(
+        key: ValueKey('${c.id}-hsn'),
+        controller: c.hsnController,
+        hint: 'HSN',
+        textCapitalization: TextCapitalization.characters,
+        onSubmitted: advance,
+      ),
+      Row(
+        key: ValueKey('${c.id}-qty'),
+        children: [
+          Expanded(
+            child: AtriaGridInput(
+              controller: c.qtyController,
+              numeric: true,
+              textAlign: TextAlign.right,
+              onSubmitted: advance,
+              validator: (value) {
+                final qty = Money.tryParse(value ?? '');
+                if (qty == null || qty <= Decimal.zero) {
+                  return 'Must be greater than 0';
+                }
+                return null;
+              },
+            ),
+          ),
+          ConstrainedBox(
+            // Wider when boxed: the stacked card gives the unit its own box
+            // inside the Qty cell, and 50px leaves no room for it.
+            constraints: BoxConstraints(
+              maxWidth: AtriaGridCellMode.boxedOf(context) ? 78 : 50,
+            ),
+            // The unit setter already notifies the line (which recalculates
+            // and rebuilds) — wrapping that in a setState here would nest.
+            child: AtriaUnitPicker(
+              value: c.unit,
+              customUnits: _customUnits,
+              onChanged: (unit) => c.unit = unit,
+            ),
+          ),
+        ],
+      ),
+      AtriaGridInput(
+        key: ValueKey('${c.id}-rate'),
+        controller: c.rateController,
+        numeric: true,
+        textAlign: TextAlign.right,
+        prefix: '₹ ',
+        onSubmitted: advance,
+      ),
+      AtriaGridInput(
+        key: ValueKey('${c.id}-disc'),
+        controller: c.discountController,
+        numeric: true,
+        textAlign: TextAlign.right,
+        onSubmitted: advance,
+      ),
+      Row(
+        key: ValueKey('${c.id}-gst'),
+        children: [
+          Expanded(
+            child: AtriaGstRatePicker(
+              value: c.gstRate,
+              onChanged: (rate) {
+                setState(() => c.gstRate = rate);
+                c.onChanged();
+              },
+            ),
+          ),
+          // Inclusive = the entered rate already contains GST. Off-standard
+          // rates keep the pill too, since they are still a real tax rate.
+          if (c.gstRate > 0)
+            AtriaTaxModePill(
+              value: c.taxMode,
+              onChanged: (mode) => c.taxMode = mode,
+            ),
+        ],
+      ),
+      Padding(
+        key: ValueKey('${c.id}-amount'),
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        // In the sheet the figure stays bare under its column heading; in the
+        // stacked card it gets the same hairline box as every other cell.
+        child: Container(
+          decoration: AtriaGridCell.boxDecorationOf(context),
+          padding: EdgeInsets.symmetric(
+            horizontal: AtriaGridCellMode.boxedOf(context) ? 10 : 0,
+            vertical: AtriaGridCellMode.boxedOf(context) ? 12 : 0,
+          ),
+          alignment: AtriaGridCellMode.boxedOf(context)
+              ? Alignment.centerRight
+              : null,
+          child: MoneyText(
+            lineTotals.total,
+            colorize: false,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: scheme.onSurface,
+            ),
+          ),
+        ),
+      ),
+    ];
+  }
+
+  /// The Tally half: the full tax breakdown, the grand total, and the
+  /// settlement shortcuts — identical row set to every other document editor.
+  Widget _totalsSection(GstResult totals) {
+    final scheme = Theme.of(context).colorScheme;
+    final shipping = Money.tryParse(_shippingController.text) ?? Decimal.zero;
+    final tcsRate = Money.tryParse(_tcsRateController.text) ?? Decimal.zero;
+    final tcs = GstEngine.settlementTax(
+      taxableValue: totals.taxableValue,
+      rate: tcsRate,
+    );
+    return AtriaTotalsBlock(
+      totals: totals,
+      // TCS and shipping are both added to the invoice value; the rows above
+      // the total say where each one came from.
+      extraCharges: shipping + tcs,
+      extraRows: [
+        if (shipping > Decimal.zero) EditorTotalsRow('Shipping', shipping),
+        if (tcs > Decimal.zero)
+          EditorTotalsRow('TCS ${Formatters.percent(tcsRate.toDouble())}', tcs),
+      ],
+      isInterState: _isInterState,
+      // The same split, refined to name a Union Territory's second head: CGST +
+      // UTGST, matching what the saved document (and its PDF) says.
+      split: _documentSplit,
+      footer: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_creditLimitMessage != null)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: scheme.errorContainer.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(AppRadius.md),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.credit_card_off_rounded,
+                    size: 16,
+                    color: scheme.error,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _creditLimitMessage!,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: scheme.error,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          // Only a true invoice can be settled: the payment path keys off
+          // balanceDue, which the repository zeroes for every other doc
+          // type — the checkbox there would silently do nothing.
+          if (widget.docType == 'invoice')
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: Text(
+                'Mark as fully paid',
+                style: Theme.of(context).textTheme.titleSmall
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              subtitle: Text(
+                _markPaid
+                    ? 'A cash payment for the full balance is recorded on save'
+                    : 'Settle this invoice in one tap on save',
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+              value: _markPaid,
+              onChanged: (v) => setState(() {
+                _markPaid = v ?? false;
+                _dirty = true;
+              }),
+            ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -669,53 +1041,63 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
         hasChanges: _dirty && !_loading,
         child: EditorShell(
           title: _title,
-          floatingActionButton: _lines.isNotEmpty
-              ? FloatingActionButton.extended(
-                  onPressed: _loading ? null : _save,
-                  icon: const Icon(Icons.check_rounded),
-                  label: Text(_isEditing ? 'Update' : 'Save'),
-                )
-              : null,
           actions: EditorActions(
             onSave: _save,
             onSaveAndNew: _isEditing ? null : _saveAndNew,
             onExit: () => context.pop(),
             saving: _loading,
           ),
+          hint:
+              'Tab → next cell   ·   Enter → next line   ·   '
+              'Ctrl+S → save & close',
           body: _loading
               ? const Center(child: CircularProgressIndicator())
               : EditorShellBody(
                   form: Form(
                     key: _formKey,
-                    child: _FormColumn(
-                      partySection: _PartySection(
+                    child: AtriaEditorForm(
+                      header: _PartySection(
                         parties: _parties,
                         selected: _party,
                         onChanged: _selectParty,
                         onAddNew: () async {
                           // Lands on a customer form and selects the
                           // party that was just created.
-                          final createdId =
-                              await context.push<String>(
-                                  '/parties/new?type=customer');
+                          final createdId = await context.push<String>(
+                            '/parties/new?type=customer',
+                          );
                           if (!mounted || createdId == null) return;
-                          final partyRepo =
-                              ref.read(partyRepositoryProvider);
+                          final partyRepo = ref.read(partyRepositoryProvider);
                           if (partyRepo == null) return;
-                          final created =
-                              await partyRepo.getById(createdId);
+                          final created = await partyRepo.getById(createdId);
                           if (created != null && mounted) {
-                            setState(
-                                () => _parties = [..._parties, created]);
+                            setState(() => _parties = [..._parties, created]);
                             _selectParty(created);
                           }
                         },
                       ),
-                      metaSection: _MetaSection(
+                      headerTrailing: _MetaSection(
                         invoiceDate: _invoiceDate,
                         dueDate: _dueDate,
                         onDateChanged: (d) => setState(() {
+                          // Re-clamp the due date. The due-date picker's
+                          // `firstDate: invoiceDate` only constrains NEW picks,
+                          // so moving the invoice date forward used to leave
+                          // the old due date behind and save an invoice that
+                          // was overdue the moment it existed.
+                          //
+                          // The credit PERIOD is preserved rather than the
+                          // absolute date (a 15-day term stays a 15-day term),
+                          // and a due date that sat on the invoice date is
+                          // pulled up to it so it is never in the past.
+                          final creditPeriod = _dueDate?.difference(_invoiceDate);
                           _invoiceDate = d ?? DateTime.now();
+                          if (creditPeriod != null) {
+                            final shifted = _invoiceDate.add(creditPeriod);
+                            _dueDate = shifted.isBefore(_invoiceDate)
+                                ? _invoiceDate
+                                : shifted;
+                          }
                           _dirty = true;
                         }),
                         onDueChanged: (d) => setState(() {
@@ -724,35 +1106,36 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
                         }),
                         isQuotation: _isQuotation,
                       ),
-                      lineCards: [
-                        for (var i = 0; i < _lines.length; i++)
-                          _LineCard(
-                            key: ValueKey(_lines[i].id),
-                            controller: _lines[i],
-                            index: i,
-                            isInterState: _isInterState,
-                            onRemove: () => _removeLine(i),
-                            onCreateItem: _createItemFromLine,
-                          ),
-                      ],
-                      onAddLine: _addLine,
-                      addItemNoun: 'Add item',
+                      lines: _lineGrid(),
+                      // The totals sit under the last line, right-aligned,
+                      // instead of in a side rail the eye has to travel back
+                      // to on every edit.
+                      totals: _totalsSection(totals),
                       sections: [
+                        // QBO labels this block "Message on invoice", and it is
+                        // visible on the page rather than hidden behind a link.
                         EditorLinkSection(
                           icon: Icons.note_add_rounded,
-                          title: 'Add Notes',
+                          title: 'Message on invoice',
+                          initiallyOpen: true,
                           builder: (_) =>
                               _NotesSection(controller: _notesController),
                         ),
                         EditorLinkSection(
                           icon: Icons.discount_outlined,
-                          title: 'Add Discount & Charges',
+                          title: 'Discount, shipping and round off',
                           builder: (_) => _AdjustmentsSection(
                             discountPercentController:
                                 _discountPercentController,
-                            discountAmountController:
-                                _discountAmountController,
+                            discountAmountController: _discountAmountController,
                             shippingController: _shippingController,
+                            tcsRateController: _tcsRateController,
+                            tcsHint: _firmTcsRate > 0
+                                ? 'The firm profile collects '
+                                    '${Formatters.percent(_firmTcsRate)} — it '
+                                    'is already filled in.'
+                                : 'Tax collected at source under '
+                                    's.206C(1H), on the taxable value.',
                             applyRoundOff: _applyRoundOff,
                             onRoundOffChanged: (v) => setState(() {
                               _applyRoundOff = v;
@@ -764,19 +1147,6 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
                       ],
                     ),
                   ),
-                  summary: _TotalsPanelSection(
-                    totals: totals,
-                    shipping: Money.tryParse(_shippingController.text) ??
-                        Decimal.zero,
-                    isInterState: _isInterState,
-                    markPaid: _markPaid,
-                    canMarkPaid: _affectsStockAndBalances,
-                    creditLimitMessage: _creditLimitMessage,
-                    onMarkPaidChanged: (v) => setState(() {
-                      _markPaid = v;
-                      _dirty = true;
-                    }),
-                  ),
                 ),
         ),
       ),
@@ -784,221 +1154,41 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
   }
 }
 
-/// The scrollable form column: party + dates, line cards, dashed add-item
-/// strip, then the collapsed Add-Notes / Add-Charges links.
-class _FormColumn extends StatelessWidget {
-  const _FormColumn({
-    required this.partySection,
-    required this.metaSection,
-    required this.lineCards,
-    required this.onAddLine,
-    required this.addItemNoun,
-    required this.sections,
-  });
+/// A type-ahead row that remembers which catalogue row it came from.
+///
+/// [ItemSuggestion] carries only what the dropdown renders (name, price,
+/// unit), so `onPickItem` had to find the item again by `name == s.name`:
+/// two items differing only by case rendered as identical rows and the first
+/// always won. Carrying the row itself makes the selection unambiguous
+/// without a second lookup — and without a change to the shared type-ahead
+/// widget.
+class _CatalogueSuggestion extends ItemSuggestion {
+  _CatalogueSuggestion(this.item)
+      : super(
+          name: item.name,
+          salePrice: item.salePrice,
+          unit: item.unit,
+        );
 
-  final Widget partySection;
-  final Widget metaSection;
-  final List<Widget> lineCards;
-  final VoidCallback onAddLine;
-  final String addItemNoun;
-  final List<Widget> sections;
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          partySection,
-          const SizedBox(height: 12),
-          metaSection,
-          const SizedBox(height: 16),
-          ...lineCards,
-          _AddItemStrip(label: addItemNoun, onTap: onAddLine),
-          const SizedBox(height: 12),
-          ...sections,
-        ],
-      ),
-    );
-  }
-}
-
-/// The dashed "＋ Add Item" strip, like the reference editor's affordance for
-/// appending another line.
-class _AddItemStrip extends StatelessWidget {
-  const _AddItemStrip({required this.label, required this.onTap});
-
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 13),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            border: Border.all(
-              color: scheme.primary.withValues(alpha: 0.45),
-              width: 1.2,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.add_rounded, size: 18, color: scheme.primary),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: scheme.primary,
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The summary panel contents for the sale editor: the breakdown rows plus
-/// the "Mark as fully paid" footer on stock-affecting document types.
-class _TotalsPanelSection extends StatelessWidget {
-  const _TotalsPanelSection({
-    required this.totals,
-    required this.shipping,
-    required this.isInterState,
-    required this.markPaid,
-    required this.canMarkPaid,
-    required this.onMarkPaidChanged,
-    this.creditLimitMessage,
-  });
-
-  final GstResult totals;
-  final Decimal shipping;
-  final bool isInterState;
-  final bool markPaid;
-  final bool canMarkPaid;
-  final ValueChanged<bool> onMarkPaidChanged;
-
-  /// Set when the party's outstanding balance would cross their credit
-  /// limit. Advisory (Vyapar warns but allows), never blocks the sale.
-  final String? creditLimitMessage;
-
-  @override
-  Widget build(BuildContext context) {
-    final grandTotal = totals.grandTotal + shipping;
-    final scheme = Theme.of(context).colorScheme;
-    final rows = <EditorTotalsRow>[
-      EditorTotalsRow('Subtotal', totals.subTotal),
-      if (totals.itemDiscountTotal > Decimal.zero)
-        EditorTotalsRow('Item discount', -totals.itemDiscountTotal,
-            signed: true),
-      if (totals.invoiceDiscount > Decimal.zero)
-        EditorTotalsRow('Invoice discount', -totals.invoiceDiscount,
-            signed: true),
-      EditorTotalsRow('Taxable value', totals.taxableValue, emphasize: true),
-      if (!isInterState) ...[
-        if (totals.cgstTotal > Decimal.zero)
-          EditorTotalsRow(
-              'CGST ${Formatters.percent(_cgstRate)}', totals.cgstTotal),
-        if (totals.sgstTotal > Decimal.zero)
-          EditorTotalsRow(
-              'SGST ${Formatters.percent(_cgstRate)}', totals.sgstTotal),
-      ] else if (totals.igstTotal > Decimal.zero)
-        EditorTotalsRow('IGST', totals.igstTotal),
-      if (totals.cessTotal > Decimal.zero)
-        EditorTotalsRow('Cess', totals.cessTotal),
-      if (shipping > Decimal.zero)
-        EditorTotalsRow('Shipping', shipping),
-      if (totals.roundOff.abs() > Decimal.zero)
-        EditorTotalsRow('Round off', totals.roundOff, signed: true),
-    ];
-
-    return EditorTotalsPanel(
-      rows: rows,
-      total: grandTotal,
-      footer: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (creditLimitMessage != null)
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(
-                color: scheme.errorContainer.withValues(alpha: 0.5),
-                borderRadius: BorderRadius.circular(AppRadius.md),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.credit_card_off_rounded,
-                      size: 16, color: scheme.error),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      creditLimitMessage!,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: scheme.error,
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          if (canMarkPaid)
-            CheckboxListTile(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              controlAffinity: ListTileControlAffinity.leading,
-              title: Text(
-                'Mark as fully paid',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-              subtitle: Text(
-                markPaid
-                    ? 'A cash payment for the full balance is recorded on save'
-                    : 'Settle this invoice in one tap on save',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-              ),
-              value: markPaid,
-              onChanged: (v) => onMarkPaidChanged(v ?? false),
-            ),
-        ],
-      ),
-    );
-  }
-
-  /// Effective CGST/SGST split of the document's total tax rate — derived
-  /// from the rate-wise summary, shown in the row labels the way desktop
-  /// suites do ("SGST @6%" not a bare "SGST").
-  double get _cgstRate {
-    if (totals.rateWise.isEmpty) return 0;
-    return totals.rateWise.first.rate / 2;
-  }
+  final ItemEntity item;
 }
 
 /// Mutable state for one invoice line.
 class _LineController {
-  _LineController({required this.items, required this.onChanged}) {
-    id = IdUtils.newId();
-    _listen();
+  /// Unlistened constructor. [factory _LineController] and [_LineController.fromEntity]
+  /// call [_listen] exactly once, AFTER any programmatic `text =` prefill —
+  /// which fires listeners — so loading a document never marks the form
+  /// dirty, and a user keystroke never notifies twice.
+  _LineController._({required this.items, required this.onChanged});
+
+  factory _LineController({
+    required List<ItemEntity> items,
+    required VoidCallback onChanged,
+  }) {
+    final c = _LineController._(items: items, onChanged: onChanged);
+    c.id = IdUtils.newId();
+    c._listen();
+    return c;
   }
 
   /// Hooks the editors up to [onChanged]. Called at the end of both
@@ -1018,29 +1208,39 @@ class _LineController {
   }
 
   factory _LineController.fromEntity(
-      SalesInvoiceItemEntity e, List<ItemEntity> items,
-      {required VoidCallback onChanged}) {
-    final c = _LineController(items: items, onChanged: onChanged);
+    SalesInvoiceItemEntity e,
+    List<ItemEntity> items, {
+    required VoidCallback onChanged,
+  }) {
+    final c = _LineController._(items: items, onChanged: onChanged);
     c.id = e.id;
     c.itemId = e.itemId;
     c._nameController.text = e.name;
     c._hsnController.text = e.hsn ?? '';
-    c._qtyController.text = Formatters.qty(Decimal.parse(e.quantity.toString()));
+    c._qtyController.text = Formatters.qty(
+      Decimal.parse(e.quantity.toString()),
+    );
     c._unit = e.unit;
-    c._rateController.text =
-        Formatters.indianGroup(e.rate.toStringAsFixed(2));
+    c._rateController.text = Formatters.indianGroup(e.rate.toStringAsFixed(2));
     c._discountController.text = e.discountPercent.toStringAsFixed(2);
     c.gstRate = e.gstRate;
     c.cessRate = e.cessRate;
-    c.taxMode =
-        e.taxMode == 'inclusive' ? TaxMode.inclusive : TaxMode.exclusive;
+    c.taxMode = e.taxMode == 'inclusive'
+        ? TaxMode.inclusive
+        : TaxMode.exclusive;
     c.items = items;
+    // The one and only listener hook-up: every `text =` assignment above
+    // fired no callbacks, so prefilled lines start clean.
     c._listen();
     return c;
   }
 
   List<ItemEntity> items;
   VoidCallback onChanged;
+
+  /// Focus target for the line's item cell — Enter at the end of the sheet
+  /// lands here.
+  final nameFocus = FocusNode();
 
   late String id;
   String? itemId;
@@ -1076,8 +1276,7 @@ class _LineController {
   String get name => _nameController.text.trim();
   String get hsn => _hsnController.text.trim().toUpperCase();
 
-  Decimal get qtyDecimal =>
-      Money.tryParse(_qtyController.text) ?? Decimal.zero;
+  Decimal get qtyDecimal => Money.tryParse(_qtyController.text) ?? Decimal.zero;
   Decimal get rateDecimal =>
       Money.tryParse(_rateController.text) ?? Decimal.zero;
   Decimal get discountPercentDecimal =>
@@ -1091,21 +1290,42 @@ class _LineController {
 
   Decimal get lineGross => qtyDecimal * rateDecimal;
 
+  /// The engine's view of this line — one definition, used by the row's own
+  /// amount and by the document totals, so the two can never disagree.
+  TaxLine get taxLine => TaxLine(
+    id: id,
+    itemId: itemId,
+    name: name.isEmpty ? 'Item' : name,
+    hsn: hsn,
+    quantity: qtyDecimal,
+    unit: unit,
+    rate: rateDecimal,
+    discountPercent: discountPercentDecimal,
+    gstRate: gstRate,
+    cessRate: cessRate,
+    taxMode: taxMode,
+  );
+
+  LineTotals totalsFor(GstSplit split) => GstEngine.computeLine(taxLine, split);
+
   void applyItem(ItemEntity item) {
     itemId = item.id;
     _nameController.text = item.name;
     _hsnController.text = item.hsn ?? '';
     _unit = item.unit;
-    _rateController.text =
-        Formatters.indianGroup(item.salePrice.toStringAsFixed(2));
+    _rateController.text = Formatters.indianGroup(
+      item.salePrice.toStringAsFixed(2),
+    );
     gstRate = item.gstRate;
     cessRate = item.cessRate;
-    taxMode =
-        item.taxMode == 'inclusive' ? TaxMode.inclusive : TaxMode.exclusive;
+    taxMode = item.taxMode == 'inclusive'
+        ? TaxMode.inclusive
+        : TaxMode.exclusive;
     onChanged();
   }
 
   void dispose() {
+    nameFocus.dispose();
     _nameController.dispose();
     _hsnController.dispose();
     _qtyController.dispose();
@@ -1136,27 +1356,27 @@ class _PartySection extends StatelessWidget {
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Customer',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-            TextButton.icon(
-              onPressed: onAddNew,
-              icon: const Icon(Icons.person_add_alt_outlined, size: 17),
-              label: const Text('New'),
-            ),
-          ],
+            children: [
+              Text(
+                'Customer',
+                style: Theme.of(context).textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              TextButton.icon(
+                onPressed: onAddNew,
+                icon: const Icon(Icons.person_add_alt_outlined, size: 18),
+                label: const Text('New'),
+              ),
+            ],
           ),
           const SizedBox(height: 4),
           DropdownButtonFormField<PartyEntity>(
+            iconSize: AppIconSize.md,
             initialValue: selected,
             isExpanded: true,
             decoration: const InputDecoration(
               labelText: 'Select customer',
-              prefixIcon: Icon(PhosphorIconsRegular.user, size: 19),
+              prefixIcon: AtriaFieldIcon(PhosphorIconsRegular.user, size: 18),
             ),
             items: [
               for (final p in parties)
@@ -1182,17 +1402,18 @@ class _PartySection extends StatelessWidget {
           if (selected != null) ...[
             const SizedBox(height: 10),
             Container(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 12, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(AppRadius.md),
               ),
               child: Row(
                 children: [
-                  Icon(PhosphorIconsRegular.mapPinLine,
-                      size: 16,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  Icon(
+                    PhosphorIconsRegular.mapPinLine,
+                    size: 16,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Column(
@@ -1203,10 +1424,7 @@ class _PartySection extends StatelessWidget {
                         if ((selected!.gstin ?? '').isNotEmpty ||
                             (selected!.phone ?? '').isNotEmpty)
                           Text(
-                            [
-                              selected!.gstin?.toUpperCase(),
-                              selected!.phone,
-                            ]
+                            [selected!.gstin?.toUpperCase(), selected!.phone]
                                 .where((e) => e != null && e.isNotEmpty)
                                 .join(' • '),
                             style: Theme.of(context).textTheme.bodySmall,
@@ -1218,9 +1436,7 @@ class _PartySection extends StatelessWidget {
                             selected!.addressLine1,
                             selected!.city,
                             selected!.pincode,
-                          ]
-                              .where((e) => e != null && e.isNotEmpty)
-                              .join(', '),
+                          ].where((e) => e != null && e.isNotEmpty).join(', '),
                           style: Theme.of(context).textTheme.bodySmall,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -1228,7 +1444,8 @@ class _PartySection extends StatelessWidget {
                         if (selected!.stateCode != null)
                           Text(
                             'Place of supply: ${IndianStates.byCode(selected!.stateCode)?.name ?? selected!.stateCode}',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
                                   color: Theme.of(context)
                                       .colorScheme
                                       .onSurfaceVariant,
@@ -1282,6 +1499,10 @@ class _MetaSection extends StatelessWidget {
               value: dueDate,
               onChanged: onDueChanged,
               clearable: true,
+              // A due date before the invoice date is not a credit period,
+              // it is a bug: the invoice would land in the overdue reminders
+              // the moment it is saved.
+              firstDate: invoiceDate,
             ),
           ),
         ],
@@ -1296,6 +1517,7 @@ class _DateField extends StatelessWidget {
     required this.value,
     required this.onChanged,
     this.clearable = false,
+    this.firstDate,
   });
 
   final String label;
@@ -1303,14 +1525,23 @@ class _DateField extends StatelessWidget {
   final ValueChanged<DateTime?> onChanged;
   final bool clearable;
 
+  /// Earliest pickable date (e.g. the invoice date for a due-date field).
+  final DateTime? firstDate;
+
   @override
   Widget build(BuildContext context) {
     return InkWell(
       onTap: () async {
+        // Clamp instead of asserting: older documents can carry a due date
+        // before their invoice date, and showDatePicker throws when the
+        // initial date precedes firstDate.
+        final first = firstDate ?? DateTime(2000);
+        var initial = value ?? DateTime.now();
+        if (initial.isBefore(first)) initial = first;
         final picked = await showDatePicker(
           context: context,
-          initialDate: value ?? DateTime.now(),
-          firstDate: DateTime(2000),
+          initialDate: initial,
+          firstDate: first,
           lastDate: DateTime(2100),
         );
         if (picked != null) onChanged(picked);
@@ -1322,10 +1553,16 @@ class _DateField extends StatelessWidget {
           suffixIcon: clearable && value != null
               ? IconButton(
                   tooltip: 'Clear date',
-                  icon: const Icon(Icons.close_rounded, size: 16),
+                  icon: const Icon(
+                    Icons.close_rounded,
+                    size: AppIconSize.md,
+                  ),
                   onPressed: () => onChanged(null),
                 )
-              : const Icon(Icons.calendar_today_rounded, size: 17),
+              : const Icon(
+                  Icons.calendar_today_rounded,
+                  size: AppIconSize.md,
+                ),
         ),
         child: Text(
           value == null ? 'Not set' : Formatters.date(value),
@@ -1336,321 +1573,13 @@ class _DateField extends StatelessWidget {
   }
 }
 
-class _LineCard extends StatefulWidget {
-  const _LineCard({
-    super.key,
-    required this.controller,
-    required this.index,
-    required this.isInterState,
-    required this.onRemove,
-    required this.onCreateItem,
-  });
-
-  final _LineController controller;
-  final int index;
-  final bool isInterState;
-  final VoidCallback onRemove;
-
-  /// The line's typed name matched nothing in the catalogue — persist it as
-  /// a new item silently (Vyapar-style) and link the line to it.
-  final void Function(_LineController line, String name) onCreateItem;
-
-  @override
-  State<_LineCard> createState() => _LineCardState();
-}
-
-class _LineCardState extends State<_LineCard> {
-  @override
-  void initState() {
-    super.initState();
-    // Compose with the parent's callback instead of overwriting it: the
-    // controller's onChanged is the editor's _onLineChanged (marks the form
-    // dirty and recalcs totals). Overwriting it here left the sticky totals
-    // stale and the form never dirty on item/tax changes.
-    final parentOnChanged = widget.controller.onChanged;
-    widget.controller.onChanged = () {
-      parentOnChanged();
-      _refresh();
-    };
-    for (final c in [
-      widget.controller.qtyController,
-      widget.controller.rateController,
-      widget.controller.discountController,
-    ]) {
-      c.addListener(_refresh);
-    }
-  }
-
-  void _refresh() {
-    if (mounted) setState(() {});
-  }
-
-  @override
-  void dispose() {
-    for (final c in [
-      widget.controller.qtyController,
-      widget.controller.rateController,
-      widget.controller.discountController,
-    ]) {
-      c.removeListener(_refresh);
-    }
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final c = widget.controller;
-    final scheme = Theme.of(context).colorScheme;
-    final lineTotals = GstEngine.computeLine(
-      TaxLine(
-        id: c.id,
-        itemId: c.itemId,
-        name: c.name.isEmpty ? 'Item' : c.name,
-        hsn: c.hsn,
-        quantity: c.qtyDecimal,
-        unit: c.unit,
-        rate: c.rateDecimal,
-        discountPercent: c.discountPercentDecimal,
-        gstRate: c.gstRate,
-        cessRate: c.cessRate,
-        taxMode: c.taxMode,
-      ),
-      widget.isInterState ? GstSplit.interState : GstSplit.intraState,
-    );
-
-    return AtriaCard(
-      padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 24,
-                height: 24,
-                decoration: BoxDecoration(
-                  color: scheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  '${widget.index + 1}',
-                  style: TextStyle(
-                    color: scheme.primary,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                // Type-ahead, Vyapar-style: typing filters the catalogue, and
-                // a name matching nothing is saved as a NEW item silently —
-                // no dialog, no extra step. (Was a closed dropdown over a
-                // snapshot: unknown names were impossible to add.)
-                child: ItemTypeAheadField(
-                  controller: c.nameController,
-                  items: [
-                    for (final item in c.items)
-                      ItemSuggestion(
-                        name: item.name,
-                        salePrice: item.salePrice,
-                        unit: item.unit,
-                      ),
-                  ],
-                  onPickItem: (s) {
-                    final match = c.items
-                        .where((i) => i.name == s.name)
-                        .cast<ItemEntity?>()
-                        .firstWhere((i) => i != null, orElse: () => null);
-                    if (match != null) {
-                      c.applyItem(match);
-                      _refresh();
-                    }
-                  },
-                  onCreateItem: (name) {
-                    widget.onCreateItem(c, name);
-                    _refresh();
-                  },
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.delete_outline_rounded, size: 19),
-                color: scheme.onSurfaceVariant,
-                onPressed: widget.onRemove,
-                tooltip: 'Remove line',
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          TextFormField(
-            controller: c.nameController,
-            decoration: const InputDecoration(
-              labelText: 'Description',
-              isDense: true,
-            ),
-            validator: (value) => (value == null || value.trim().isEmpty)
-                ? 'Required'
-                : null,
-          ),
-          const SizedBox(height: 10),
-          IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: TextFormField(
-                    controller: c.qtyController,
-                    decoration: InputDecoration(
-                      labelText: 'Qty',
-                      isDense: true,
-                      suffixText: Unit.symbolOf(c.unit),
-                    ),
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    // Invalid lines used to be silently dropped at save (the
-                    // invoice saved as N-1 lines); now the field itself blocks
-                    // the save and says why.
-                    validator: (value) {
-                      final qty = Money.tryParse(value ?? '');
-                      if (qty == null || qty <= Decimal.zero) {
-                        return 'Must be greater than 0';
-                      }
-                      return null;
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  flex: 4,
-                  child: TextFormField(
-                    controller: c.rateController,
-                    decoration: const InputDecoration(
-                      labelText: 'Rate',
-                      prefixText: '₹ ',
-                      isDense: true,
-                    ),
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  flex: 3,
-                  child: TextFormField(
-                    controller: c.discountController,
-                    decoration: const InputDecoration(
-                      labelText: 'Disc %',
-                      isDense: true,
-                    ),
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(AppRadius.md),
-            ),
-            child: Row(
-              children: [
-                // Was a read-only "GST 18%" label — a user billing at 5%/12%
-                // had no in-editor fix (items default to 18%). Same dropdown
-                // as the purchase editor now.
-                DropdownButton<double>(
-                  value: c.gstRate,
-                  isDense: true,
-                  underline: const SizedBox.shrink(),
-                  borderRadius: BorderRadius.circular(AppRadius.sm),
-                  items: [
-                    for (final rate in GstRate.standard)
-                      DropdownMenuItem<double>(
-                        value: rate.rate,
-                        child: Text(
-                          rate.rate > 0 ? rate.label : 'No GST',
-                          style: Theme.of(context)
-                              .textTheme
-                              .labelSmall
-                              ?.copyWith(fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                    // Keep a non-standard rate (imported/custom item) selectable.
-                    if (GstRate.fromDouble(c.gstRate) == null)
-                      DropdownMenuItem<double>(
-                        value: c.gstRate,
-                        child: Text(
-                          Formatters.percent(c.gstRate),
-                          style: Theme.of(context)
-                              .textTheme
-                              .labelSmall
-                              ?.copyWith(fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                  ],
-                  onChanged: (value) {
-                    if (value == null || value == c.gstRate) return;
-                    setState(() => c.gstRate = value);
-                    widget.controller.onChanged();
-                  },
-                ),
-                const SizedBox(width: 8),
-                // Inclusive = the entered rate already contains GST (GST
-                // EXCLUDED = tax added on top). Per line, like Vyapar; the
-                // item's own taxMode seeds it via applyItem.
-                if (c.gstRate > 0) ...[
-                  TaxModeToggle(
-                    value: c.taxMode,
-                    onChanged: (mode) {
-                      setState(() => c.taxMode = mode);
-                    },
-                  ),
-                ],
-                const Spacer(),
-                Text(
-                  'Amount',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                        fontWeight: FontWeight.w600,
-                      ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 2),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                c.hsn.isEmpty ? 'HSN/SAC —' : 'HSN ${c.hsn}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-              ),
-              MoneyText(
-                lineTotals.total,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                colorize: false,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _AdjustmentsSection extends StatelessWidget {
   const _AdjustmentsSection({
     required this.discountPercentController,
     required this.discountAmountController,
     required this.shippingController,
+    required this.tcsRateController,
+    required this.tcsHint,
     required this.applyRoundOff,
     required this.onRoundOffChanged,
     required this.onChanged,
@@ -1659,65 +1588,68 @@ class _AdjustmentsSection extends StatelessWidget {
   final TextEditingController discountPercentController;
   final TextEditingController discountAmountController;
   final TextEditingController shippingController;
+  final TextEditingController tcsRateController;
+  final String tcsHint;
   final bool applyRoundOff;
   final ValueChanged<bool> onRoundOffChanged;
   final VoidCallback onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return AtriaCard(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Adjustments',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+    // No card of its own: the link section above it is already the surface.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AtriaFormFieldRow(
+          first: TextFormField(
+            controller: discountPercentController,
+            decoration: const InputDecoration(labelText: 'Invoice discount %'),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            onChanged: (_) => onChanged(),
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: TextFormField(
-                  controller: discountPercentController,
-                  decoration: const InputDecoration(
-                    labelText: 'Invoice discount %',
-                    isDense: true,
+          second: TextFormField(
+            controller: shippingController,
+            decoration: const InputDecoration(
+              labelText: 'Shipping / freight',
+              prefixText: '₹ ',
+            ),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            onChanged: (_) => onChanged(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        AtriaFormFieldRow(
+          first: TextFormField(
+            controller: tcsRateController,
+            decoration: const InputDecoration(
+              labelText: 'TCS %',
+              helperText: '0 for none',
+            ),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            onChanged: (_) => onChanged(),
+          ),
+          second: Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Text(
+              tcsHint,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    height: 1.4,
                   ),
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  onChanged: (_) => onChanged(),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: TextFormField(
-                  controller: shippingController,
-                  decoration: const InputDecoration(
-                    labelText: 'Shipping / freight',
-                    prefixText: '₹ ',
-                    isDense: true,
-                  ),
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  onChanged: (_) => onChanged(),
-                ),
-              ),
-            ],
+            ),
           ),
-          const SizedBox(height: 8),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Round off grand total'),
-            subtitle: const Text(
-                'Round to the nearest rupee, as per Section 170'),
-            value: applyRoundOff,
-            onChanged: onRoundOffChanged,
+        ),
+        const SizedBox(height: 6),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Round off grand total'),
+          subtitle: const Text(
+            'Round to the nearest rupee, as per Section 170',
           ),
-        ],
-      ),
+          value: applyRoundOff,
+          onChanged: onRoundOffChanged,
+        ),
+      ],
     );
   }
 }
@@ -1729,28 +1661,13 @@ class _NotesSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AtriaCard(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Notes',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-          const SizedBox(height: 8),
-          TextFormField(
-            controller: controller,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              hintText: 'Thank you for your business…',
-            ),
-          ),
-        ],
+    return TextFormField(
+      controller: controller,
+      maxLines: 3,
+      decoration: const InputDecoration(
+        labelText: 'Message',
+        hintText: 'Thank you for your business…',
       ),
     );
   }
 }
-

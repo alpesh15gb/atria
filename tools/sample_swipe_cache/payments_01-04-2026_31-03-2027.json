@@ -1,0 +1,10 @@
+[
+  {"total_amount": 2360, "amount_remaining": 0, "payment_date": "20-04-2026", "payment_mode": "Bank", "payment_type": "in", "status": "success",
+   "notes": "NEFT 9912", "exclusive_notes": "", "customer": {"id": "CUST1", "name": "M/s Keystone Infra Pvt Ltd", "phone_number": "9393645644"},
+   "linked_docs": [{"amount_settled": 2360, "serial_number": "INV-2026-001", "document_type": "invoice"}],
+   "bank_details": {"bank_name": "DCB BANK", "account_number": "02711500000268", "ifsc": "DCBL0000027", "branch": "Hyderabad"}},
+  {"total_amount": 5000, "amount_remaining": 4440, "payment_date": "22-04-2026", "payment_mode": "Cash", "payment_type": "out", "status": "success",
+   "notes": "Part payment", "exclusive_notes": "Paid at the counter", "customer": {"id": "VEND1", "name": "I-HEAP ELECTRONICS PVT LTD"},
+   "linked_docs": [{"amount_settled": 5000, "serial_number": "SUP-001", "document_type": "purchase"}],
+   "bank_details": {}}
+]

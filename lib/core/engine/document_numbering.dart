@@ -89,18 +89,21 @@ class DocumentNumbering {
     }
   }
 
-  /// Parses a sequence number out of a formatted document number (best
-  /// effort): the first / last numeric segment. Used by the seeder and
-  /// diagnostics to extract the running counter from existing numbers.
+  /// Parses the sequence number back out of a formatted document number (best
+  /// effort), or null when there is none to read.
+  ///
+  /// Every style [format] produces puts the counter in the **last** numeric
+  /// segment — "INV-001" and "INV/2025-26/001" both answer 1 — so the segments
+  /// are scanned from the end and the first one that is entirely digits wins.
+  /// The previous scan ran from the *front*, which made a financial-year number
+  /// answer 2025: the year is the second segment, not the counter.
+  ///
+  /// A series suffix is the one thing that cannot be told apart from the
+  /// counter when it is itself numeric ("INV/2025-26/001/2" answers 2); a
+  /// lettered one is skipped over.
   static int? parseSequence(String value) {
-    final parts = value.split('/');
-    for (final part in parts) {
-      final n = int.tryParse(part);
-      if (n != null) return n;
-    }
-    final dashParts = value.split('-');
-    for (final part in dashParts.reversed) {
-      final n = int.tryParse(part);
+    for (final part in value.split(RegExp('[/-]')).reversed) {
+      final n = int.tryParse(part.trim());
       if (n != null) return n;
     }
     return null;

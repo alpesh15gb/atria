@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../core/navigation/nav_destinations.dart';
 import '../../core/responsive/breakpoints.dart';
 import '../../core/theme/app_radius.dart';
-import 'atria_logo.dart';
+import '../../core/theme/app_sizes.dart';
+import 'atria_create_menu.dart';
+import 'atria_top_bar.dart';
 
 /// One shell that adapts: bottom bar on phones, side rail on tablets/desktop.
 ///
@@ -14,22 +17,17 @@ import 'atria_logo.dart';
 /// `/parties/new`, …). It must always be mounted, or those pushes render
 /// nothing and every "new invoice / add item / add party" button appears dead.
 class AdaptiveNavShell extends StatelessWidget {
-  const AdaptiveNavShell({
-    super.key,
-    required this.navigationShell,
-  });
+  const AdaptiveNavShell({super.key, required this.navigationShell});
 
   final StatefulNavigationShell navigationShell;
 
-  /// The branch [navigationShell] is currently showing.
   int get _currentIndex => navigationShell.currentIndex;
 
   /// The index the bottom bar should highlight: secondary destinations
-  /// (branch > primary.length) all fold onto the "More" slot.
-  int get _bottomBarIndex =>
-      _currentIndex <= NavDestinations.primary.length
-          ? _currentIndex
-          : NavDestinations.primary.length;
+  /// (branch >= bottomBarItemCount) all fold onto the "More" slot.
+  int get _bottomBarIndex => _currentIndex < NavDestinations.bottomBarItemCount
+      ? _currentIndex
+      : NavDestinations.bottomBarItemCount;
 
   void _goBranch(int index) {
     navigationShell.goBranch(
@@ -63,6 +61,57 @@ class AdaptiveNavShell extends StatelessWidget {
   }
 }
 
+/// True when [entry] is the page currently on screen.
+///
+/// Matching is done on the *location*, not on the shell's branch index: most
+/// Sales rows are the same branch reached through a different `?type=`, so
+/// only the query string can tell "Invoices" from "Credit notes".
+///
+/// The MOST SPECIFIC entry wins. `/settings/firm` is the Company profile and
+/// not also Settings; `/ledger/trial-balance` is the Trial balance and not also
+/// the Chart of accounts the branch is rooted at. Only when no entry names the
+/// page itself does the deepest branch root that is an ancestor of it stay lit —
+/// which is what keeps "Sales" marked while an invoice is open at
+/// `/sales/detail/5`.
+bool navEntryIsActive(Uri location, NavSectionEntry entry) {
+  final all = <NavSectionEntry>[
+    for (final section in NavDestinations.sections) ...section.entries,
+  ];
+
+  bool namesThePageExactly(NavSectionEntry candidate) {
+    final path = candidate.route.split('?').first;
+    if (location.path != path) return false;
+    if (!candidate.route.contains('?')) return true;
+    final wanted = Uri.splitQueryString(candidate.route.split('?')[1]);
+    for (final key in wanted.keys) {
+      if (location.queryParameters[key] != wanted[key]) return false;
+    }
+    return true;
+  }
+
+  // Two entries can share a route (that was a bug in its own right, but the
+  // data allows it), so match on route equality rather than object identity —
+  // otherwise a duplicated row would light up and its twin would not.
+  for (final candidate in all) {
+    if (namesThePageExactly(candidate) && candidate.route == entry.route) {
+      return true;
+    }
+  }
+  if (all.any(namesThePageExactly)) return false;
+
+  // Nothing names this page: fall back to the deepest ancestor.
+  NavSectionEntry? best;
+  for (final candidate in all) {
+    final path = candidate.route.split('?').first;
+    if (!location.path.startsWith('$path/')) continue;
+    if (best == null ||
+        path.length > best.route.split('?').first.length) {
+      best = candidate;
+    }
+  }
+  return best != null && best.route == entry.route;
+}
+
 class _BottomShell extends StatelessWidget {
   const _BottomShell({
     required this.navigationShell,
@@ -74,21 +123,53 @@ class _BottomShell extends StatelessWidget {
   final int bottomBarIndex;
   final ValueChanged<int> onTap;
 
-  int get _currentIndex => navigationShell.currentIndex;
+  static bool _isEditorOrDetailRoute(String path) {
+    if (path.endsWith('/new')) return true;
+    if (path.contains('/edit/')) return true;
+    if (path.contains('/detail/')) return true;
+    // The account ledger is a pushed, full-screen reading route like every
+    // other detail page, but its path matches none of the patterns above, so it
+    // kept the top bar and the bottom navigation while its siblings dropped
+    // both.
+    if (path.startsWith('/ledger/account/')) return true;
+    if (path.contains('/statement/')) return true;
+    if (path == '/purchase/scan') return true;
+    if (path.startsWith('/settings/') && path != '/settings') return true;
+    return false;
+  }
 
   @override
   Widget build(BuildContext context) {
+    String? path;
+    try {
+      path = GoRouterState.of(context).uri.path;
+    } catch (_) {
+      path = null;
+    }
+
+    if (path != null && _isEditorOrDetailRoute(path)) {
+      return navigationShell;
+    }
+
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      // The shell carries the branch navigators — the list screens and
-      // everything pushed on top of them.
-      body: navigationShell,
+      // The chrome band sits above the branch navigators, exactly as QBO keeps
+      // its top bar above everything: the business you are in, search and the
+      // account controls must not scroll away with the page.
+      body: Column(
+        children: [
+          const AtriaTopBar(),
+          // The shell carries the branch navigators — the list screens and
+          // everything pushed on top of them.
+          Expanded(child: navigationShell),
+        ],
+      ),
       bottomNavigationBar: NavigationBar(
         backgroundColor: scheme.surface,
         surfaceTintColor: Colors.transparent,
         selectedIndex: bottomBarIndex,
         onDestinationSelected: (value) {
-          if (value == NavDestinations.primary.length) {
+          if (value == NavDestinations.bottomBarItemCount) {
             _showMoreSheet(context);
             return;
           }
@@ -106,10 +187,7 @@ class _BottomShell extends StatelessWidget {
               Icons.more_horiz_rounded,
               color: scheme.onSurfaceVariant,
             ),
-            selectedIcon: Icon(
-              Icons.more_horiz_rounded,
-              color: scheme.primary,
-            ),
+            selectedIcon: Icon(Icons.more_horiz_rounded, color: scheme.primary),
             label: 'More',
           ),
         ],
@@ -117,62 +195,129 @@ class _BottomShell extends StatelessWidget {
     );
   }
 
+  /// The quiet all-caps section heading QuickBooks uses in its own menu —
+  /// and the same one the desktop rail paints.
+  Widget _sectionLabel(BuildContext context, String label) {
+    final text = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.only(left: 16, top: 12, bottom: 2),
+      child: Text(
+        label,
+        style: text.labelSmall?.copyWith(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          letterSpacing: 1.1,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
   void _showMoreSheet(BuildContext context) {
+    // The location must be read HERE, in the shell's context: a modal sheet's
+    // builder context sits above the root navigator's overlay, where
+    // GoRouterState is not provided — reading it in the builder threw on
+    // Android and rendered the More sheet as a blank white screen.
+    final location = GoRouterState.of(context).uri;
+    final shellContext = context;
     showModalBottomSheet(
       context: context,
       showDragHandle: true,
       builder: (sheetContext) {
         final scheme = Theme.of(sheetContext).colorScheme;
         return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.only(
-                left: 8, right: 8, top: 4, bottom: 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(left: 16, bottom: 12),
-                  child: Text(
-                    'More',
-                    style: Theme.of(sheetContext).textTheme.titleMedium,
-                  ),
-                ),
-                for (final d in NavDestinations.secondary)
-                  ListTile(
-                    leading: Icon(
-                      d.icon,
-                      color: NavDestinations.all.indexOf(d) == _currentIndex
-                          ? scheme.primary
-                          : null,
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.only(
+                left: 8,
+                right: 8,
+                top: 4,
+                bottom: 16,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8, bottom: 8),
+                    child: AtriaCreateButton(
+                      menuOffset: const Offset(0, 8),
+                      // Close the sheet before the chosen screen lands,
+                      // or it stays open underneath the new route.
+                      onAfterSelect: () => Navigator.of(sheetContext).pop(),
                     ),
-                    title: Text(
-                      d.label,
-                      style: TextStyle(
-                        fontWeight:
-                            NavDestinations.all.indexOf(d) == _currentIndex
-                                ? FontWeight.w700
-                                : null,
-                        color: NavDestinations.all.indexOf(d) == _currentIndex
-                            ? scheme.primary
-                            : null,
-                      ),
-                    ),
-                    // The active destination is now visible in the sheet —
-                    // it used to look like nothing was selected.
-                    trailing:
-                        NavDestinations.all.indexOf(d) == _currentIndex
-                            ? Icon(Icons.check_rounded,
-                                size: 18, color: scheme.primary)
-                            : null,
-                    shape: const RoundedRectangleBorder(
-                        borderRadius: AppRadius.mdAll),
-                    onTap: () {
-                      Navigator.of(sheetContext).pop();
-                      onTap(NavDestinations.all.indexOf(d));
-                    },
                   ),
-              ],
+                  // Every section the rail shows, minus the rows already on
+                  // the bottom bar — same grouping, same order, so the two
+                  // navigations never teach different maps.
+                  for (final section in NavDestinations.sections) ...[
+                    Builder(
+                      builder: (context) {
+                        final entries = section.entries
+                            .where(
+                              (e) =>
+                                  e.branchIndex == null ||
+                                  e.branchIndex! >=
+                                      NavDestinations.bottomBarItemCount,
+                            )
+                            .toList();
+                        if (entries.isEmpty) return const SizedBox.shrink();
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _sectionLabel(sheetContext, section.title),
+                            for (final entry in entries)
+                              ListTile(
+                                dense: true,
+                                visualDensity: VisualDensity.compact,
+                                leading: Icon(
+                                  entry.icon,
+                                  size: 18,
+                                  color: navEntryIsActive(location, entry)
+                                      ? scheme.primary
+                                      : scheme.onSurfaceVariant,
+                                ),
+                                title: Text(
+                                  entry.label,
+                                  style: TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: navEntryIsActive(
+                                      location,
+                                      entry,
+                                    )
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                    color: navEntryIsActive(location, entry)
+                                        ? scheme.primary
+                                        : null,
+                                  ),
+                                ),
+                                trailing: navEntryIsActive(location, entry)
+                                    ? Icon(
+                                        Icons.check_rounded,
+                                        size: 18,
+                                        color: scheme.primary,
+                                      )
+                                    : null,
+                                shape: const RoundedRectangleBorder(
+                                  borderRadius: AppRadius.smAll,
+                                ),
+                                onTap: () {
+                                  Navigator.of(sheetContext).pop();
+                                  // From the SHELL's context: the sheet's tiles
+                                  // unmount with the sheet, and navigating from
+                                  // a deactivated element is the same crash
+                                  // class as reading state there. `go`, never
+                                  // `push` — see _CompactRail.
+                                  shellContext.go(entry.route);
+                                },
+                              ),
+                          ],
+                        );
+                      },
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
         );
@@ -182,10 +327,7 @@ class _BottomShell extends StatelessWidget {
 }
 
 class _RailShell extends StatelessWidget {
-  const _RailShell({
-    required this.navigationShell,
-    required this.extended,
-  });
+  const _RailShell({required this.navigationShell, required this.extended});
 
   final StatefulNavigationShell navigationShell;
   final bool extended;
@@ -194,20 +336,27 @@ class _RailShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      body: Row(
+      body: Column(
         children: [
-          // Both rails are hand-rolled instead of using [NavigationRail]: its
-          // internal Expanded spacer cannot sit inside a scroll view, and nine
-          // destinations do not fit every window height. Scrolling beats
-          // overflowing (and throwing) on short windows.
-          if (extended)
-            _ExtendedRail(navigationShell: navigationShell)
-          else
-            _CompactRail(navigationShell: navigationShell),
-          // 2026: the rail is a floating surface — rounded right edge, no
-          // hard divider line.
-          Container(width: 1, color: scheme.outline.withValues(alpha: 0.4)),
-          Expanded(child: navigationShell),
+          // The wordmark lives up here, aligned with the nav column below it —
+          // QBO's arrangement. That is why the rail itself starts at Create.
+          AtriaTopBar(leadingWidth: extended ? 236 : 64, compactLeading: !extended),
+          Expanded(
+            child: Row(
+              children: [
+                // Both rails are hand-rolled instead of using [NavigationRail]:
+                // its internal Expanded spacer cannot sit inside a scroll view,
+                // and the QBO section stack is long. Scrolling beats
+                // overflowing (and throwing) on short windows.
+                if (extended)
+                  _ExtendedRail(navigationShell: navigationShell)
+                else
+                  _CompactRail(navigationShell: navigationShell),
+                Container(width: 1, color: scheme.outline),
+                Expanded(child: navigationShell),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -215,89 +364,36 @@ class _RailShell extends StatelessWidget {
 }
 
 /// Shared scaffolding for both rail variants: a fixed-width column holding the
-/// logo and every destination, scrollable when the window is too short.
+/// wordmark, the Create button and the section stack, scrollable when the
+/// window is too short.
 class _RailColumn extends StatelessWidget {
   const _RailColumn({
     required this.width,
-    required this.logoSize,
+    required this.header,
     required this.children,
   });
 
   final double width;
-  final double logoSize;
+  final Widget header;
   final List<Widget> children;
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return SizedBox(
       width: width,
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 8, bottom: 12),
-              child: Center(child: AtriaLogo(size: logoSize)),
-            ),
-            ...children,
-            // Breathing room at the end so the last destination is not glued
-            // to the window edge when the list does fit.
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Icon-over-label rail button for the collapsed rail.
-class _CompactRailButton extends StatelessWidget {
-  const _CompactRailButton({
-    required this.destination,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final NavDestination destination;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      child: Material(
-        color: selected ? scheme.primaryContainer : Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  selected ? destination.selectedIcon : destination.icon,
-                  size: 21,
-                  color: selected ? scheme.primary : scheme.onSurfaceVariant,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  destination.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight:
-                        selected ? FontWeight.w700 : FontWeight.w500,
-                    color:
-                        selected ? scheme.primary : scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
+      child: ColoredBox(
+        color: scheme.surface,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              header,
+              ...children,
+              // Breathing room at the end so the last destination is not glued
+              // to the window edge when the list does fit.
+              const SizedBox(height: 12),
+            ],
           ),
         ),
       ),
@@ -305,6 +401,146 @@ class _CompactRailButton extends StatelessWidget {
   }
 }
 
+/// Section heading in the rail: `SALES`, `EXPENSES`, … — the label QuickBooks
+/// prints above each group.
+class _SectionHeading extends StatelessWidget {
+  const _SectionHeading({required this.title, this.top = 14});
+
+  final String title;
+  final double top;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(left: 16, top: top, bottom: 4),
+      child: Text(
+        title,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              letterSpacing: 1.1,
+              fontWeight: FontWeight.w700,
+            ),
+      ),
+    );
+  }
+}
+
+/// A destination row: glyph, label, and — when selected — the brand's tinted
+/// strip, the way QBO marks the page you are on.
+class _SectionRow extends StatelessWidget {
+  const _SectionRow({
+    required this.entry,
+    required this.selected,
+    required this.onTap,
+    this.showLabel = true,
+  });
+
+  final NavSectionEntry entry;
+  final bool selected;
+  final VoidCallback onTap;
+  final bool showLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final radius = BorderRadius.circular(AppRadius.sm);
+    final fg = selected ? scheme.primary : scheme.onSurface;
+
+    Widget row = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+      child: Material(
+        color: selected ? scheme.primaryContainer : Colors.transparent,
+        borderRadius: radius,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: radius,
+          child: Stack(
+            children: [
+              if (selected)
+                Positioned(
+                  left: 0,
+                  top: 5,
+                  bottom: 5,
+                  child: Container(
+                    // A 3px bar is a deliberate hairline, but its corner was a
+                    // literal 2 — off the radius scale, and visually identical
+                    // to the pill the app already uses for a full-round bar.
+                    width: 3,
+                    decoration: BoxDecoration(
+                      color: scheme.primary,
+                      borderRadius: const BorderRadius.all(
+                        Radius.circular(AppRadius.pill),
+                      ),
+                    ),
+                  ),
+                ),
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  showLabel ? AppSpace.lg : 0,
+                  AppSpace.sm,
+                  AppSpace.md,
+                  AppSpace.sm,
+                ),
+                child: Row(
+                  mainAxisAlignment: showLabel
+                      ? MainAxisAlignment.start
+                      : MainAxisAlignment.center,
+                  children: [
+                    Icon(entry.icon, size: 18, color: fg),
+                    if (showLabel) ...[
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          entry.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: selected
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            color: fg,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    // 44dp is the minimum comfortable target; the natural height of this row is
+    // about 38, which is under it in BOTH rails.
+    row = ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 44),
+      child: row,
+    );
+
+    if (showLabel) return row;
+
+    // The icon rail renders 32 destinations in a 64dp column with no room for
+    // words, so the label has to survive somewhere: a tooltip for the pointer
+    // and a semantic label for a screen reader. Without them a dozen
+    // near-identical glyphs (`scales` for Trial balance, `books` for Balance
+    // sheet, `clipboardText` twice for Sales orders and GST returns) are
+    // unidentifiable. `excludeSemantics` stops the bare icon announcing as an
+    // unlabelled image alongside the row's own label.
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: entry.label,
+      excludeSemantics: true,
+      child: Tooltip(message: entry.label, child: row),
+    );
+  }
+}
+
+/// Icon-only rail used between the phone and desktop breakpoints.
 class _CompactRail extends StatelessWidget {
   const _CompactRail({required this.navigationShell});
 
@@ -312,254 +548,122 @@ class _CompactRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final currentIndex = navigationShell.currentIndex;
+    final scheme = Theme.of(context).colorScheme;
+    final location = GoRouterState.of(context).uri;
     return _RailColumn(
-      width: 84,
-      logoSize: 34,
+      width: 64,
+      header: const Padding(
+        padding: EdgeInsets.only(top: 10, bottom: 10),
+        child: Column(
+          children: [
+            AtriaCreateButton(expanded: false),
+          ],
+        ),
+      ),
       children: [
-        for (var i = 0; i < NavDestinations.all.length; i++)
-          _CompactRailButton(
-            destination: NavDestinations.all[i],
-            selected: i == currentIndex,
-            onTap: () => navigationShell.goBranch(
-              i,
-              initialLocation: i == currentIndex,
+        Container(
+          height: 1,
+          margin: const EdgeInsets.symmetric(horizontal: 10),
+          color: scheme.outline,
+        ),
+        const SizedBox(height: 8),
+        for (final section in NavDestinations.sections)
+          for (final entry in section.entries)
+            _SectionRow(
+              entry: entry,
+              selected: navEntryIsActive(location, entry),
+              showLabel: false,
+              onTap: () {
+                // `go`, never `push`. Every one of these routes lives INSIDE a
+                // StatefulShellBranch, and go_router resolves an imperative push
+                // of a branch route by appending an ImperativeRouteMatch to the
+                // shell's own match list — which puts a second, shell-less copy
+                // of the route on the ROOT navigator. The page then renders
+                // full-screen with no rail and no bottom bar, and Android Back
+                // unwinds to the previous page instead of behaving like a tab.
+                // `go` replaces the match list outright, so the shell stays a
+                // single instance and the branch switches properly — and it
+                // carries the `?type=` query these destinations depend on, which
+                // `goBranch` cannot express.
+                context.go(entry.route);
+              },
             ),
-          ),
       ],
     );
   }
 }
 
-class _ExtendedRail extends StatefulWidget {
+/// The full rail: wordmark, Create button, then QBO's section stack.
+class _ExtendedRail extends StatelessWidget {
   const _ExtendedRail({required this.navigationShell});
 
   final StatefulNavigationShell navigationShell;
 
   @override
-  State<_ExtendedRail> createState() => _ExtendedRailState();
-}
-
-class _ExtendedRailState extends State<_ExtendedRail> {
-  // Destinations with children expand/collapse. The group auto-expands when
-  // the shell navigates into it.
-  final Set<int> _expanded = {};
-
-  @override
-  void didUpdateWidget(covariant _ExtendedRail oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    final index = widget.navigationShell.currentIndex;
-    if (index >= 0 &&
-        index < NavDestinations.all.length &&
-        NavDestinations.all[index].hasChildren) {
-      _expanded.add(index);
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    final currentIndex = widget.navigationShell.currentIndex;
-
-    // Expand the group that owns the current branch before first paint.
-    final current = currentIndex;
-    if (current >= 0 &&
-        current < NavDestinations.all.length &&
-        NavDestinations.all[current].hasChildren) {
-      _expanded.add(current);
-    }
-
+    final location = GoRouterState.of(context).uri;
     return _RailColumn(
-      width: 232,
-      logoSize: 36,
-      children: [
-        for (var i = 0; i < NavDestinations.all.length; i++) ...[
-          if (i == NavDestinations.primary.length) ...[
-            Padding(
-              padding: const EdgeInsets.only(left: 12, top: 14, bottom: 6),
-              child: Text(
-                'BUSINESS',
-                style: text.labelSmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                  letterSpacing: 1.2,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
+      width: 236,
+      header: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // No wordmark here any more: it moved into the top bar above, so
+            // the pane opens with QBO's green Create button instead.
+            const AtriaCreateButton(),
+            const SizedBox(height: 6),
           ],
-          _RailButton(
-            destination: NavDestinations.all[i],
-            selected: i == currentIndex,
-            expanded: NavDestinations.all[i].hasChildren
-                ? _expanded.contains(i)
-                : null,
-            onTap: () {
-              final dest = NavDestinations.all[i];
-              if (dest.hasChildren) {
-                setState(() {
-                  if (!_expanded.add(i)) _expanded.remove(i);
-                });
-              }
-              widget.navigationShell.goBranch(
-                i,
-                initialLocation: i == current,
-              );
-            },
+        ),
+      ),
+      children: [
+        Container(height: 1, color: scheme.outline),
+        for (var s = 0; s < NavDestinations.sections.length; s++) ...[
+          _SectionHeading(
+            title: NavDestinations.sections[s].title,
+            // The first heading follows a rule, so it needs no extra air.
+            top: s == 0 ? 10 : 14,
           ),
-          if (_expanded.contains(i) && NavDestinations.all[i].hasChildren)
-            for (final child in NavDestinations.all[i].children)
-              _RailChildButton(
-                label: child.label,
-                route: child.route,
-                onTap: () => context.push(child.route),
-              ),
+          for (final entry in NavDestinations.sections[s].entries)
+            _SectionRow(
+              entry: entry,
+              selected: navEntryIsActive(location, entry),
+              onTap: () {
+                // `go`, never `push` — see _CompactRail.
+                context.go(entry.route);
+              },
+            ),
         ],
+        // The rail footer: QBO keeps its branding at the bottom of the pane.
+        const SizedBox(height: 8),
+        Divider(height: 1, color: scheme.outline),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+          child: Row(
+            children: [
+              Icon(
+                PhosphorIconsRegular.checkCircle,
+                size: 14,
+                color: scheme.primary,
+              ),
+              const SizedBox(width: 6),
+              // Expanded: this line is long enough to overflow the 236px rail
+              // (the widget test caught the striped RenderFlex).
+              Expanded(
+                child: Text(
+                  'Your books stay on this device',
+                  maxLines: 2,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        letterSpacing: 0,
+                      ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
-    );
-  }
-}
-
-class _RailButton extends StatelessWidget {
-  const _RailButton({
-    required this.destination,
-    required this.selected,
-    required this.onTap,
-    this.expanded,
-  });
-
-  final NavDestination destination;
-  final bool selected;
-  final VoidCallback onTap;
-
-  /// Null = no children (no chevron); true/false = expand/collapse state.
-  final bool? expanded;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-      child: Material(
-        color: selected ? scheme.primaryContainer : Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 12, vertical: 10),
-            child: Row(
-              children: [
-                Icon(
-                  selected ? destination.selectedIcon : destination.icon,
-                  size: 20,
-                  color: selected
-                      ? scheme.primary
-                      : scheme.onSurfaceVariant,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    destination.label,
-                    style: TextStyle(
-                      fontSize: 13.5,
-                      fontWeight:
-                          selected ? FontWeight.w700 : FontWeight.w500,
-                      color:
-                          selected ? scheme.primary : scheme.onSurface,
-                    ),
-                  ),
-                ),
-                if (expanded != null)
-                  AnimatedRotation(
-                    turns: expanded! ? 0.25 : 0,
-                    duration: const Duration(milliseconds: 160),
-                    child: Icon(
-                      Icons.keyboard_arrow_right_rounded,
-                      size: 18,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Indented sub-entry inside an expandable group (Quotations, Debit Notes…).
-class _RailChildButton extends StatelessWidget {
-  const _RailChildButton({
-    required this.label,
-    required this.route,
-    required this.onTap,
-  });
-
-  final String label;
-  final String route;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    // Highlight when the current location matches this child's deep link
-    // (e.g. /sales?type=quotation) — the branch index alone can't tell.
-    final location = GoRouterState.of(context).uri.toString();
-    final path = route.split('?').first;
-    bool active;
-    if (!location.startsWith(path)) {
-      active = false;
-    } else if (route.contains('?')) {
-      final parts = route.split('?')[1].split('=');
-      active = parts.length == 2 &&
-          GoRouterState.of(context).uri.queryParameters[parts[0]] == parts[1];
-    } else {
-      active = location == path;
-    }
-
-    return Padding(
-      padding: const EdgeInsets.only(left: 26, right: 12, bottom: 1),
-      child: Material(
-        color: active ? scheme.secondaryContainer : Colors.transparent,
-        borderRadius: BorderRadius.circular(10),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(10),
-          child: Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-            child: Row(
-              children: [
-                Container(
-                  width: 5,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: active
-                        ? scheme.primary
-                        : scheme.onSurfaceVariant.withValues(alpha: 0.5),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight:
-                          active ? FontWeight.w700 : FontWeight.w500,
-                      color: active ? scheme.primary : scheme.onSurface,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

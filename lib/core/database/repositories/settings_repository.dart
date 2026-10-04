@@ -139,7 +139,37 @@ class BackupRepository {
 
   final AppDatabase db;
 
-  static const int _version = 2;
+  static const int _version = 3;
+  // v3: the ledger (`accounts`, `journal_entries`, `journal_lines`) and
+  // `audit_logs` joined the export, and the sign-in keys were filtered out of
+  // it in both directions. A v1/v2 file is still restorable — it simply has no
+  // ledger keys, and [importFromJson] counts a missing section as zero rows
+  // rather than failing — so this only ever rejects a *newer* file.
+
+  /// Global (`firm_id IS NULL`) settings that never travel in a backup — in
+  /// either direction.
+  ///
+  /// The export is written to a plaintext JSON file that the backup screen
+  /// hands to `Share.shareXFiles`, and the sign-in keys live in the very same
+  /// global settings rows, so exporting them turns "back up my books" into
+  /// "publish my session": anybody the file reaches can use the access token,
+  /// and the refresh token is bound to [SettingsRepository.kDeviceId], which
+  /// travels right beside it. Restoring a colleague's backup then signs *this*
+  /// device in as them, with no password and no prompt.
+  ///
+  /// Hence both halves: the keys are dropped on the way out, and dropped again
+  /// on the way in, so a file taken before this existed cannot authenticate a
+  /// fresh install either. Firm-scoped settings are unaffected — a per-firm
+  /// preference is part of the books, and none of these keys is ever
+  /// firm-scoped.
+  static const Set<String> _neverExported = {
+    SettingsRepository.kAccessToken,
+    SettingsRepository.kRefreshToken,
+    SettingsRepository.kAccessTokenExpiresAt,
+    SettingsRepository.kDeviceId,
+    SettingsRepository.kUserEmail,
+    SettingsRepository.kUserName,
+  };
 
   /// Serializes a whole row to plain JSON-safe values.
   ///
@@ -209,8 +239,32 @@ class BackupRepository {
     final members = await (db.select(db.firmMembers)
           ..where((t) => t.firmId.isIn(firmIds)))
         .get();
+    // The ledger is part of the books: without these four keys a restore onto a
+    // new device lost every journal voucher and the whole chart of accounts,
+    // and a restore over existing data left the previous firms' accounts and
+    // journals behind as orphans pointing at a firm that no longer exists.
+    final accounts = await (db.select(db.accounts)
+          ..where((t) => t.firmId.isIn(firmIds)))
+        .get();
+    final journalEntries = await (db.select(db.journalEntries)
+          ..where((t) => t.firmId.isIn(firmIds)))
+        .get();
+    // Lines hang off their voucher rather than the firm, the same way an
+    // invoice line hangs off its invoice.
+    final journalLines = await (db.select(db.journalLines)
+          ..where((t) =>
+              t.entryId.isIn(journalEntries.map((e) => e.id).toSet())))
+        .get();
+    final auditLogs = await (db.select(db.auditLogs)
+          ..where((t) => t.firmId.isIn(firmIds)))
+        .get();
+    // Firm-scoped settings travel with the books; the global rows carry the
+    // sign-in session, which must never reach a shareable file — see
+    // [_neverExported].
     final settings = await (db.select(db.appSettings)
-          ..where((t) => t.firmId.isIn(firmIds) | t.firmId.isNull()))
+          ..where((t) =>
+              (t.firmId.isIn(firmIds) | t.firmId.isNull()) &
+              t.key.isNotIn(_neverExported)))
         .get();
 
     return {
@@ -237,6 +291,13 @@ class BackupRepository {
       'expenses': expenses.map((e) => _rowToMap(e.toCompanion(true))).toList(),
       'firm_members':
           members.map((e) => _rowToMap(e.toCompanion(true))).toList(),
+      'accounts': accounts.map((e) => _rowToMap(e.toCompanion(true))).toList(),
+      'journal_entries':
+          journalEntries.map((e) => _rowToMap(e.toCompanion(true))).toList(),
+      'journal_lines':
+          journalLines.map((e) => _rowToMap(e.toCompanion(true))).toList(),
+      'audit_logs':
+          auditLogs.map((e) => _rowToMap(e.toCompanion(true))).toList(),
       'settings': settings.map((e) => _rowToMap(e.toCompanion(true))).toList(),
     };
   }
@@ -284,7 +345,17 @@ class BackupRepository {
       count += await _restore(db.payments, json['payments']);
       count += await _restore(db.expenses, json['expenses']);
       count += await _restore(db.firmMembers, json['firm_members']);
-      count += await _restore(db.appSettings, json['settings']);
+      // Children before parents: journal lines reference their voucher, and
+      // vouchers reference a firm that the first line above has restored.
+      count += await _restore(db.accounts, json['accounts']);
+      count += await _restore(db.journalEntries, json['journal_entries']);
+      count += await _restore(db.journalLines, json['journal_lines']);
+      count += await _restore(db.auditLogs, json['audit_logs']);
+      // A backup taken before the session keys were filtered out of the export
+      // still carries them, and writing them back is the same hole in reverse:
+      // it would sign this device in as whoever made the file.
+      count += await _restore(db.appSettings, json['settings'],
+          skipKeys: _neverExported);
     });
     return count;
   }
@@ -325,7 +396,15 @@ class BackupRepository {
     }
   }
 
-  Future<int> _restore(TableInfo table, dynamic rows) async {
+  /// Inserts [rows] into [table], returning how many landed.
+  ///
+  /// [skipKeys] drops a row whose `key` column value is listed — used by the
+  /// settings restore to refuse the sign-in keys (see [_neverExported]); every
+  /// other table is inserted whole. A missing or malformed section restores
+  /// nothing and is not an error, which is how a v1/v2 backup (written before
+  /// the ledger keys existed) still restores correctly.
+  Future<int> _restore(TableInfo table, dynamic rows,
+      {Set<String>? skipKeys}) async {
     if (rows is! List) return 0;
     // Restoring from plain JSON means we have raw column values, not a
     // companion, so the insert is written as parameterized SQL. `OR REPLACE`
@@ -340,6 +419,7 @@ class BackupRepository {
     for (final row in rows) {
       if (row is! Map) continue;
       final values = row.cast<String, Object?>();
+      if (skipKeys != null && skipKeys.contains(values['key'])) continue;
       final vars = <Variable>[];
       for (final col in columns) {
         vars.add(Variable(_sqlValue(columnsByName[col], values[col])));
@@ -385,8 +465,19 @@ class BackupRepository {
     await db.delete(db.units).go();
     await db.delete(db.categories).go();
     await db.delete(db.parties).go();
+    // The ledger used to be absent from this list altogether, so restoring over
+    // existing books left every chart of accounts and journal voucher behind as
+    // an orphan pointing at a firm that no longer exists. Lines hang off their
+    // voucher, vouchers off the firm, so children go first.
+    await db.delete(db.journalLines).go();
+    await db.delete(db.journalEntries).go();
+    await db.delete(db.accounts).go();
     await db.delete(db.appSettings).go();
     await db.delete(db.firmMembers).go();
+    // `audit_logs.firm_id` is nullable and carries no foreign key, so nothing
+    // would ever remove these for us — the same reason eraseFirmRows deletes
+    // them explicitly. Before the firms whose actions they record.
+    await db.delete(db.auditLogs).go();
     await db.delete(db.firms).go();
     // Outbox entries reference entity ids that no longer exist after a
     // full replace — they would push deleted/updated ghosts upstream.

@@ -1,0 +1,6 @@
+[
+  {"id": "CUST1", "name": "M/s Keystone Infra Pvt Ltd", "company_name": "Keystone Infra", "country_code": "91", "phone_number": "9393645644", "email": "accounts@keystoneinfra.com", "gstin": "36AACCK6531F1ZP",
+   "billing_address": {"address_line1": "8-2-350 Road Number 3", "address_line2": "Banjara Hills", "city": "Hyderabad", "state": "TELANGANA", "country": "India", "pincode": "500034"}},
+  {"id": "CUST2", "name": "Walk-in Customer", "country_code": "91", "phone_number": "", "email": "", "gstin": "",
+   "billing_address": {"address_line1": "", "city": "Hyderabad", "state": "TELANGANA", "country": "India", "pincode": "500001"}}
+]

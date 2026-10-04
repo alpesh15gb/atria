@@ -1,4 +1,5 @@
 import 'package:decimal/decimal.dart';
+
 import 'dart:io';
 
 import 'package:drift/drift.dart' hide Column;
@@ -12,19 +13,25 @@ import 'package:go_router/go_router.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/constants/gst.dart';
 import '../../core/constants/units.dart';
-import '../../core/engine/gst_engine.dart';
 import '../../core/database/app_database.dart';
 import '../../core/database/repositories/item_repository.dart';
+import '../../core/engine/gst_engine.dart';
+import '../../core/printer/printer_service.dart';
 import '../../core/services/barcode_labels.dart';
 import '../../core/state/providers.dart';
 import '../../core/theme/app_radius.dart';
+import '../../core/theme/app_sizes.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/utils/file_names.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/money.dart';
 import '../../core/utils/validators.dart';
+import '../../shared/widgets/atria_field_icon.dart';
+import '../../shared/widgets/atria_form_section.dart';
 import '../../shared/widgets/common_widgets.dart';
-import '../../shared/widgets/tax_mode_toggle.dart';
 import '../../shared/widgets/editor_shell.dart';
 import '../../shared/widgets/save_shortcut.dart';
+import '../../shared/widgets/tax_mode_toggle.dart';
 import '../../shared/widgets/unsaved_guard.dart';
 
 /// Creates or edits an item. Pass [editId] to edit; leave it null to create.
@@ -84,8 +91,9 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
   @override
   void initState() {
     super.initState();
-    // Listener fires on user keystrokes only, so prefilling an item being
-    // edited does not trip the unsaved-changes guard.
+    // NOTE: these listeners fire on EVERY text change, programmatic prefill
+    // included; _load clears the dirty flag once prefill completes (the form
+    // is a spinner until then, so no user input can be lost).
     for (final controller in [
       _nameController,
       _skuController,
@@ -128,7 +136,12 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
       return;
     }
 
-    final item = widget.editId == null ? null : await repo.getById(widget.editId!);
+    var item = widget.editId == null
+        ? null
+        : await repo.getById(widget.editId!);
+    // A binned item must not open for editing: saving it would flip it live
+    // again while no list shows it.
+    if (item != null && item.isDeleted) item = null;
     final source = widget.duplicateOfId == null
         ? null
         : await repo.getById(widget.duplicateOfId!);
@@ -149,6 +162,12 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
       }
       _loading = false;
     });
+    // The initState listeners fired on every prefill `text =` assignment
+    // above. The form is only interactive from here on, so nothing the user
+    // typed can be lost by clearing the flag — and opening an item for
+    // editing no longer starts out "dirty" (back then asked to discard
+    // changes nobody made).
+    _dirty = false;
   }
 
   /// Prefills for a duplicate: same details as [item], new name, zero stock
@@ -157,9 +176,21 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
     _prefill(item);
     _existing = null;
     _nameController.text = '${item.name} (copy)';
+    // The source's SKU and barcode are CLEARED, not suffixed.
+    //
+    // `_save` runs an app-side uniqueness check over every live item, and this
+    // is a new row (so nothing is excluded), so the inherited codes always
+    // matched the source and the duplicate could never be saved — the button
+    // was decoration. Clearing is right over "ABC-001 (copy)" because these
+    // two are read off a physical label: a fabricated SKU misleads the next
+    // person who types it, and a fabricated barcode prints and scans to
+    // nothing. The user types the new variant's real codes.
+    _skuController.text = '';
+    _barcodeController.text = '';
     _openingStockController.text = '';
-    _lowStockController.text =
-        item.lowStockAlert == 0 ? '' : _formatQty(item.lowStockAlert);
+    _lowStockController.text = item.lowStockAlert == 0
+        ? ''
+        : _formatQty(item.lowStockAlert);
     _dirty = false;
   }
 
@@ -170,20 +201,25 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
     _hsnInitial = item.hsn ?? '';
     _salePriceController.text = _formatAmount(item.salePrice);
     _purchasePriceController.text = _formatAmount(item.purchasePrice);
-    _wholesalePriceController.text =
-        item.wholesalePrice == null ? '' : _formatAmount(item.wholesalePrice!);
+    _wholesalePriceController.text = item.wholesalePrice == null
+        ? ''
+        : _formatAmount(item.wholesalePrice!);
     _mrpController.text = item.mrp == null ? '' : _formatAmount(item.mrp!);
-    _cessRateController.text =
-        item.cessRate == 0 ? '' : _formatAmount(item.cessRate);
-    _openingStockController.text =
-        item.openingStock == 0 ? '' : _formatQty(item.openingStock);
-    _lowStockController.text =
-        item.lowStockAlert == 0 ? '' : _formatQty(item.lowStockAlert);
+    _cessRateController.text = item.cessRate == 0
+        ? ''
+        : _formatAmount(item.cessRate);
+    _openingStockController.text = item.openingStock == 0
+        ? ''
+        : _formatQty(item.openingStock);
+    _lowStockController.text = item.lowStockAlert == 0
+        ? ''
+        : _formatQty(item.lowStockAlert);
     _barcodeController.text = item.barcode ?? '';
     _descriptionController.text = item.description ?? '';
     _gstRate = item.gstRate;
-    _taxMode =
-        item.taxMode == 'inclusive' ? TaxMode.inclusive : TaxMode.exclusive;
+    _taxMode = item.taxMode == 'inclusive'
+        ? TaxMode.inclusive
+        : TaxMode.exclusive;
     _unit = item.unit;
     _isService = item.isService;
     _stockType = item.stockType;
@@ -237,7 +273,9 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
 
     setState(() => _saving = true);
     try {
-      final taxModeLabel = _taxMode == TaxMode.inclusive ? 'inclusive' : 'exclusive';
+      final taxModeLabel = _taxMode == TaxMode.inclusive
+          ? 'inclusive'
+          : 'exclusive';
       final name = _nameController.text.trim();
       final sku = _skuController.text.trim();
       final hsn = _hsnFieldController?.text.trim() ?? '';
@@ -249,9 +287,11 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
       final parsedPurchase = Money.tryParse(_purchasePriceController.text);
       if (parsedSale == null || parsedPurchase == null) {
         if (mounted) {
-          ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(
-            content: Text('Sale and purchase price must be valid amounts.'),
-          ));
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            const SnackBar(
+              content: Text('Sale and purchase price must be valid amounts.'),
+            ),
+          );
         }
         setState(() => _saving = false);
         return;
@@ -259,23 +299,61 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
       final salePrice = parsedSale.toDouble();
       final purchasePrice = parsedPurchase.toDouble();
 
-      // Barcode uniqueness, app-side: the same code on two items breaks
-      // every scan-based lookup silently. Blank/absent codes are exempt.
+      // Uniqueness checks, app-side: there is no database constraint on the
+      // barcode or the SKU, so the editor is the last line of defence. A
+      // duplicate breaks every lookup keyed on the code — a scan, an item
+      // search, a report grouped by code — and does it silently. Blank codes
+      // are exempt in both cases.
+      final db = ref.read(appDatabaseProvider);
       if (barcode.isNotEmpty) {
-        final db = ref.read(appDatabaseProvider);
-        final clash = await (db.select(db.items)
-              ..where((t) =>
-                  t.firmId.equals(repo.firmId) &
-                  t.barcode.equals(barcode) &
-                  t.isDeleted.equals(false)))
-            .get();
-        final other = clash.where((r) => r.id != (_existing?.id ?? '')).toList();
+        final clash =
+            await (db.select(db.items)..where(
+                  (t) =>
+                      t.firmId.equals(repo.firmId) &
+                      t.barcode.equals(barcode) &
+                      t.isDeleted.equals(false),
+                ))
+                .get();
+        final other = clash
+            .where((r) => r.id != (_existing?.id ?? ''))
+            .toList();
         if (other.isNotEmpty) {
           if (mounted) {
-            ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
-              content: Text(
-                  'Barcode $barcode is already used by "${other.first.name}".'),
-            ));
+            ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Barcode $barcode is already used by "${other.first.name}".',
+                ),
+              ),
+            );
+          }
+          setState(() => _saving = false);
+          return;
+        }
+      }
+      // SKU uniqueness, app-side: the same code on two items makes every
+      // SKU-based lookup — the item search, a barcode-style pick, reports
+      // grouped by code — ambiguous, and there is no database constraint to
+      // catch it. Blank codes are exempt, and the comparison is case-insensitive
+      // because SKUs are read off a label, not memorised.
+      if (sku.isNotEmpty) {
+        final clashSku = await (db.select(db.items)              ..where((t) =>
+                  t.firmId.equals(repo.firmId) &
+                  t.sku.lower().equals(sku.toLowerCase()) &
+                  t.isDeleted.equals(false)))
+            .get();
+        final otherSku = clashSku
+            .where((r) => r.id != (_existing?.id ?? ''))
+            .toList();
+        if (otherSku.isNotEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+              SnackBar(
+                content: Text(
+                  'SKU $sku is already used by "${otherSku.first.name}".',
+                ),
+              ),
+            );
           }
           setState(() => _saving = false);
           return;
@@ -286,12 +364,14 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
       final tracked = _stockType == 'tracked';
       final opening = tracked
           ? (Money.tryParse(_openingStockController.text) ?? Decimal.zero)
-              .toDouble()
+                .toDouble()
           : 0.0;
       final lowAlert = tracked
-          ? (Money.tryParse(_lowStockController.text) ?? Decimal.zero).toDouble()
+          ? (Money.tryParse(_lowStockController.text) ?? Decimal.zero)
+                .toDouble()
           : 0.0;
-      final wholesale = Money.tryParse(_wholesalePriceController.text)?.toDouble();
+      final wholesale = Money.tryParse(_wholesalePriceController.text)
+          ?.toDouble();
       final mrp = Money.tryParse(_mrpController.text)?.toDouble();
 
       if (_existing == null) {
@@ -309,7 +389,9 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
           cessRate: cess,
           taxMode: taxModeLabel,
           isService: _isService,
-          stockType: _stockType,
+          // Belt and braces for rows that were already tracked before the
+          // toggle above started forcing services off.
+          stockType: _isService ? 'untracked' : _stockType,
           openingStock: opening,
           lowStockAlert: lowAlert,
           barcode: barcode.isEmpty ? null : barcode,
@@ -331,7 +413,7 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
             cessRate: cess,
             taxMode: taxModeLabel,
             isService: _isService,
-            stockType: _stockType,
+            stockType: _isService ? 'untracked' : _stockType,
             lowStockAlert: lowAlert,
             barcode: Value(barcode.isEmpty ? null : barcode),
             description: Value(description.isEmpty ? null : description),
@@ -371,18 +453,86 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
             onSave: _save,
             onExit: () => context.pop(),
             actions: [
-              if (_isEditing)
-                IconButton(
-                  tooltip: 'Print barcode labels',
-                  icon: const Icon(Icons.qr_code_2_rounded),
-                  onPressed: _existing == null ? null : _printBarcodeLabels,
-                ),
+              if (_isEditing) _printMenu(),
             ],
+          ),
+          // On a phone the app bar hands Save down here, where a thumb is.
+          bottomNavigationBar: EditorBottomBar(
+            onSave: _save,
+            saving: _saving,
           ),
           body: _body(repo),
         ),
       ),
     );
+  }
+
+  /// The label menu: a thermal sticker, or the A4 sheet.
+  ///
+  /// Both outcomes are kept because they are different jobs — a shop with a
+  /// TSC at the counter wants one instant sticker, and a shop with only an
+  /// office printer wants a page of them to cut up. The thermal entry only
+  /// appears once a printer exists, so the menu never offers something that
+  /// cannot work.
+  Widget _printMenu() {
+    final printer = ref.watch(defaultPrinterProvider).valueOrNull;
+    return PopupMenuButton<String>(
+      tooltip: 'Print barcode labels',
+      icon: const Icon(Icons.qr_code_2_rounded),
+      enabled: _existing != null,
+      onSelected: (value) => switch (value) {
+        'thermal' => _printThermalLabels(),
+        'sheet' => _printBarcodeLabels(),
+        _ => null,
+      },
+      itemBuilder: (context) => [
+        if (printer != null)
+          PopupMenuItem(
+            value: 'thermal',
+            child: Text('Print to ${printer.name}'),
+          ),
+        const PopupMenuItem(
+          value: 'sheet',
+          child: Text('Print an A4 sheet of labels'),
+        ),
+      ],
+    );
+  }
+
+  /// Sends one sticker straight to the configured thermal printer.
+  ///
+  /// Unlike the A4 path this does not go near a file: the printer's own language
+  /// is sent as bytes, so the label is out before a PDF could have finished
+  /// rendering.
+  Future<void> _printThermalLabels() async {
+    final existing = _existing;
+    if (existing == null) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    try {
+      final printer = await ref.read(defaultPrinterProvider.future);
+      if (printer == null) {
+        messenger?.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No label printer is set up. Add one under Settings → Label '
+              'printers, then try again.',
+            ),
+          ),
+        );
+        return;
+      }
+      await ThermalPrinterService.print(printer, [
+        ThermalPrinterService.labelForItem(
+          existing,
+          copies: printer.copies,
+        ),
+      ]);
+      messenger?.showSnackBar(
+        SnackBar(content: Text('Label sent to ${printer.name}.')),
+      );
+    } on LabelException catch (error) {
+      messenger?.showSnackBar(SnackBar(content: Text(error.message)));
+    }
   }
 
   /// Renders this item's barcode label sheet and opens it — Vyapar's barcode
@@ -397,8 +547,12 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
       final dir = await getApplicationDocumentsDirectory();
       final outDir = Directory(p.join(dir.path, 'atria', 'labels'));
       if (!outDir.existsSync()) outDir.createSync(recursive: true);
-      final file = File(p.join(outDir.path,
-          'label_${existing.sku ?? existing.id}.pdf'));
+      final file = File(
+        p.join(
+          outDir.path,
+          'label_${sanitizeFileName(existing.sku ?? existing.id)}.pdf',
+        ),
+      );
       await file.writeAsBytes(bytes, flush: true);
       await OpenFilex.open(file.path);
     } catch (error) {
@@ -429,9 +583,14 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
     return _form();
   }
 
-  /// Delete affordance for the item being edited. Hidden on create; deleting
-  /// fails with a FK error if the item is already used on a document, and
-  /// that error is surfaced instead of crashing.
+  /// Delete affordance for the item being edited. Hidden on create.
+  ///
+  /// [ItemRepository.delete] is a SOFT delete — it flips `isDeleted` and leaves
+  /// the row (and every stock movement pointing at it) in place, so it cannot
+  /// fail with the foreign-key error this copy used to warn about, and the
+  /// `catch` in [_confirmDelete] below it could never fire. The copy now says
+  /// what actually happens: the item leaves the catalogue and can be restored
+  /// from the recycle bin.
   Widget _dangerZone() {
     final scheme = Theme.of(context).colorScheme;
     return Card(
@@ -445,18 +604,18 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Danger zone',
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w700)),
+                  Text(
+                    'Danger zone',
+                    style: Theme.of(context).textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.w700),
+                  ),
                   const SizedBox(height: 4),
                   Text(
-                    'Deleting removes this item from your catalogue. Bills '
-                    'already recorded keep their lines.',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
+                    'Moves this item out of your catalogue and into the '
+                    'recycle bin, where you can restore it. Bills already '
+                    'recorded keep their lines.',
+                    style: Theme.of(context).textTheme.bodySmall
+                        ?.copyWith(color: scheme.onSurfaceVariant),
                   ),
                 ],
               ),
@@ -481,6 +640,8 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
     final repo = ref.read(itemRepositoryProvider);
     final existing = _existing;
     if (repo == null || existing == null) return;
+    // Resolved before the dialog: the `await` is an async gap, and a context
+    // looked up afterwards can belong to a dead element.
     final messenger = ScaffoldMessenger.maybeOf(context);
     final navigator = Navigator.of(context);
     final confirmed = await showDialog<bool>(
@@ -488,8 +649,10 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
       builder: (dialogContext) => AlertDialog(
         title: Text('Delete ${existing.name}?'),
         content: const Text(
-            'This removes the item from your catalogue. Documents that '
-            'already use it are not changed.'),
+          'This moves the item out of your catalogue and into the recycle '
+          'bin. Documents that already use it are not changed, and you can '
+          'restore the item from the recycle bin at any time.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -506,35 +669,36 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
       ),
     );
     if (confirmed != true) return;
-    try {
-      await repo.delete(existing.id);
-      _dirty = false;
-      navigator.pop();
-      messenger?.showSnackBar(
-        const SnackBar(content: Text('Item deleted')),
-      );
-    } catch (error) {
-      messenger?.showSnackBar(SnackBar(
-        content: Text('Could not delete the item: $error'),
-      ));
-    }
+    // No try/catch: `delete` is a two-column UPDATE inside a transaction, so
+    // the only thing it can throw is a database-level failure that would have
+    // already broken the editor. The old `catch` here claimed to handle a
+    // foreign-key error this soft delete cannot raise.
+    await repo.delete(existing.id);
+    _dirty = false;
+    navigator.pop();
+    messenger?.showSnackBar(
+      const SnackBar(
+        content: Text('Item deleted — restore it from the recycle bin'),
+      ),
+    );
   }
 
   Widget _form() {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 760),
-        child: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    // The preview card is the page's header band (the same slot the invoice
+    // gives its customer block); the three field groups sit two-up once the
+    // window is wide enough, so a maximised window is not one long ribbon of
+    // half-empty fields.
+    return EditorShellBody(
+      form: Form(
+        key: _formKey,
+        child: AtriaEditorForm(
+          maxContentWidth: 1000,
+          header: _previewCard(),
+          sections: [
+            AtriaFormSection(
+              icon: Icons.label_outline_rounded,
+              title: 'Item details',
               children: [
-                _previewCard(),
-                const SizedBox(height: 20),
-                const SectionHeader(title: 'Item details'),
                 TextFormField(
                   controller: _nameController,
                   textCapitalization: TextCapitalization.words,
@@ -542,12 +706,11 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
                   decoration: const InputDecoration(
                     labelText: 'Item name *',
                     hintText: 'e.g. Basmati Rice 1 kg',
-                    prefixIcon: Icon(Icons.label_outline_rounded),
                   ),
                   validator: (value) => Validators.name(value),
                 ),
                 const SizedBox(height: 12),
-                _FieldRow(
+                AtriaFormFieldRow(
                   first: TextFormField(
                     controller: _skuController,
                     textCapitalization: TextCapitalization.characters,
@@ -555,7 +718,6 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
                     decoration: const InputDecoration(
                       labelText: 'SKU / code',
                       hintText: 'ABC-001',
-                      prefixIcon: Icon(Icons.qr_code_2_outlined),
                     ),
                   ),
                   second: _hsnField(),
@@ -563,7 +725,7 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
                 const SizedBox(height: 12),
                 _typeToggle(),
                 const SizedBox(height: 12),
-                _FieldRow(
+                AtriaFormFieldRow(
                   first: _categoryField(),
                   second: TextFormField(
                     controller: _barcodeController,
@@ -571,7 +733,6 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Barcode',
                       hintText: '8901234567890',
-                      prefixIcon: Icon(Icons.barcode_reader),
                     ),
                   ),
                 ),
@@ -586,14 +747,14 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
                     hintText: 'Optional notes printed on the invoice',
                   ),
                 ),
-                const SizedBox(height: 24),
-                const SectionHeader(title: 'Pricing & tax'),
-                _FieldRow(
-                  first: _moneyField(
-                    _salePriceController,
-                    'Sale price *',
-                    Icons.point_of_sale_rounded,
-                  ),
+              ],
+            ),
+            AtriaFormSection(
+              icon: Icons.point_of_sale_rounded,
+              title: 'Pricing & tax',
+              children: [
+                AtriaFormFieldRow(
+                  first: _salePriceCell(),
                   second: _moneyField(
                     _purchasePriceController,
                     'Purchase price',
@@ -602,7 +763,7 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                _FieldRow(
+                AtriaFormFieldRow(
                   first: _moneyField(
                     _wholesalePriceController,
                     'Wholesale price',
@@ -617,29 +778,105 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                _FieldRow(first: _gstField(), second: _cessField()),
+                AtriaFormFieldRow(first: _gstField(), second: _cessField()),
                 const SizedBox(height: 12),
                 _taxModeField(),
-                const SizedBox(height: 24),
-                const SectionHeader(title: 'Inventory'),
+              ],
+            ),
+            AtriaFormSection(
+              icon: Icons.inventory_2_outlined,
+              title: 'Inventory',
+              children: [
                 _stockToggle(),
                 const SizedBox(height: 12),
                 _unitField(),
                 const SizedBox(height: 12),
                 _stockPair(),
-                if (_isEditing) ...[
-                  const SizedBox(height: 32),
-                  _dangerZone(),
-                ],
               ],
             ),
-          ),
+          ],
+          footer: _isEditing ? _dangerZone() : null,
         ),
       ),
     );
   }
 
   // ---- Fields -------------------------------------------------------------
+
+  /// The sale-price field plus its below-cost advisory.
+  ///
+  /// The advisory was returned from the field's `validator`, which meant
+  /// `Form.validate()` failed and `_save` returned — so a shop running a
+  /// clearance or pricing a loss leader could not save the item at all, which
+  /// is the opposite of what the comment beside it claimed. Selling below cost
+  /// is a decision, not a mistake: it is now shown, not enforced.
+  ///
+  /// Rebuilt through [ListenableBuilder] on BOTH price controllers rather than
+  /// `setState`, so typing a cost (or a price) updates the line without a full
+  /// form rebuild — the same technique the preview card below already uses.
+  Widget _salePriceCell() {
+    return ListenableBuilder(
+      listenable:
+          Listenable.merge([_salePriceController, _purchasePriceController]),
+      builder: (context, _) {
+        final warning = _belowCostWarning(
+          _salePriceController.text,
+          _purchasePriceController.text,
+        );
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _moneyField(
+              _salePriceController,
+              'Sale price *',
+              Icons.point_of_sale_rounded,
+              // A zero sale price IS a mistake — it becomes a free invoice, and
+              // this list is where that would be repeated on every document.
+              validator: (value) => Validators.amount(value, allowZero: false),
+            ),
+            if (warning != null)
+              Padding(
+                padding: const EdgeInsets.only(left: 4, top: 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.info_outline_rounded,
+                      size: 15,
+                      color: atriaColors(context).warning,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        warning,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: atriaColors(context).warning,
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// The advisory text when [sale] is under [cost], else null.
+  ///
+  /// A blank or zero cost is not a margin — an item whose cost was never
+  /// entered must not be nagged about — so it produces no warning.
+  String? _belowCostWarning(String sale, String cost) {
+    final saleValue = Money.tryParse(sale);
+    final costValue = Money.tryParse(cost);
+    if (saleValue == null || costValue == null) return null;
+    if (costValue <= Decimal.zero || saleValue >= costValue) return null;
+    return 'Selling below cost (${Formatters.money(costValue)}). '
+        'Allowed — the item will still be saved.';
+  }
 
   Widget _moneyField(
     TextEditingController controller,
@@ -653,7 +890,7 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
       inputFormatters: [IndianAmountInputFormatter(decimals: 2)],
       decoration: InputDecoration(
         labelText: label,
-        prefixIcon: Icon(icon),
+        prefixIcon: AtriaFieldIcon(icon),
         prefixText: '${AppConstants.currencySymbol} ',
       ),
       validator: validator ?? (value) => Validators.amount(value),
@@ -679,19 +916,23 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
           decoration: const InputDecoration(
             labelText: 'HSN / SAC',
             hintText: 'Search code or description',
-            prefixIcon: Icon(Icons.search_rounded),
+            prefixIcon: AtriaFieldIcon(Icons.search_rounded),
           ),
           validator: (value) => Validators.hsn(value),
           onFieldSubmitted: (_) => onFieldSubmitted(),
         );
       },
       optionsViewBuilder: (context, onSelected, options) {
+        final scheme = Theme.of(context).colorScheme;
         final text = Theme.of(context).textTheme;
         return Material(
-          color: Theme.of(context).colorScheme.surface,
-          elevation: 4,
-          borderRadius:
-              const BorderRadius.all(Radius.circular(AppRadius.md)),
+          // The app's floating-panel surface, not a bare raised sheet: the
+          // code list drops onto a white editor page, so it needs its own
+          // hairline or its edge disappears (see [AppTheme.menuShape]).
+          color: scheme.surface,
+          elevation: AppTheme.menuElevation,
+          surfaceTintColor: Colors.transparent,
+          shape: AppTheme.menuShape(scheme),
           clipBehavior: Clip.antiAlias,
           child: ListView(
             shrinkWrap: true,
@@ -733,7 +974,10 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
     final items = <DropdownMenuItem<String?>>[
       const DropdownMenuItem<String?>(value: null, child: Text('None')),
       for (final category in _categories)
-        DropdownMenuItem<String?>(value: category.id, child: Text(category.name)),
+        DropdownMenuItem<String?>(
+          value: category.id,
+          child: Text(category.name),
+        ),
     ];
     if (_categoryId != null &&
         !_categories.any((category) => category.id == _categoryId)) {
@@ -745,10 +989,11 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
       );
     }
     return DropdownButtonFormField<String?>(
+      iconSize: AppIconSize.md,
       initialValue: _categoryId,
       decoration: const InputDecoration(
         labelText: 'Category',
-        prefixIcon: Icon(Icons.category_outlined),
+        prefixIcon: AtriaFieldIcon(Icons.category_outlined),
       ),
       items: items,
       onChanged: (value) => setState(() {
@@ -762,13 +1007,14 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
     final rates = GstRate.standard.map((rate) => rate.rate).toList()..sort();
     if (!rates.contains(_gstRate)) rates.add(_gstRate);
     return DropdownButtonFormField<double>(
+      iconSize: AppIconSize.md,
       // Re-created when the rate changes so the selection follows a rate
       // picked from the HSN/SAC autocomplete.
       key: ValueKey<double>(_gstRate),
       initialValue: _gstRate,
       decoration: const InputDecoration(
         labelText: 'GST rate',
-        prefixIcon: Icon(Icons.percent_rounded),
+        prefixIcon: AtriaFieldIcon(Icons.percent_rounded),
       ),
       items: [
         for (final rate in rates)
@@ -805,7 +1051,7 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
       decoration: const InputDecoration(
         labelText: 'Cess rate',
         suffixText: '%',
-        prefixIcon: Icon(Icons.add_circle_outline_rounded),
+        prefixIcon: AtriaFieldIcon(Icons.add_circle_outline_rounded),
       ),
       validator: _optionalRate,
     );
@@ -822,16 +1068,24 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
       options.add(_UnitOption(_unit, Unit.symbolOf(_unit)));
     }
     return DropdownButtonFormField<String>(
+      iconSize: AppIconSize.md,
       initialValue: _unit,
+      // isExpanded: a DropdownButton sizes to its WIDEST item, so an
+      // unexpanded one overflows the field on a phone.
+      isExpanded: true,
       decoration: const InputDecoration(
         labelText: 'Unit',
-        prefixIcon: Icon(Icons.straighten_rounded),
+        prefixIcon: AtriaFieldIcon(Icons.straighten_rounded),
       ),
       items: [
         for (final option in options)
           DropdownMenuItem<String>(
             value: option.value,
-            child: Text(option.label),
+            child: Text(
+              option.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
       ],
       onChanged: (value) => setState(() {
@@ -841,59 +1095,101 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
     );
   }
 
+  /// A [SegmentedButton] does not shrink, so its icon is dropped on a phone
+  /// where the two labelled segments would not fit across the section.
   Widget _typeToggle() {
-    return _ToggleField(
-      label: 'Item type',
-      child: SegmentedButton<bool>(
-        segments: const [
-          ButtonSegment<bool>(
-            value: false,
-            label: Text('Goods'),
-            icon: Icon(Icons.inventory_2_outlined),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final icons = constraints.maxWidth >= 420;
+        return _ToggleField(
+          label: 'Item type',
+          child: SegmentedButton<bool>(
+            segments: [
+              ButtonSegment<bool>(
+                value: false,
+                label: const Text('Goods'),
+                icon: icons ? const Icon(Icons.inventory_2_outlined) : null,
+              ),
+              ButtonSegment<bool>(
+                value: true,
+                label: const Text('Service'),
+                icon: icons ? const Icon(Icons.handshake_outlined) : null,
+              ),
+            ],
+            selected: {_isService},
+            onSelectionChanged: (selection) => setState(() {
+              _isService = selection.first;
+              // A service has no physical units to count, so tracking stock for
+              // one leaves a frozen opening balance sitting in every stock total
+              // forever — the movement writer already refuses to touch a
+              // service, which is what makes the number misleading rather than
+              // merely pointless.
+              if (_isService) _stockType = 'untracked';
+              _dirty = true;
+            }),
           ),
-          ButtonSegment<bool>(
-            value: true,
-            label: Text('Service'),
-            icon: Icon(Icons.handshake_outlined),
-          ),
-        ],
-        selected: {_isService},
-        onSelectionChanged: (selection) => setState(() {
-          _isService = selection.first;
-          _dirty = true;
-        }),
-      ),
+        );
+      },
     );
   }
 
   Widget _stockToggle() {
-    return _ToggleField(
-      label: 'Stock tracking',
-      child: SegmentedButton<String>(
-        segments: const [
-          ButtonSegment<String>(
-            value: 'tracked',
-            label: Text('Tracked'),
-            icon: Icon(Icons.check_circle_outline_rounded),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final icons = constraints.maxWidth >= 420;
+        // Read-only on a service: the value above already forced it off, so
+        // leaving the control interactive would only let the user set a state
+        // the save would have to discard again.
+        return _ToggleField(
+          label: 'Stock tracking',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SegmentedButton<String>(
+                segments: [
+                  ButtonSegment<String>(
+                    value: 'tracked',
+                    label: const Text('Tracked'),
+                    icon: icons
+                        ? const Icon(Icons.check_circle_outline_rounded)
+                        : null,
+                    enabled: !_isService,
+                  ),
+                  ButtonSegment<String>(
+                    value: 'untracked',
+                    label: const Text('Untracked'),
+                    icon: icons
+                        ? const Icon(Icons.do_not_disturb_alt_outlined)
+                        : null,
+                    enabled: !_isService,
+                  ),
+                ],
+                selected: {_stockType},
+                onSelectionChanged: (selection) => setState(() {
+                  _stockType = selection.first;
+                  _dirty = true;
+                }),
+              ),
+              if (_isService)
+                Padding(
+                  padding: const EdgeInsets.only(left: 4, top: 6),
+                  child: Text(
+                    'A service isn\'t counted in stock.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                  ),
+                ),
+            ],
           ),
-          ButtonSegment<String>(
-            value: 'untracked',
-            label: Text('Untracked'),
-            icon: Icon(Icons.do_not_disturb_alt_outlined),
-          ),
-        ],
-        selected: {_stockType},
-        onSelectionChanged: (selection) => setState(() {
-          _stockType = selection.first;
-          _dirty = true;
-        }),
-      ),
+        );
+      },
     );
   }
 
   Widget _stockPair() {
     final tracked = _stockType == 'tracked';
-    return _FieldRow(
+    return AtriaFormFieldRow(
       first: TextFormField(
         controller: _openingStockController,
         enabled: tracked && !_isEditing,
@@ -901,7 +1197,7 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
         inputFormatters: [IndianAmountInputFormatter(decimals: 3)],
         decoration: InputDecoration(
           labelText: 'Opening stock',
-          prefixIcon: const Icon(Icons.inventory_outlined),
+          prefixIcon: const AtriaFieldIcon(Icons.inventory_outlined),
           helperText: _isEditing ? 'Adjust via stock movements' : null,
         ),
         validator: _optionalQty,
@@ -913,7 +1209,7 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
         inputFormatters: [IndianAmountInputFormatter(decimals: 3)],
         decoration: InputDecoration(
           labelText: 'Low stock alert',
-          prefixIcon: const Icon(Icons.notifications_active_outlined),
+          prefixIcon: const AtriaFieldIcon(Icons.notifications_active_outlined),
           helperText: tracked ? null : 'Requires stock tracking',
         ),
         validator: _optionalQty,
@@ -921,14 +1217,55 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
     );
   }
 
+  /// The headline "what the customer pays for one" figure.
+  ///
+  /// It used to be `sale + sale * gstRate/100`, labelled "Selling price + 18%
+  /// GST", unconditionally: on a tax-INCLUSIVE item the stored price already
+  /// contains the GST, so the card overstated the price by the tax again (and
+  /// the [TaxModeToggle] beside it changed nothing, because the number never
+  /// read it). Cess was never applied at all, though it is an editable field.
+  ///
+  /// Computed by the same engine a document line goes through, so the card
+  /// cannot drift from what the invoice will charge: in inclusive mode the
+  /// engine back-calculates the taxable value out of the price and then adds
+  /// the tax back, and it charges cess on the TAXABLE value in both modes.
+  /// `intraState` because the split only moves tax between CGST/SGST/IGST — the
+  /// grand total is identical either way.
+  ({Decimal total, String label}) _previewHeadline() {
+    final rate = Money.tryParse(_salePriceController.text) ?? Decimal.zero;
+    final cess = (Money.tryParse(_cessRateController.text) ?? Decimal.zero)
+        .toDouble();
+    final inclusive = _taxMode == TaxMode.inclusive;
+    final totals = GstEngine.computeLine(
+      TaxLine(
+        id: 'preview',
+        name: '',
+        quantity: Decimal.one,
+        unit: _unit,
+        rate: rate,
+        gstRate: _gstRate,
+        cessRate: cess,
+        taxMode: _taxMode,
+      ),
+      GstSplit.intraState,
+    );
+    final cessPart = cess > 0 ? ' + ${Formatters.percent(cess)} cess' : '';
+    return (
+      total: totals.total,
+      label: inclusive
+          ? 'Price incl. ${Formatters.percent(_gstRate)} GST$cessPart'
+          : 'Selling price + ${Formatters.percent(_gstRate)} GST$cessPart',
+    );
+  }
+
   Widget _previewCard() {
     return ListenableBuilder(
-      listenable: _salePriceController,
+      listenable:
+          Listenable.merge([_salePriceController, _cessRateController]),
       builder: (context, _) {
         final scheme = Theme.of(context).colorScheme;
         final text = Theme.of(context).textTheme;
-        final sale = Money.tryParse(_salePriceController.text) ?? Decimal.zero;
-        final total = sale + Money.mulN(sale, _gstRate / 100);
+        final preview = _previewHeadline();
 
         return AtriaCard(
           background: scheme.primaryContainer,
@@ -941,8 +1278,9 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
                 height: 40,
                 decoration: BoxDecoration(
                   color: scheme.primary.withValues(alpha: 0.14),
-                  borderRadius:
-                      const BorderRadius.all(Radius.circular(AppRadius.sm)),
+                  borderRadius: const BorderRadius.all(
+                    Radius.circular(AppRadius.sm),
+                  ),
                 ),
                 alignment: Alignment.center,
                 child: Icon(
@@ -958,14 +1296,16 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      'Selling price + ${Formatters.percent(_gstRate)} GST',
+                      preview.label,
                       style: text.bodySmall?.copyWith(
-                        color: scheme.onPrimaryContainer.withValues(alpha: 0.85),
+                        color: scheme.onPrimaryContainer.withValues(
+                          alpha: 0.85,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      Formatters.money(total),
+                      Formatters.money(preview.total),
                       style: text.headlineSmall?.copyWith(
                         fontWeight: FontWeight.w700,
                         color: scheme.onPrimaryContainer,
@@ -981,42 +1321,6 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
                   color: scheme.onPrimaryContainer.withValues(alpha: 0.7),
                 ),
               ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-/// Two fields side by side on wide content areas, stacked on narrow ones.
-class _FieldRow extends StatelessWidget {
-  const _FieldRow({required this.first, required this.second});
-
-  final Widget first;
-  final Widget second;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 560) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              first,
-              const SizedBox(height: 12),
-              second,
-            ],
-          );
-        }
-        return IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(child: first),
-              const SizedBox(width: 12),
-              Expanded(child: second),
             ],
           ),
         );
@@ -1043,9 +1347,9 @@ class _ToggleField extends StatelessWidget {
           child: Text(
             label,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w600,
-                ),
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
         child,

@@ -31,12 +31,16 @@ class PullApplyReport {
 /// history needs an answer to "what if the same row changed on both devices?",
 /// and this class answers it with one rule, applied the same way everywhere:
 ///
-/// **Row-level last-write-wins on `updated_at`.** A pulled row overwrites the
-/// local row only when the pulled row's `updated_at` is strictly newer.
-/// Anything older is history the local device has already superseded —
-/// applying it would silently undo a newer local edit. A missing or
-/// unparseable `updated_at` counts as old, so a malformed payload can never
-/// win, and a row the local device has never seen is always inserted.
+/// **Row-level last-write-wins on `updated_at`, with ties going to the pull.**
+/// A pulled row overwrites the local row unless the local row is *strictly*
+/// newer by no more than [maxTrustedClockSkew] — see [_pulledWins] for the
+/// three cases, because drift truncates `updated_at` to whole seconds and
+/// "equal" is a real answer, not a tiebreak nobody reaches. Anything genuinely
+/// older is history the local device has already superseded — applying it would
+/// silently undo a newer local edit — and a local stamp that far ahead of the
+/// pull is a wrong clock, not a newer edit. A missing or unparseable
+/// `updated_at` counts as old, so a malformed payload can never win, and a row
+/// the local device has never seen is always inserted.
 ///
 /// The rule is per *row*, not per document: an invoice saved on two devices
 /// converges to whichever save was later. This keeps the applier
@@ -98,6 +102,17 @@ class PullApplier {
     'journal_lines',
     'stock_movements',
   };
+
+  /// How far the local `updated_at` may run ahead of the pulled one and still
+  /// be believed. See [_pulledWins].
+  ///
+  /// A day, deliberately: the largest real gap between two edits to one row on
+  /// two devices is a shop correcting this morning's invoice after the evening
+  /// session, which is hours. Anything larger is a clock that has drifted (or
+  /// been set by hand), and an unbounded comparison means one device with a
+  /// fast clock wins every conflict it is ever in — silently, because the row
+  /// it clobbered was another device's genuine work.
+  static const Duration maxTrustedClockSkew = Duration(days: 1);
 
   /// Applies [page] for [firmId]. Returns what happened, including the new
   /// cursor value — the highest sequence seen, applied or not, because a
@@ -186,7 +201,8 @@ class PullApplier {
     }
   }
 
-  /// Parent tables: row-level last-write-wins, then insert or update.
+  /// Parent tables: row-level last-write-wins (ties to the pull, see
+  /// [_pulledWins]), then insert or update.
   Future<bool> _upsertParent(
     String entity,
     Map<String, Object?> payload,
@@ -202,12 +218,49 @@ class PullApplier {
       final localAt = _parseUpdatedAt(existing['updated_at']);
       // No usable pulled timestamp counts as old: never overwrite.
       if (pulledAt == null) return false;
-      if (localAt != null && !pulledAt.isAfter(localAt)) return false;
+      if (localAt != null && !_pulledWins(pulledAt, localAt)) return false;
       await _writeRow(table, payload, mode: _WriteMode.update);
     } else {
       await _writeRow(table, payload, mode: _WriteMode.insert);
     }
     return true;
+  }
+
+  /// Whether a pulled row may overwrite the local row it collides with.
+  ///
+  /// The comparison is the only ordering signal available — `updated_at` is
+  /// `DateTime.now()` on whichever device wrote the row and is never corrected
+  /// against a server clock — so it has to be made as safe as a pure clock
+  /// comparison can be. Three cases:
+  ///
+  /// * **Equal → the pulled row applies.** drift stores `DateTime` as unix
+  ///   SECONDS, so two devices that saved the same row inside one second carry
+  ///   identical timestamps and the comparison has nothing left to order them
+  ///   by. The previous rule required `pulledAt.isAfter(localAt)`, so it
+  ///   classified that tie as "older", refused the row, and let the cursor
+  ///   advance past it — the other device's edit was never re-fetched and the
+  ///   books settled on whichever device happened to save last locally, for
+  ///   ever. Accepting the pulled row on a tie cannot lose anything either: the
+  ///   pulled row is another device's write that this device provably has not
+  ///   seen, whereas the local row can only hold a write this device made
+  ///   itself. So the tie is resolved towards progress, never towards the
+  ///   local clock.
+  /// * **Local strictly newer → the local row stays** — but only while the gap
+  ///   is no more than [maxTrustedClockSkew]. Inside that bound the gap still
+  ///   means a genuinely later edit (subject to drift's second granularity),
+  ///   and applying the pulled row would undo it.
+  /// * **Local newer by more than [maxTrustedClockSkew] → the pulled row
+  ///   applies anyway.** A pure comparison makes a device whose clock runs fast
+  ///   win every conflict permanently, so the local timestamp is only trusted
+  ///   up to a plausible bound; past it the gap is a clock, not an edit.
+  ///
+  /// The two bullets are one bounded comparison, and the direction is the easy
+  /// thing to invert: believing the local clock is the *exception*, so the
+  /// answer is `false` while the gap stays inside the bound.
+  bool _pulledWins(DateTime pulledAt, DateTime localAt) {
+    if (!localAt.isAfter(pulledAt)) return true; // pulled is newer, or a tie
+    // Local ahead of the pull: keep it only while the lead is believable.
+    return localAt.difference(pulledAt) > maxTrustedClockSkew;
   }
 
   /// Children: insert when absent, never update. See the class comment.

@@ -1,0 +1,36 @@
+{
+  "success": true,
+  "expense_details": {
+    "id": 770002,
+    "serial_number": "EXP-2",
+    "document_type": "expense",
+    "document_date": "06 Apr 2026",
+    "expense_date": "06 Apr 2026",
+    "status": "success",
+    "payment_status": "paid",
+    "category": "Internet",
+    "category_name": "Internet",
+    "net_amount": 1000,
+    "tax_amount": 180,
+    "total_amount": 1180,
+    "amount_paid": 1180,
+    "amount_pending": 0,
+    "payment_mode": "Net Banking",
+    "party_type": "vendor",
+    "party_details": {
+      "name": "Airtel Business",
+      "gstin": "36AABCU9603R1ZM"
+    },
+    "notes": "Office broadband",
+    "is_tds": 0,
+    "expense_items": [
+      {
+        "description": "Broadband - April",
+        "qty": 1,
+        "rate": 1000,
+        "tax": 18,
+        "amount": 1180
+      }
+    ]
+  }
+}

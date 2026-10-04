@@ -492,14 +492,17 @@ class DemoSeeder {
     }
 
     // ---- Expenses ----
+    // Category ids, not labels, and real payment-mode ids: the editor's
+    // dropdowns select by id, so writing the human label (and a mode of
+    // 'rent') left the demo books holding values no dropdown could show.
     final expenses = db.expenseRepositoryFor(firmId);
     final expenseDefs = [
-      ('Rent', 18000, 5, 'rent'),
-      ('Salaries & Wages', 42000, 4, 'salary'),
-      ('Electricity', 6400, 3, 'electricity'),
-      ('Transport & Fuel', 8200, 2, 'transport'),
-      ('Office Supplies', 3600, 1, 'office'),
-      ('Internet & Telephone', 1499, 1, 'internet'),
+      ('rent', 18000, 5, 'bank_transfer'),
+      ('salary', 42000, 4, 'bank_transfer'),
+      ('electricity', 6400, 3, 'upi'),
+      ('transport', 8200, 2, 'cash'),
+      ('office', 3600, 1, 'cash'),
+      ('internet', 1499, 1, 'upi'),
     ];
     for (final (category, amount, monthsAgo, mode) in expenseDefs) {
       await expenses.create(

@@ -137,10 +137,15 @@ void main() {
     // It offers a way out, unlike the old bare dead end.
     expect(find.text('Go to dashboard'), findsOneWidget);
 
+    // The active-firm controller installs a drift existence watch on select.
+    // Its teardown timer starts when the container is disposed, so the pumps
+    // have to come AFTER the dispose — pumping first advances nothing, and
+    // db.close() then hangs until the test times out.
     await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pump(const Duration(milliseconds: 50));
-    await tester.pump(const Duration(milliseconds: 50));
     container.dispose();
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(seconds: 1));
+    }
     await db.close();
   });
 

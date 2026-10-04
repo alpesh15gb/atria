@@ -4,8 +4,11 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/database/app_database.dart';
 import '../../core/state/providers.dart';
+import '../../core/theme/app_sizes.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/money.dart';
+import '../../shared/widgets/atria_avatar.dart';
+import '../../shared/widgets/atria_list_toolbar.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/money_text.dart';
 
@@ -44,7 +47,11 @@ class _PartyTransactionsPaneState extends ConsumerState<PartyTransactionsPane> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.swipe_right_rounded, size: 40, color: scheme.outline),
+            Icon(
+              Icons.swipe_right_rounded,
+              size: AppIconSize.empty,
+              color: scheme.outline,
+            ),
             const SizedBox(height: 10),
             Text(
               'Select a party to see their transactions',
@@ -84,7 +91,7 @@ class _PartyTransactionsPaneState extends ConsumerState<PartyTransactionsPane> {
                 return EmptyState(
                   icon: Icons.error_outline_rounded,
                   title: 'Could not load transactions',
-                  message: '${snapshot.error}',
+                  message: atriaErrorMessage(snapshot.error, retry: 'Try again.'),
                 );
               }
               var docs = snapshot.data ?? const <SalesInvoiceEntity>[];
@@ -115,20 +122,16 @@ class _PartyTransactionsPaneState extends ConsumerState<PartyTransactionsPane> {
                   return ListTile(
                     contentPadding:
                         const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                    leading: CircleAvatar(
-                      radius: 16,
-                      backgroundColor: scheme.secondaryContainer,
-                      child: Icon(
-                        switch (doc.docType) {
-                          'quotation' => Icons.request_quote_outlined,
-                          'sales_order' => Icons.receipt_outlined,
-                          'credit_note' => Icons.assignment_return_outlined,
-                          'delivery_note' => Icons.local_shipping_outlined,
-                          _ => Icons.receipt_long_outlined,
-                        },
-                        size: 17,
-                        color: scheme.onSecondaryContainer,
-                      ),
+                    leading: AtriaAvatar.glyph(
+                      icon: switch (doc.docType) {
+                        'quotation' => Icons.request_quote_outlined,
+                        'sales_order' => Icons.receipt_outlined,
+                        'credit_note' => Icons.assignment_return_outlined,
+                        'delivery_note' => Icons.local_shipping_outlined,
+                        _ => Icons.receipt_long_outlined,
+                      },
+                      tone: AtriaAvatarTone.info,
+                      radius: AtriaAvatar.row,
                     ),
                     title: Row(
                       children: [
@@ -204,16 +207,9 @@ class _PartyTransactionsPaneState extends ConsumerState<PartyTransactionsPane> {
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 22,
-            backgroundColor: scheme.primaryContainer,
-            child: Text(
-              party.name.isEmpty ? '?' : party.name[0].toUpperCase(),
-              style: text.titleMedium?.copyWith(
-                color: scheme.onPrimaryContainer,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+          AtriaAvatar.initials(
+            name: party.name,
+            radius: AtriaAvatar.header,
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -257,24 +253,15 @@ class _PartyTransactionsPaneState extends ConsumerState<PartyTransactionsPane> {
   }
 
   Widget _typeFilterRow(BuildContext context) {
-    return SizedBox(
-      height: 40,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        children: [
-          for (final entry in _typeLabels.entries)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: ChoiceChip(
-                label: Text(entry.value),
-                selected: _typeFilter == entry.key,
-                visualDensity: VisualDensity.compact,
-                onSelected: (_) => setState(() => _typeFilter = entry.key),
-              ),
-            ),
-        ],
-      ),
+    return AtriaSegmentedFilter<String>(
+      scrollable: true,
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+      segments: [
+        for (final entry in _typeLabels.entries)
+          AtriaSegment(value: entry.key, label: entry.value),
+      ],
+      value: _typeFilter,
+      onChanged: (type) => setState(() => _typeFilter = type),
     );
   }
 }

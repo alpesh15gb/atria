@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 
+import '../../utils/id_utils.dart';
 import '../app_database.dart';
 import 'repository_extensions.dart';
 import 'sync_mixin.dart';
@@ -83,6 +84,15 @@ class PartyRepository with SyncQueueMixin {
     return query.watchSingleOrNull();
   }
 
+  /// Every live party, name-ordered.
+  ///
+  /// Pass `limit: 0` for NO cap. The default 500 exists so a picker that only
+  /// ever needs a plausible list does not drag a 20 000-row table into memory,
+  /// but it silently truncated the Statement of Account: a deep link
+  /// `/statements?party=<id>` for the 501st party resolved nothing and the
+  /// screen rendered a blank white area with both downloads disabled. A cap a
+  /// caller cannot see is a data-loss bug, so screens that must reach every row
+  /// ask for 0 explicitly rather than the default changing under them.
   Future<List<PartyEntity>> all({
     String? type,
     String search = '',
@@ -99,10 +109,13 @@ class PartyRepository with SyncQueueMixin {
       query.where(
           (t) => t.name.lower().like(s) | t.phone.lower().like(s) | t.gstin.lower().like(s));
     }
-    query.limit(limit);
+    if (limit > 0) query.limit(limit);
     return query.get();
   }
 
+  /// Live parties, name-ordered, re-emitted on any write. Uncapped — this is
+  /// the Parties list, which must be able to reach every row; see [all] for why
+  /// the default cap is a caller-visible decision rather than a library one.
   Stream<List<PartyEntity>> watchAll({String? type, String search = ''}) {
     final query = db.select(db.parties)
       ..where((t) => t.firmId.equals(firmId) & t.isDeleted.equals(false))
@@ -112,8 +125,13 @@ class PartyRepository with SyncQueueMixin {
     }
     if (search.trim().isNotEmpty) {
       final s = '%${search.trim().toLowerCase()}%';
-      query.where(
-          (t) => t.name.lower().like(s) | t.phone.lower().like(s));
+      // GSTIN is searched here for the same reason it is in [all]: the list
+      // screen's own hint says "Search name, phone or GSTIN", and a supplier
+      // is far more often looked up by the number printed on an invoice.
+      query.where((t) =>
+          t.name.lower().like(s) |
+          t.phone.lower().like(s) |
+          t.gstin.lower().like(s));
     }
     return query.watch();
   }
@@ -247,10 +265,11 @@ class PartyRepository with SyncQueueMixin {
     });
   }
 
-  /// Outstanding for a party: sales invoices unpaid (dr) minus purchase bills
-  /// unpaid (cr), plus the opening balance sign. Cancelled documents never
-  /// count — their balance columns are zeroed on cancel, and the status
-  /// filter here keeps old rows (cancelled before that fix) out too.
+  /// Outstanding for a party: net receivable (positive, Dr) or net payable
+  /// (negative, Cr). Reflects opening balance, unpaid sales invoices, credit
+  /// notes issued, unpaid purchase bills, debit notes issued, and unlinked
+  /// (advance or lump-sum) payments. Cancelled documents and bounced cheques
+  /// are excluded.
   Future<double> outstandingFor(String partyId) async {
     final sales = db.selectOnly(db.salesInvoices)
       ..addColumns([db.salesInvoices.balanceDue.sum()])
@@ -263,6 +282,17 @@ class PartyRepository with SyncQueueMixin {
     final salesDue =
         salesRow.read(db.salesInvoices.balanceDue.sum()) ?? 0.0;
 
+    final creditNotes = db.selectOnly(db.salesInvoices)
+      ..addColumns([db.salesInvoices.grandTotal.sum()])
+      ..where(db.salesInvoices.firmId.equals(firmId) &
+          db.salesInvoices.partyId.equals(partyId) &
+          db.salesInvoices.docType.equals('credit_note') &
+          db.salesInvoices.isDeleted.equals(false) &
+          db.salesInvoices.status.equals('cancelled').not());
+    final cnRow = await creditNotes.getSingle();
+    final cnTotal =
+        cnRow.read(db.salesInvoices.grandTotal.sum()) ?? 0.0;
+
     final purchases = db.selectOnly(db.purchaseBills)
       ..addColumns([db.purchaseBills.balanceDue.sum()])
       ..where(db.purchaseBills.firmId.equals(firmId) &
@@ -274,14 +304,83 @@ class PartyRepository with SyncQueueMixin {
     final purchaseDue =
         purchaseRow.read(db.purchaseBills.balanceDue.sum()) ?? 0.0;
 
+    final debitNotes = db.selectOnly(db.purchaseBills)
+      ..addColumns([db.purchaseBills.grandTotal.sum()])
+      ..where(db.purchaseBills.firmId.equals(firmId) &
+          db.purchaseBills.partyId.equals(partyId) &
+          db.purchaseBills.docType.equals('debit_note') &
+          db.purchaseBills.isDeleted.equals(false) &
+          db.purchaseBills.status.equals('cancelled').not());
+    final dnRow = await debitNotes.getSingle();
+    final dnTotal =
+        dnRow.read(db.purchaseBills.grandTotal.sum()) ?? 0.0;
+
+    final unlinkedPayments = db.select(db.payments)
+      ..where((t) =>
+          t.firmId.equals(firmId) &
+          t.partyId.equals(partyId) &
+          t.linkedInvoiceId.isNull() &
+          // `isDeleted` is filtered here for the same reason every sibling
+          // query above filters it: binned a payment must stop counting the
+          // moment it is binned (see PaymentRepository's softDelete contract at
+          // payment_repository.dart:208-211). It was the only query in this
+          // method that omitted it, so a binned advance kept reducing the
+          // party's outstanding — the one figure in the app that must never be
+          // wrong.
+          t.isDeleted.equals(false) &
+          (t.chequeStatus.isNull() | t.chequeStatus.equals('bounced').not()));
+    final pList = await unlinkedPayments.get();
+    var unlinkedIn = 0.0;
+    var unlinkedOut = 0.0;
+    for (final p in pList) {
+      if (p.type == 'payment_in') {
+        unlinkedIn += p.amount;
+      } else if (p.type == 'payment_out') {
+        unlinkedOut += p.amount;
+      }
+    }
+
     final party = await getById(partyId);
     double opening = 0;
     if (party != null) {
       opening = party.openingBalance *
           (party.openingBalanceType == 'dr' ? 1 : -1);
     }
-    return opening + salesDue - purchaseDue;
+    return opening +
+        (salesDue - cnTotal - unlinkedIn) -
+        (purchaseDue - dnTotal - unlinkedOut);
   }
 
-  String _newId() => 'pty_${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}_${DateTime.now().microsecond}';
+  /// Fires whenever anything [outstandingFor] reads is written: the party's own
+  /// row, a sales document, a purchase bill or a payment.
+  ///
+  /// [outstandingFor] is five aggregates over four tables, and drift can only
+  /// invalidate a stream that reads ONE statement — there is no single query to
+  /// watch. So this is the coarse signal: the same shape as
+  /// `providers.itemMovementSignalProvider`, which the app already watches for
+  /// the cached `currentStock` balances. Consumers pair it with a re-read, e.g.
+  ///
+  /// ```dart
+  /// Stream<double> watchOutstanding(String partyId) async* {
+  ///   yield await outstandingFor(partyId);
+  ///   await for (final _ in watchOutstandingChanges()) {
+  ///     yield await outstandingFor(partyId);
+  ///   }
+  /// }
+  /// ```
+  ///
+  /// No polling, and no dependence on a rebuild the nav shell's IndexedStack
+  /// never sends.
+  Stream<void> watchOutstandingChanges() async* {
+    yield* db
+        .tableUpdates(TableUpdateQuery.onAllTables([
+          db.parties,
+          db.salesInvoices,
+          db.purchaseBills,
+          db.payments,
+        ]))
+        .map((_) {});
+  }
+
+  String _newId() => 'pty_${IdUtils.newId()}';
 }

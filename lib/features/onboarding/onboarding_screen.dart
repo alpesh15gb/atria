@@ -7,6 +7,7 @@ import '../../core/database/repositories/repository_extensions.dart';
 import '../../core/responsive/breakpoints.dart';
 import '../../core/state/providers.dart';
 import '../../core/theme/app_radius.dart';
+import '../../core/theme/app_sizes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/atria_logo.dart';
 
@@ -139,9 +140,20 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         Expanded(
           child: PageView.builder(
             controller: _pageController,
-            physics: const BouncingScrollPhysics(
-              parent: AlwaysScrollableScrollPhysics(),
-            ),
+            // The platform's own page physics — bouncing on iOS/macOS,
+            // clamping (with Android's overscroll glow) everywhere else.
+            // `BouncingScrollPhysics` was hard-coded here, which handed Android
+            // a rubber-band affordance it has nowhere else in the product and
+            // which reads as "broken" on a device that always stops dead at the
+            // end of a list.
+            //
+            // `AlwaysScrollableScrollPhysics` stays in the chain: without it
+            // `ClampingScrollPhysics.shouldAcceptUserOffset` is false whenever
+            // the three pages fit on one screen, so the gesture that opens
+            // onboarding would be dead on a tall window.
+            physics: ScrollConfiguration.of(context)
+                .getScrollPhysics(context)
+                .applyTo(const AlwaysScrollableScrollPhysics()),
             onPageChanged: (index) => setState(() => _page = index),
             itemCount: _pages.length,
             itemBuilder: (context, index) => _OnboardingPageView(
@@ -156,38 +168,78 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   Widget get _footer {
     final text = Theme.of(context).textTheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 18),
+    final background = Theme.of(context).scaffoldBackgroundColor;
+    return Material(
+      // Opaque. The page behind is a scrolling view and the footer is an
+      // overlay, so with only the padding it used to carry, mid-scroll text
+      // passed *behind* the indicator row and the Next button and was visible
+      // through the gaps around them — the headline sat on top of a paragraph
+      // mid-word. The page's own wash is a gradient that resolves to
+      // [scaffoldBackgroundColor] by the time it reaches this height, so this
+      // is the colour that already sits under it: the bar disappears except
+      // where it must not.
+      color: background,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _indicator,
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              if (!_isLastPage)
-                Text(
-                  'Step ${_page + 1} of ${_pages.length}',
-                  style: text.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                )
-              else
-                Text(
-                  'You are all set',
-                  style: text.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              const Spacer(),
-              FilledButton.icon(
-                onPressed: _next,
-                icon: const Icon(Icons.arrow_forward_rounded, size: 18),
-                label: Text(_isLastPage ? 'Get Started' : 'Next'),
+          // A short fade rather than a hard line, so the page appears to run
+          // under the bar instead of stopping at it.
+          Container(
+            height: 12,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [background.withValues(alpha: 0), background],
               ),
-            ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _indicator,
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    // Flexible: at a 2.0× system font (see `app.dart`, which no
+                    // longer caps text scaling) "Step 1 of 3" and "Get Started"
+                    // together are wider than a 320dp phone, and a bare [Text]
+                    // in a [Row] is given an unbounded width — so this was the
+                    // overflow, not a squeeze.
+                    Flexible(
+                      child: Text(
+                        _isLastPage
+                            ? 'You are all set'
+                            : 'Step ${_page + 1} of ${_pages.length}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: text.bodySmall?.copyWith(
+                          color:
+                              Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                          fontWeight: _isLastPage ? FontWeight.w600 : null,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton.icon(
+                      onPressed: _next,
+                      icon: const Icon(
+                        Icons.arrow_forward_rounded,
+                        size: AppIconSize.md,
+                      ),
+                      label: Text(
+                        _isLastPage ? 'Get Started' : 'Next',
+                        maxLines: 1,
+                        softWrap: false,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -247,12 +299,18 @@ class _OnboardingPageView extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isCompact = constraints.isCompact;
+        // Room for the footer, which now paints its own background over the
+        // tail of the page. 116 covers its height at the default text size; a
+        // larger system font makes the button taller, so the reservation grows
+        // with it instead of leaving the last line permanently under the bar.
+        final footerSpace = 116 *
+            MediaQuery.textScalerOf(context).scale(1.0).clamp(1.0, 2.0);
         return SingleChildScrollView(
           padding: EdgeInsets.fromLTRB(
             isCompact ? 24 : 48,
             isCompact ? 12 : 28,
             isCompact ? 24 : 48,
-            116,
+            footerSpace,
           ),
           child: Center(
             child: ConstrainedBox(
@@ -321,7 +379,11 @@ class _OnboardingPageView extends StatelessWidget {
   Widget _hero(BuildContext context, bool isCompact) {
     final colors = atriaColors(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final size = isCompact ? 92.0 : 116.0;
+    // One tile, one glyph. The glyph used to be `size * 0.46`, which made it
+    // 42.3px on a phone and 53.4px on a desktop — two sizes that exist nowhere
+    // else in the product — and the tile differed too for no reason the layout
+    // needed.
+    const size = AppSpace.xxxl * 3;
 
     return Center(
       child: AnimatedScale(
@@ -374,7 +436,7 @@ class _OnboardingPageView extends StatelessWidget {
                 ),
                 child: PhosphorIcon(
                   page.icon,
-                  size: size * 0.46,
+                  size: AppIconSize.empty,
                   color: Colors.white,
                 ),
               ),

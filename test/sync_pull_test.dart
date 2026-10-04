@@ -11,7 +11,6 @@ import 'package:atria/core/database/repositories/settings_repository.dart';
 import 'package:atria/core/state/auth_controller.dart';
 import 'package:atria/core/sync/pull_applier.dart';
 import 'package:atria/core/sync/sync_engine.dart';
-import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -160,21 +159,29 @@ void main() {
     expect(row!.name, 'Imported Traders');
   });
 
-  test('a newer remote write wins; an older one loses', () async {
+  test('a newer remote write wins; a slightly older one loses', () async {
     final local = await db.partyRepositoryFor(firmId).create(name: 'Local');
     final localUpdated = await (db.select(db.parties)
           ..where((t) => t.id.equals(local.id)))
         .getSingle();
 
-    // Older than the local write: must not overwrite it.
+    // Minutes older than the local write: a plausible edit ordering, so the
+    // local row must win. (This used to use a 2020 stamp, which is now a CLOCK
+    // SKEW case rather than an older edit — `PullApplier` deliberately bounds
+    // how far ahead of a local row a remote stamp may be before it stops
+    // trusting the ordering, so a years-old stamp is treated as a device whose
+    // clock is wrong and the remote row wins.)
     journal.add({
       'seq': 1,
       'id': 'change-old',
       'entity': 'parties',
       'entityId': local.id,
       'operation': 'update',
-      'payload':
-          partyPayload(local.id, 'Older remote', updatedAt: DateTime(2020)),
+      'payload': partyPayload(
+        local.id,
+        'Older remote',
+        updatedAt: DateTime.now().subtract(const Duration(minutes: 5)),
+      ),
     });
     await engine.sync();
     var row = await (db.select(db.parties)
@@ -219,9 +226,12 @@ void main() {
     });
     await engine.sync();
 
-    // Same name AND same updated_at: the LWW rule already protects the value,
-    // and the assertion is that the round trip is a no-op rather than a
-    // rewrite that would bump updated_at and re-journal the row.
+    // The echo carries this device's own row verbatim, so the stamp ties the
+    // local one — and a tie applies the pull (the rule that stops same-second
+    // edits being dropped), which is exactly why idempotence cannot come from
+    // refusing the row. The assertion is that re-applying it writes identical
+    // values: a rewrite that moved `updated_at` would re-journal the row and
+    // the device would pull its own write back for ever.
     final after = await (db.select(db.parties)
           ..where((t) => t.id.equals(party.id)))
         .getSingle();

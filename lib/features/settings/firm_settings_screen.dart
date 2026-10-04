@@ -10,16 +10,18 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
+import '../../core/api/server_client.dart';
 import '../../core/constants/indian_states.dart';
 import '../../core/database/app_database.dart';
 import '../../core/database/repositories/repository_extensions.dart';
 import '../../core/engine/document_numbering.dart';
-import '../../core/responsive/breakpoints.dart';
 import '../../core/state/providers.dart';
 import '../../core/theme/app_radius.dart';
+import '../../core/theme/app_sizes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/validators.dart';
+import '../../shared/widgets/atria_field_icon.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/save_shortcut.dart';
 import '../../shared/widgets/unsaved_guard.dart';
@@ -65,6 +67,9 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
   bool _loading = true;
   bool _saving = false;
   bool _dirty = false;
+  /// A removal is in flight. Separate from [_saving] because the two do
+  /// different things to the same form, and only one of them can navigate away.
+  bool _removing = false;
 
   bool get _hasChanges => _dirty && !_saving && !_loading;
 
@@ -113,6 +118,18 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
   bool _showBank = false;
   bool _showQr = false;
   String? _logoPath;
+  /// A logo file that is on disk but will not be referenced once the current
+  /// form is saved — replaced by a different file, or removed. Deleted only
+  /// after the save succeeds, so backing out of the screen never leaves the
+  /// firm pointing at a file that has been eaten. See [_deleteLogoFile].
+  String? _staleLogoPath;
+  /// Whether [_logoPath] still resolves to a file, resolved when the path
+  /// changes rather than inside `build`.
+  ///
+  /// It used to be `File(path).existsSync()` evaluated during `build`, so every
+  /// character typed in a prefix field (the numbering preview rebuilds the
+  /// whole screen) paid for a synchronous disk stat on the UI isolate.
+  bool _logoOnDisk = false;
 
   @override
   void initState() {
@@ -189,6 +206,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
       _firm = firm;
       _loading = false;
     });
+    _refreshLogoPresence();
   }
 
   void _prefill(FirmEntity firm) {
@@ -221,6 +239,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
     _showBank = firm.showBankOnInvoice;
     _showQr = firm.showQrOnInvoice;
     _logoPath = firm.logoPath;
+    _staleLogoPath = null;
     _listenForEdits();
   }
 
@@ -236,9 +255,26 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
     setState(() => _saving = true);
     final messenger = ScaffoldMessenger.maybeOf(context);
     try {
+      // A cleared box must CLEAR the column.
+      //
+      // Drift's generated `copyWith` reads `Value.absent()` as "leave this
+      // column alone, keep the old value", and `firmRepository.update` writes
+      // the result with `db.update(...).replace(...)`. So mapping empty input to
+      // absent (which is what this used to do) made every optional field
+      // impossible to clear: empty the GSTIN, press Save, see "Saved", go back
+      // to the invoice — and the old GSTIN is still printed on it, with no way
+      // anywhere in the app to remove it.
+      //
+      // Every column fed through here is nullable in `tables/firms.dart`
+      // (legalName, gstin, pan, addressLine1/2, city, pincode, phone, email,
+      // logoPath, invoiceTerms, invoiceNotes, signatureName, upiId, bankName,
+      // bankAccountName, bankAccountNumber, bankIfsc, bankBranch), so `null`
+      // is a legal write and is exactly what "the box was cleared" means. The
+      // NOT-nullable columns (`name`, the four prefixes) are passed below as
+      // plain strings and deliberately never come through this helper.
       Value<String?> fieldValue(String value) {
         final trimmed = value.trim();
-        return trimmed.isEmpty ? const Value.absent() : Value(trimmed);
+        return trimmed.isEmpty ? const Value<String?>(null) : Value(trimmed);
       }
 
       await ref.read(appDatabaseProvider).firmRepository.update(
@@ -247,7 +283,9 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
               legalName: fieldValue(_legalNameController.text),
               gstin: fieldValue(_gstinController.text.toUpperCase()),
               pan: fieldValue(_panController.text.toUpperCase()),
-              stateCode: Value(_stateCode),
+              // Always written, so clearing the State dropdown really clears the
+              // column. Same reasoning as the fields above.
+              stateCode: Value<String?>(_stateCode),
               addressLine1: fieldValue(_address1Controller.text),
               addressLine2: fieldValue(_address2Controller.text),
               city: fieldValue(_cityController.text),
@@ -271,11 +309,19 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
               bankBranch: fieldValue(_bankBranchController.text),
               showBankOnInvoice: _showBank,
               showQrOnInvoice: _showQr,
+              // The same absent-vs-null trap, with a visible symptom: absent left
+              // the stored path in place, so "Remove" never removed the logo and
+              // the deleted logo went on printing in the PDF header.
               logoPath: _logoPath == null
-                  ? const Value.absent()
+                  ? const Value<String?>(null)
                   : Value(_logoPath),
             ),
           );
+      // The firm no longer points at the replaced file, so it is now safe to
+      // take it off the disk.
+      final stale = _staleLogoPath;
+      _staleLogoPath = null;
+      if (stale != null) await _deleteLogoFile(stale);
       if (!mounted) return;
       messenger?.showSnackBar(const SnackBar(content: Text('Saved')));
       _dirty = false;
@@ -329,20 +375,11 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
           ),
         ],
       ),
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return Center(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: constraints.isCompact ? double.infinity : 760,
-                ),
-                child: _body(firmAsync),
-              ),
-            );
-          },
-        ),
-      ),
+      // Full width: the profile was centred in a 760px column, which left
+      // two-thirds of a desktop window as dead grey margin around a form the
+      // user is actively editing. The fields group themselves into two-up
+      // rows via _FieldRow, so the width is used, not stretched.
+      body: SafeArea(child: _body(firmAsync)),
         ),
       ),
     );
@@ -372,6 +409,8 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
           _invoiceSection(),
           const SizedBox(height: 20),
           _paymentSection(),
+          const SizedBox(height: 20),
+          _dangerSection(),
         ],
       ),
     );
@@ -396,7 +435,9 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
             ),
           ),
           clipBehavior: Clip.antiAlias,
-          child: path != null && File(path).existsSync()
+          // Reads the cached answer rather than stat-ing the disk: this widget is
+          // rebuilt on every keystroke of the numbering preview below.
+          child: path != null && _logoOnDisk
               ? Image.file(File(path), fit: BoxFit.contain)
               : Icon(Icons.image_outlined,
                   size: 22,
@@ -429,10 +470,18 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
                   ),
                   if (path != null)
                     TextButton.icon(
-                      onPressed: _saving ? null : () {
-                        _markDirty();
-                        setState(() => _logoPath = null);
-                      },
+                      onPressed: _saving
+                          ? null
+                          : () {
+                              _markDirty();
+                              // The file itself goes only once the save lands —
+                              // see [_staleLogoPath].
+                              setState(() {
+                                _staleLogoPath ??= _logoPath;
+                                _logoPath = null;
+                                _logoOnDisk = false;
+                              });
+                            },
                       icon: const Icon(Icons.delete_outline_rounded, size: 16),
                       label: const Text('Remove'),
                     ),
@@ -443,6 +492,44 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
         ),
       ],
     );
+  }
+
+  /// Resolves whether the current [_logoPath] is a file, off the build path.
+  ///
+  /// Called when the path changes, never while laying out — a synchronous stat
+  /// in `build` turned every keystroke anywhere on this screen into a disk
+  /// round trip on the UI isolate.
+  Future<void> _refreshLogoPresence() async {
+    final path = _logoPath;
+    if (path == null) {
+      if (mounted && _logoOnDisk) setState(() => _logoOnDisk = false);
+      return;
+    }
+    var exists = false;
+    try {
+      exists = await File(path).exists();
+    } on Object {
+      exists = false; // unreadable path: show the placeholder, not a crash
+    }
+    // A different path may have been chosen while the stat was in flight.
+    if (!mounted || _logoPath != path || _logoOnDisk == exists) return;
+    setState(() => _logoOnDisk = exists);
+  }
+
+  /// Deletes a logo file the firm no longer points at.
+  ///
+  /// Restricted to the app's own `logos` folder on purpose: `logoPath` can
+  /// arrive from a restored backup holding any path at all, and a stray delete
+  /// there would be the app eating the user's own files.
+  Future<void> _deleteLogoFile(String path) async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      if (!p.equals(p.dirname(path), p.join(dir.path, 'logos'))) return;
+      final file = File(path);
+      if (file.existsSync()) await file.delete();
+    } on Object {
+      // A leftover image is harmless; failing the save over it would not be.
+    }
   }
 
   Future<void> _pickLogo() async {
@@ -466,9 +553,21 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
       if (!logos.existsSync()) logos.createSync(recursive: true);
       final ext = (file.extension ?? 'png').toLowerCase();
       final dest = p.join(logos.path, 'firm_logo.$ext');
+      final previous = _logoPath;
       await File(file.path!).copy(dest);
       _markDirty();
-      setState(() => _logoPath = dest);
+      setState(() {
+        // A different extension means a different basename, and the old file
+        // would sit in the logos folder for ever with nothing pointing at it.
+        // Cleared on save, not here: if the user walks away, the firm still
+        // needs its existing logo.
+        if (previous != null && !p.equals(previous, dest)) {
+          _staleLogoPath = previous;
+        }
+        _logoPath = dest;
+        // Just copied, so no need to stat it.
+        _logoOnDisk = true;
+      });
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
@@ -504,7 +603,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
             textInputAction: TextInputAction.next,
             decoration: const InputDecoration(
               labelText: 'Business name *',
-              prefixIcon: Icon(Icons.storefront_outlined),
+              prefixIcon: AtriaFieldIcon(Icons.storefront_outlined),
             ),
             validator: Validators.name,
           ),
@@ -515,7 +614,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
             textInputAction: TextInputAction.next,
             decoration: const InputDecoration(
               labelText: 'Legal / registered name',
-              prefixIcon: Icon(Icons.badge_outlined),
+              prefixIcon: AtriaFieldIcon(Icons.badge_outlined),
             ),
           ),
           const SizedBox(height: 12),
@@ -533,7 +632,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
               decoration: const InputDecoration(
                 labelText: 'PAN',
                 hintText: 'ABCDE1234F',
-                prefixIcon: Icon(Icons.credit_card_outlined),
+                prefixIcon: AtriaFieldIcon(Icons.credit_card_outlined),
                 counterText: '',
               ),
               maxLength: 10,
@@ -548,7 +647,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
             textInputAction: TextInputAction.next,
             decoration: const InputDecoration(
               labelText: 'Address line 1',
-              prefixIcon: Icon(Icons.location_on_outlined),
+              prefixIcon: AtriaFieldIcon(Icons.location_on_outlined),
             ),
           ),
           const SizedBox(height: 12),
@@ -558,7 +657,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
             textInputAction: TextInputAction.next,
             decoration: const InputDecoration(
               labelText: 'Address line 2',
-              prefixIcon: Icon(Icons.signpost_outlined),
+              prefixIcon: AtriaFieldIcon(Icons.signpost_outlined),
             ),
           ),
           const SizedBox(height: 12),
@@ -569,7 +668,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
               textInputAction: TextInputAction.next,
               decoration: const InputDecoration(
                 labelText: 'City',
-                prefixIcon: Icon(Icons.location_city_outlined),
+                prefixIcon: AtriaFieldIcon(Icons.location_city_outlined),
               ),
             ),
             second: TextFormField(
@@ -582,7 +681,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
               ],
               decoration: const InputDecoration(
                 labelText: 'PIN code',
-                prefixIcon: Icon(Icons.markunread_mailbox_outlined),
+                prefixIcon: AtriaFieldIcon(Icons.markunread_mailbox_outlined),
                 counterText: '',
               ),
               maxLength: 6,
@@ -603,7 +702,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
                 labelText: 'Phone',
                 hintText: '9876543210',
                 prefixText: '+91 ',
-                prefixIcon: Icon(Icons.phone_outlined),
+                prefixIcon: AtriaFieldIcon(Icons.phone_outlined),
                 counterText: '',
               ),
               maxLength: 10,
@@ -616,7 +715,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
               decoration: const InputDecoration(
                 labelText: 'Email',
                 hintText: 'name@business.in',
-                prefixIcon: Icon(Icons.mail_outline_rounded),
+                prefixIcon: AtriaFieldIcon(Icons.mail_outline_rounded),
               ),
               validator: Validators.email,
             ),
@@ -669,16 +768,22 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<int>(
+            iconSize: AppIconSize.md,
             initialValue: _numberingStyle,
+            isExpanded: true,
             decoration: const InputDecoration(
               labelText: 'Numbering style',
-              prefixIcon: Icon(Icons.numbers_rounded),
+              prefixIcon: AtriaFieldIcon(Icons.numbers_rounded),
             ),
             items: [
               for (final style in NumberingStyle.values)
                 DropdownMenuItem<int>(
                   value: style.index,
-                  child: Text(style.label),
+                  child: Text(
+                    style.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
             ],
             onChanged: (value) {
@@ -688,10 +793,12 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<int>(
+            iconSize: AppIconSize.md,
             initialValue: _padding,
+            isExpanded: true,
             decoration: const InputDecoration(
               labelText: 'Sequence padding',
-              prefixIcon: Icon(Icons.format_list_numbered_rounded),
+              prefixIcon: AtriaFieldIcon(Icons.format_list_numbered_rounded),
               helperText: 'Zeroes added before the number',
             ),
             items: [
@@ -788,7 +895,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
             decoration: const InputDecoration(
               labelText: 'Authorised signatory',
               hintText: 'Name printed under the signature line',
-              prefixIcon: Icon(Icons.draw_outlined),
+              prefixIcon: AtriaFieldIcon(Icons.draw_outlined),
             ),
           ),
         ],
@@ -829,7 +936,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
             decoration: const InputDecoration(
               labelText: 'UPI ID',
               hintText: 'yourname@bank',
-              prefixIcon: Icon(Icons.qr_code_2_rounded),
+              prefixIcon: AtriaFieldIcon(Icons.qr_code_2_rounded),
             ),
           ),
           const SizedBox(height: 12),
@@ -839,7 +946,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
             textInputAction: TextInputAction.next,
             decoration: const InputDecoration(
               labelText: 'Bank name',
-              prefixIcon: Icon(Icons.account_balance_outlined),
+              prefixIcon: AtriaFieldIcon(Icons.account_balance_outlined),
             ),
           ),
           const SizedBox(height: 12),
@@ -850,7 +957,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
               textInputAction: TextInputAction.next,
               decoration: const InputDecoration(
                 labelText: 'Account holder name',
-                prefixIcon: Icon(Icons.person_outline_rounded),
+                prefixIcon: AtriaFieldIcon(Icons.person_outline_rounded),
               ),
             ),
             second: TextFormField(
@@ -860,7 +967,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               decoration: const InputDecoration(
                 labelText: 'Account number',
-                prefixIcon: Icon(Icons.credit_card_outlined),
+                prefixIcon: AtriaFieldIcon(Icons.credit_card_outlined),
               ),
             ),
           ),
@@ -877,7 +984,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
               decoration: const InputDecoration(
                 labelText: 'IFSC code',
                 hintText: 'SBIN0001234',
-                prefixIcon: Icon(Icons.code_rounded),
+                prefixIcon: AtriaFieldIcon(Icons.code_rounded),
                 counterText: '',
               ),
               maxLength: 11,
@@ -889,13 +996,348 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
               textInputAction: TextInputAction.done,
               decoration: const InputDecoration(
                 labelText: 'Branch',
-                prefixIcon: Icon(Icons.store_mall_directory_outlined),
+                prefixIcon: AtriaFieldIcon(Icons.store_mall_directory_outlined),
               ),
             ),
           ),
         ],
       ),
     );
+  }
+
+  // ---- Danger zone -------------------------------------------------------
+
+  Widget _dangerSection() {
+    final scheme = Theme.of(context).colorScheme;
+    return _sectionCard(
+      title: 'Danger zone',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              PhosphorIcon(
+                PhosphorIconsRegular.warningOctagon,
+                size: AppIconSize.md,
+                color: scheme.error,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Removing this business deletes its invoices, purchases, '
+                  'payments, expenses, parties and items. There is no recycle '
+                  'bin behind this, on the device or on the server.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        height: 1.5,
+                      ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed:
+                  (_removing || _firm == null || _saving) ? null : _removeBusiness,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: scheme.error,
+                side: BorderSide(color: scheme.error.withValues(alpha: 0.5)),
+              ),
+              icon: _removing
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.delete_forever_outlined,
+                      size: AppIconSize.md),
+              label: Text(_removing ? 'Removing…' : 'Remove this business'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Asks where the removal should stop, then whether the person meant it, then
+  /// does it.
+  ///
+  /// Two questions rather than one because they are genuinely different: the
+  /// first is *how far* the business should stop existing, the second is
+  /// whether this was deliberate. Neither is a good place to infer the other.
+  Future<void> _removeBusiness() async {
+    final firm = _firm;
+    if (firm == null) return;
+
+    // Read the session up front so the sheet can say *why* the server option
+    // is unavailable, instead of offering it and failing afterwards.
+    final account = await _signedInLabel();
+    if (!mounted) return;
+
+    final eraseRemote = await _askRemovalScope(
+      firmName: firm.name,
+      account: account,
+    );
+    // null means the sheet was dismissed. Dismissing is not consent to delete
+    // anything, and must not be read as "local only".
+    if (eraseRemote == null || !mounted) return;
+
+    final confirmed = await _confirmRemoval(firm, eraseRemote: eraseRemote);
+    if (confirmed != true || !mounted) return;
+
+    await _performRemoval(firm, eraseRemote: eraseRemote);
+  }
+
+  /// "Only on this device" or "here and on the server".
+  Future<bool?> _askRemovalScope({
+    required String firmName,
+    required String? account,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final text = Theme.of(sheetContext).textTheme;
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+                child: Text(
+                  'Remove "$firmName"',
+                  style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: Text(
+                  'Choose how far the removal should go.',
+                  style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                ),
+              ),
+              ListTile(
+                leading: PhosphorIcon(
+                  PhosphorIconsRegular.laptop,
+                  color: scheme.primary,
+                ),
+                title: const Text('Only on this device'),
+                subtitle: const Text(
+                  'The books disappear from here. Anything already synced to '
+                  'Atria stays on the server, and comes back if you sign this '
+                  'account in again.',
+                ),
+                onTap: () => Navigator.of(sheetContext).pop(false),
+              ),
+              ListTile(
+                enabled: account != null,
+                leading: PhosphorIcon(
+                  PhosphorIconsRegular.cloudSlash,
+                  color: account != null
+                      ? scheme.error
+                      : scheme.onSurfaceVariant,
+                ),
+                title: const Text('Here and on the Atria server'),
+                subtitle: Text(
+                  account == null
+                      ? 'Sign in to Atria on this device first: without a '
+                          'session the server has no way to know this is your '
+                          'business.'
+                      : 'Erases it from $account and from every other device '
+                          'signed in to it, permanently.',
+                ),
+                onTap: account == null
+                    ? null
+                    : () => Navigator.of(sheetContext).pop(true),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// Types-the-name confirmation. Stronger than the recycle bin's "PURGE"
+  /// because the blast radius is a whole set of books, not one document.
+  Future<bool?> _confirmRemoval(
+    FirmEntity firm, {
+    required bool eraseRemote,
+  }) {
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        var typed = '';
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) => AlertDialog(
+            title: Text('Remove "${firm.name}" for good?'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  eraseRemote
+                      ? 'Every invoice, purchase, payment, expense, party and '
+                          'item in this business will be destroyed on this '
+                          'device and erased from Atria\'s servers. This cannot '
+                          'be undone, and no backup is taken for you.'
+                      : 'Every invoice, purchase, payment, expense, party and '
+                          'item in this business will be destroyed on this '
+                          'device. This cannot be undone, and no backup is '
+                          'taken for you.',
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Type ${firm.name} to confirm.',
+                  style: Theme.of(dialogContext).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 6),
+                TextField(
+                  autofocus: true,
+                  onChanged: (value) =>
+                      setDialogState(() => typed = value.trim()),
+                  decoration: InputDecoration(hintText: firm.name),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton.tonal(
+                style: FilledButton.styleFrom(
+                  foregroundColor: Theme.of(dialogContext).colorScheme.error,
+                ),
+                onPressed: typed == firm.name
+                    ? () => Navigator.of(dialogContext).pop(true)
+                    : null,
+                child: const Text('Remove forever'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _performRemoval(
+    FirmEntity firm, {
+    required bool eraseRemote,
+  }) async {
+    setState(() => _removing = true);
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final db = ref.read(appDatabaseProvider);
+    try {
+      // Server first, deliberately. The dialog said the business would be
+      // erased there, so deleting locally first and then failing to reach the
+      // server would leave a device claiming a deletion that did not happen.
+      // Failing before anything is touched is the one outcome the person can
+      // act on.
+      if (eraseRemote) {
+        // Through the auth controller, not the settings row: an access token
+        // that has merely expired is renewed here, so "signed in yesterday"
+        // does not read as "signed out" in the one flow that must not.
+        //
+        // `resolveAccessToken` rather than `accessToken`, because a null token
+        // means two different things here. Being offline used to produce "this
+        // device is no longer signed in to Atria, so nothing was removed" —
+        // which blames the account for a network problem and is thrown BEFORE
+        // the local purge runs, so a shop that merely lost signal could not
+        // delete its own business from the device.
+        final session = await ref
+            .read(authControllerProvider.notifier)
+            .resolveAccessToken();
+        final accessToken = session.accessToken;
+        if (accessToken == null) {
+          if (session.temporarilyUnavailable) {
+            throw const ServerRequestException(
+              'Could not reach Atria, so nothing was removed from the server '
+              'or from this device. Check your connection and try again — the '
+              'business was left untouched.',
+              signedOut: false,
+            );
+          }
+          throw const ServerRequestException(
+            'This device is no longer signed in to Atria, so nothing was '
+            'removed from the server or from this device.',
+            signedOut: true,
+          );
+        }
+        await ref.read(serverClientProvider).eraseFirm(
+              firmId: firm.id,
+              accessToken: accessToken,
+            );
+      }
+
+      await db.firmRepository.purge(firm.id);
+      await _repointActiveFirm(db, firm.id);
+
+      if (!mounted) return;
+      // Cleared before navigating, or the UnsavedGuard around this form would
+      // still consider the (now deleted) business as having unsaved edits.
+      _dirty = false;
+      messenger?.showSnackBar(SnackBar(
+        content: Text(eraseRemote
+            ? '"${firm.name}" was removed from this device and from Atria'
+            : '"${firm.name}" was removed from this device'),
+      ));
+      context.go('/dashboard');
+    } catch (error) {
+      messenger?.showSnackBar(
+        SnackBar(content: Text('Could not remove the business: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _removing = false);
+    }
+  }
+
+  /// The signed-in address, or null when this device has no usable session.
+  ///
+  /// A renewal is attempted first, because the removal sheet's whole point is
+  /// to tell the user which account the server-side erase would apply to, and
+  /// an expired access token does not change that answer.
+  Future<String?> _signedInLabel() async {
+    final controller = ref.read(authControllerProvider.notifier);
+    // `needsSignIn` rather than "the token was null": a session that merely
+    // could not be renewed is still signed in, and this label decides whether
+    // the server-side erase option is offered. Collapsing the two made the
+    // option grey out on a train, and told the person to sign in when they
+    // already had.
+    final session = await controller.resolveAccessToken();
+    if (session.needsSignIn) return null;
+    final email = ref.read(authControllerProvider).email;
+    return email.trim().isEmpty ? 'your Atria account' : email;
+  }
+
+  /// Moves the app off the business that was just removed.
+  ///
+  /// Through [ActiveFirmController.clear] rather than `select(null)` when
+  /// nothing is left, because select deliberately does not persist a null: the
+  /// removed id would stay in settings and the next launch would try to open
+  /// books that no longer exist. With nothing left, the router's redirect then
+  /// sends the user to firm setup on its own.
+  Future<void> _repointActiveFirm(AppDatabase db, String removedId) async {
+    final remaining = await db.firmRepository.all();
+    if (remaining.isEmpty) {
+      await ref.read(activeFirmIdProvider.notifier).clear();
+      return;
+    }
+    // Keep the existing default if there is one, so "which business opens on
+    // launch" does not silently change just because this one was deleted.
+    final next = remaining.firstWhere(
+      (firm) => firm.isDefault,
+      orElse: () => remaining.first,
+    );
+    await ref.read(activeFirmIdProvider.notifier).select(next.id);
+    if (!next.isDefault) {
+      await db.firmRepository.setDefault(next.id);
+    }
   }
 
   // ---- Fields ------------------------------------------------------------
@@ -923,13 +1365,21 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
           decoration: InputDecoration(
             labelText: 'GSTIN',
             hintText: '29ABCDE1234F1Z5',
-            prefixIcon: const Icon(Icons.receipt_long_outlined),
+            prefixIcon: const AtriaFieldIcon(Icons.receipt_long_outlined),
             counterText: '',
             suffixIcon: value.isEmpty
                 ? null
                 : valid
-                    ? Icon(Icons.verified_rounded, color: colors.positive)
-                    : Icon(Icons.error_outline_rounded, color: scheme.error),
+                    ? Icon(
+                        Icons.verified_rounded,
+                        size: AppIconSize.md,
+                        color: colors.positive,
+                      )
+                    : Icon(
+                        Icons.error_outline_rounded,
+                        size: AppIconSize.md,
+                        color: scheme.error,
+                      ),
           ),
         );
       },
@@ -938,11 +1388,18 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
 
   Widget _stateField() {
     return DropdownButtonFormField<String?>(
+      iconSize: AppIconSize.md,
       initialValue: _stateCode,
+      // A DropdownButton sizes itself to its WIDEST item, so with the full
+      // '29 — Karnataka' list this field asked for 330px inside a 249px slot
+      // and painted the "BOTTOM OVERFLOWED / RIGHT OVERFLOWED" stripes over the
+      // Business details card. `isExpanded` makes the field take the width it
+      // is given and the long names ellipsis inside it.
+      isExpanded: true,
       decoration: const InputDecoration(
         labelText: 'State',
         hintText: 'Select state',
-        prefixIcon: Icon(Icons.map_outlined),
+        prefixIcon: AtriaFieldIcon(Icons.map_outlined),
       ),
       items: [
         for (final state in IndianStates.all)
@@ -950,6 +1407,8 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
             value: state.code,
             child: Text(
               '${state.code} — ${state.name}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 fontFeatures: [FontFeature.tabularFigures()],
               ),
@@ -978,6 +1437,9 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
       ],
       // Rebuild per keystroke so the "Next invoice number" preview tracks
       // the prefix being typed (it used to show the stale stored prefix).
+      // This is a plain rebuild — nothing on this path touches the disk any
+      // more, which is why the logo's existence check is cached rather than
+      // stat-ed here.
       onChanged: (_) {
         _markDirty();
         setState(() {});
@@ -985,7 +1447,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
-        prefixIcon: const Icon(Icons.tag_rounded),
+        prefixIcon: const AtriaFieldIcon(Icons.tag_rounded),
         counterText: '',
       ),
       maxLength: 10,

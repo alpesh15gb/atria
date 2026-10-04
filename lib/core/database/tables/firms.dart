@@ -30,6 +30,7 @@ class Firms extends Table {
   TextColumn get creditNotePrefix => text().withDefault(const Constant('CN'))();
   TextColumn get debitNotePrefix => text().withDefault(const Constant('DN'))();
   TextColumn get deliveryNotePrefix => text().withDefault(const Constant('CH'))();
+  TextColumn get purchaseOrderPrefix => text().withDefault(const Constant('PO'))();
   IntColumn get numberingStyle => integer().withDefault(const Constant(1))();
   IntColumn get invoiceSequencePadding => integer().withDefault(const Constant(3))();
   /// Financial year the sequences are currently counting in, as the April
@@ -47,6 +48,7 @@ class Firms extends Table {
   IntColumn get creditNoteSequence => integer().withDefault(const Constant(0))();
   IntColumn get debitNoteSequence => integer().withDefault(const Constant(0))();
   IntColumn get deliveryNoteSequence => integer().withDefault(const Constant(0))();
+  IntColumn get purchaseOrderSequence => integer().withDefault(const Constant(0))();
   TextColumn get invoiceTerms => text().nullable()();
   TextColumn get invoiceNotes => text().nullable()();
   TextColumn get signatureName => text().nullable()();

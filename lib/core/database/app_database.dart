@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'tables/firms.dart';
 import 'tables/items.dart';
+import 'tables/ledger.dart';
 import 'tables/parties.dart';
 import 'tables/purchases.dart';
 import 'tables/sales_invoices.dart';
@@ -37,6 +38,9 @@ part 'app_database.g.dart';
     AppSettings,
     SyncQueue,
     AuditLogs,
+    Accounts,
+    JournalEntries,
+    JournalLines,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -44,11 +48,26 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.test(super.e);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onUpgrade: (m, from, to) async {
+          // drift has no `onDowngrade`: its MigrationStrategy doc says
+          // "Schema version upgrades and downgrades will both be run here", so
+          // a downgrade arrives with `from > to` and every `from < N` step below
+          // is simply skipped — which leaves the build opening a file newer
+          // than the code understands, failing later in whichever screen
+          // happened to touch an added column first, with an error the person
+          // cannot act on. Refusing here keeps the books intact and says what
+          // to do about it.
+          if (from > to) {
+            throw StateError(
+              'This database was created by a newer version of Atria '
+              '(schema v$from, this build understands v$to). Put the newer '
+              'version back, or restore a backup taken with this version.',
+            );
+          }
           // v2: recycle-bin soft-delete columns + document series for the
           // returns suite (credit/debit/delivery notes). All additive with
           // defaults, so existing rows migrate in place.
@@ -92,6 +111,42 @@ class AppDatabase extends _$AppDatabase {
             await m.createIndex(idxMovementsFirmDate);
             await m.createIndex(idxMovementsItem);
             await m.createIndex(idxMovementsSource);
+          }
+          // v5: the purchase-order series (Vyapar imports land POs as
+          // documents; the app previously had no series to number new ones).
+          // Additive with defaults, so existing rows migrate in place.
+          if (from < 5) {
+            await m.addColumn(firms, firms.purchaseOrderPrefix);
+            await m.addColumn(firms, firms.purchaseOrderSequence);
+          }
+          // v6: tax deducted/collected at source, and the cheque lifecycle.
+          // All additive with defaults, so existing rows migrate in place. Note
+          // what is *not* here: no stored amount is recomputed. A document
+          // issued before this version keeps the totals it was issued with, and
+          // the new columns only describe documents saved from now on.
+          if (from < 6) {
+            await m.addColumn(salesInvoices, salesInvoices.tcsRate);
+            await m.addColumn(purchaseBills, purchaseBills.tdsRate);
+            await m.addColumn(payments, payments.chequeStatus);
+            await m.addColumn(payments, payments.depositedAt);
+            await m.addColumn(payments, payments.bouncedAt);
+            await m.addColumn(payments, payments.bounceReason);
+          }
+          // v7: the chart of accounts and journal vouchers. New tables only,
+          // so an upgraded database keeps every existing row and picks up its
+          // chart the first time the ledger is opened (LedgerRepository
+          // .ensureChart seeds it on demand rather than in the migration, so a
+          // firm created later gets one too).
+          if (from < 7) {
+            await m.createTable(accounts);
+            await m.createTable(journalEntries);
+            await m.createTable(journalLines);
+            await m.createIndex(uqAccountsCode);
+            await m.createIndex(idxAccountsFirmType);
+            await m.createIndex(uqJournalNumber);
+            await m.createIndex(idxJournalFirmDate);
+            await m.createIndex(idxJournalLinesEntry);
+            await m.createIndex(idxJournalLinesAccount);
           }
         },
       );

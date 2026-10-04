@@ -14,6 +14,7 @@ import 'auth_controller.dart';
 import '../database/app_database.dart';
 import '../database/repositories/audit_repository.dart';
 import '../database/repositories/firm_repository.dart';
+import '../database/repositories/ledger_repository.dart';
 import '../database/repositories/repository_extensions.dart';
 import '../database/repositories/settings_repository.dart';
 import '../printer/printer_service.dart';
@@ -77,28 +78,80 @@ final Provider<SyncEngine> syncEngineProvider = Provider((ref) {
   );
 });
 
+/// Fires whenever any stock movement is written in the active firm.
+///
+/// Screens that show cached balances (`currentStock`) stay mounted under the
+/// nav shell's IndexedStack and so never rebuild when a sale or a purchase
+/// elsewhere changes them. Watching this re-runs them. Kept in [providers.dart]
+/// because two screens need the same signal and it must be one instance for the
+/// caching to be shared.
+final itemMovementSignalProvider = StreamProvider<void>((ref) async* {
+  final firmId = ref.watch(activeFirmIdProvider);
+  final db = ref.watch(appDatabaseProvider);
+  if (firmId == null) return;
+  final repo = db.itemRepositoryFor(firmId);
+  // The rows are discarded: only the emission matters.
+  yield* repo.watchAllMovements().map((_) {});
+});
+
 /// How many changes are waiting, and when the outbox last drained.
 ///
-/// A FutureProvider rather than a stream. The outbox is written on every save,
-/// so a `watch()` here would rebuild the settings screen on every document a
-/// shop creates, for a number that only changes what the screen says after a
-/// sync — which invalidates this provider deliberately instead.
-final syncStatusProvider = FutureProvider<SyncStatus>((ref) async {
+/// The outbox grows on every save, so this is a stream over the outbox itself
+/// rather than a one-off read. Settings is a nav-shell branch and stays mounted
+/// offstage, so a cached read would keep showing "nothing is waiting" while the
+/// shop bills on another tab — a number that is wrong in exactly the way that
+/// matters, since it is the one that tells you whether the books are safe.
+///
+/// The raw outbox stream emits once per write, which would rebuild the settings
+/// screen once per document; the burst is collapsed in [_coalesceOutboxChanges]
+/// instead.
+final syncStatusProvider = StreamProvider<SyncStatus>((ref) async* {
   final engine = ref.read(syncEngineProvider);
   final settings = ref.read(settingsRepositoryProvider);
-  // Both stamps are kept: a push can succeed while the pull failed (the
-  // directions are independent), and "last synced" should only claim a full
-  // round trip when both directions completed.
-  final rawPushed = await settings.get(SettingsRepository.kSyncLastPushedAt);
-  final rawSynced = await settings.get(SettingsRepository.kSyncLastSyncedAt);
-  return SyncStatus(
-    pending: await engine.pendingCount(),
-    lastPushedAt:
-        rawPushed == null ? null : DateTime.tryParse(rawPushed)?.toLocal(),
-    lastSyncedAt:
-        rawSynced == null ? null : DateTime.tryParse(rawSynced)?.toLocal(),
-  );
+  yield* _coalesceOutboxChanges(engine.watchPendingCount())
+      .asyncMap((_) async {
+    // Both stamps are kept: a push can succeed while the pull failed (the
+    // directions are independent), and "last synced" should only claim a full
+    // round trip when both directions completed.
+    final rawPushed = await settings.get(SettingsRepository.kSyncLastPushedAt);
+    final rawSynced = await settings.get(SettingsRepository.kSyncLastSyncedAt);
+    return SyncStatus(
+      pending: await engine.pendingCount(),
+      lastPushedAt:
+          rawPushed == null ? null : DateTime.tryParse(rawPushed)?.toLocal(),
+      lastSyncedAt:
+          rawSynced == null ? null : DateTime.tryParse(rawSynced)?.toLocal(),
+    );
+  });
 });
+
+/// Passes the first outbox event through at once, then only after [quiet] has
+/// passed without another, so a shop billing fifty invoices in a row produces
+/// one re-read at the end of the burst rather than fifty.
+Stream<void> _coalesceOutboxChanges(Stream<int> pending,
+    {Duration quiet = const Duration(seconds: 1)}) {
+  final controller = StreamController<void>.broadcast();
+  Timer? timer;
+  var first = true;
+  StreamSubscription<int>? subscription;
+  controller.onListen = () {
+    subscription = pending.listen((_) {
+      if (first) {
+        // The current count matters immediately; later ones can wait for quiet.
+        first = false;
+        controller.add(null);
+        return;
+      }
+      timer?.cancel();
+      timer = Timer(quiet, () => controller.add(null));
+    });
+  };
+  controller.onCancel = () {
+    timer?.cancel();
+    subscription?.cancel();
+  };
+  return controller.stream;
+}
 
 /// What the settings screen shows about sync.
 class SyncStatus {
@@ -162,11 +215,13 @@ class ActiveFirmController extends StateNotifier<String?> {
         final exists = await _firmRepo.getById(stored);
         if (exists != null) {
           state = stored;
+          _watchFirmExistence(stored);
           return;
         }
       }
       final def = await _firmRepo.defaultFirm;
       state = def?.id;
+      if (def != null) _watchFirmExistence(def.id);
     } catch (error, stack) {
       initError = error;
       _ready.completeError(error, stack);
@@ -178,10 +233,52 @@ class ActiveFirmController extends StateNotifier<String?> {
     }
   }
 
+  StreamSubscription<FirmEntity?>? _existenceWatch;
+
+  /// Repoints the active firm when its row disappears from underneath it.
+  ///
+  /// The local deletion path does this itself (`_repointActiveFirm` in the firm
+  /// settings screen). The sync pull does not: a firm erased on another device
+  /// arrives as a tombstone, [PullApplier] hard-deletes the row, and nothing
+  /// clears the id — so this device keeps showing a phantom, zeroed business
+  /// (every firm-scoped repository is non-null while the id is set) and the
+  /// switcher stops listing it, with no way back but a relaunch. Rather than
+  /// push Riverpod into the applier, the controller heals itself: it watches the
+  /// row it selected and, when it goes, applies the same policy as the local
+  /// path.
+  void _watchFirmExistence(String firmId) {
+    _existenceWatch?.cancel();
+    _existenceWatch = _firmRepo.watchById(firmId).listen((firm) async {
+      if (firm != null) return;
+      final remaining = await _firmRepo.all();
+      if (remaining.isEmpty) {
+        await clear();
+        return;
+      }
+      // Keep the existing default if there is one, so "which business opens on
+      // launch" does not silently change just because this one was deleted.
+      final next = remaining.firstWhere(
+        (firm) => firm.isDefault,
+        orElse: () => remaining.first,
+      );
+      await select(next.id);
+      if (!next.isDefault) {
+        await _firmRepo.setDefault(next.id);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _existenceWatch?.cancel();
+    super.dispose();
+  }
+
   Future<void> select(String? firmId) async {
     state = firmId;
     if (firmId != null) {
       await _settings.set(SettingsRepository.kActiveFirmId, firmId);
+      _watchFirmExistence(firmId);
     }
   }
 
@@ -302,6 +399,53 @@ final journalsProvider = StreamProvider<List<JournalEntryEntity>>((ref) {
   final repo = ref.watch(ledgerRepositoryProvider);
   if (repo == null) return const Stream.empty();
   return repo.watchJournals(includeDeleted: true);
+});
+
+/// Cash in hand, bank balances and cheques in hand — the Payments screen's
+/// three cards, read from the ledger rather than re-derived from payments.
+class CashBankBalances {
+  const CashBankBalances({
+    this.cash = 0,
+    this.bank = 0,
+    this.cheques = 0,
+  });
+
+  final double cash;
+  final double bank;
+  final double cheques;
+}
+
+/// Cash in hand, bank balances and uncleared cheques, read from the books.
+///
+/// The Payments screen's cards and the ledger's Cash/Bank accounts are the
+/// same figures under the same names, so they have to come from the same
+/// place. Summing the payment rows alone disagrees with the books by every
+/// amount that left the till another way — a cash expense, an income receipt,
+/// a hand-keyed voucher — and the two would drift apart forever after.
+final cashBankBalancesProvider =
+    StreamProvider.autoDispose<CashBankBalances>((ref) async* {
+  final repo = ref.watch(ledgerRepositoryProvider);
+  if (repo == null) {
+    yield const CashBankBalances();
+    return;
+  }
+  // Re-derive whenever any table the books are built from moves — a payment,
+  // but also a cash expense or a journal voucher, all of which post to cash.
+  await for (final _ in repo.watchBookMovement()) {
+    final tb = await repo.trialBalance(asOf: DateTime.now());
+    double closingOf(String code) {
+      for (final row in tb.rows) {
+        if (row.account.code == code) return row.closing;
+      }
+      return 0;
+    }
+
+    yield CashBankBalances(
+      cash: closingOf(LedgerCodes.cash),
+      bank: closingOf(LedgerCodes.bank),
+      cheques: closingOf(LedgerCodes.chequesInHand),
+    );
+  }
 });
 
 // ---- Appearance ----

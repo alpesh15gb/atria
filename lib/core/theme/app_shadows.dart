@@ -2,50 +2,54 @@ import 'package:flutter/material.dart';
 
 import 'app_colors.dart';
 
-/// Soft, diffused elevation — 2026 refresh. Shadows are violet-tinted and
-/// larger-blurred so cards float instead of sitting in outlines.
+/// Elevation — QuickBooks parity.
+///
+/// QBO separates surfaces with a hairline border first and a barely-there
+/// shadow second, so cards read as panels of one sheet rather than floating
+/// tiles. The tokens stay in place so existing call sites keep working; they
+/// are simply much quieter, and neutral-tinted instead of brand-tinted.
 class AppShadows {
   AppShadows._();
 
   static List<BoxShadow> get card => [
         BoxShadow(
-          color: AppColors.primaryDeep.withValues(alpha: 0.05),
-          blurRadius: 18,
-          offset: const Offset(0, 6),
-        ),
-        BoxShadow(
-          color: AppColors.primaryDeep.withValues(alpha: 0.03),
-          blurRadius: 4,
+          color: Colors.black.withValues(alpha: 0.04),
+          blurRadius: 2,
           offset: const Offset(0, 1),
         ),
       ];
 
   static List<BoxShadow> get cardHigh => [
         BoxShadow(
-          color: AppColors.primaryDeep.withValues(alpha: 0.10),
-          blurRadius: 32,
-          offset: const Offset(0, 14),
-        ),
-        BoxShadow(
-          color: AppColors.primaryDeep.withValues(alpha: 0.05),
-          blurRadius: 8,
-          offset: const Offset(0, 4),
+          color: Colors.black.withValues(alpha: 0.10),
+          blurRadius: 14,
+          offset: const Offset(0, 6),
         ),
       ];
 
   static List<BoxShadow> get floating => [
         BoxShadow(
-          color: AppColors.primary.withValues(alpha: 0.35),
-          blurRadius: 36,
-          offset: const Offset(0, 16),
+          color: Colors.black.withValues(alpha: 0.18),
+          blurRadius: 12,
+          offset: const Offset(0, 4),
         ),
       ];
 
   static List<BoxShadow> get darkCard => [
         BoxShadow(
-          color: Colors.black.withValues(alpha: 0.4),
-          blurRadius: 20,
-          offset: const Offset(0, 8),
+          color: Colors.black.withValues(alpha: 0.5),
+          blurRadius: 6,
+          offset: const Offset(0, 2),
+        ),
+      ];
+
+  /// The one deliberately heavy shadow: the rail's "Create" button, which
+  /// QBO treats as the page's loudest element.
+  static List<BoxShadow> get brandCta => [
+        BoxShadow(
+          color: AppColors.primary.withValues(alpha: 0.28),
+          blurRadius: 18,
+          offset: const Offset(0, 6),
         ),
       ];
 }

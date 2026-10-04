@@ -93,6 +93,17 @@ class ItemRepository with SyncQueueMixin {
     return query.watchSingleOrNull();
   }
 
+  /// Live items, name-ordered, re-emitted on any write.
+  ///
+  /// [search] runs in SQL across name, SKU, HSN and barcode, so it is not
+  /// capped: a caller that filters the in-memory result set of a capped query
+  /// (the Items list used to) can neither show nor find anything past row 1000,
+  /// while its search box still promises "name, SKU, HSN or barcode".
+  ///
+  /// Pass `limit: 0` for no cap at all, which is what the Items list does; the
+  /// default stays 1000 for callers that only need a plausible page. A cap a
+  /// caller cannot see is a data-loss bug, so removing one is the caller's
+  /// decision rather than a change to this default.
   Future<List<ItemEntity>> all({
     String search = '',
     String? categoryId,
@@ -112,14 +123,14 @@ class ItemRepository with SyncQueueMixin {
     if (categoryId != null) {
       query.where((t) => t.categoryId.equals(categoryId));
     }
-    query.limit(limit);
+    if (limit > 0) query.limit(limit);
     return query.get();
   }
 
   Stream<List<ItemEntity>> watchAll({String search = '', int limit = 1000}) {
-    // Capped (was unbounded): a decade of catalogue entries on one screen
-    // rebuilds the whole grid on every keystroke. The search narrows long
-    // lists well before 1000.
+    // Capped by default (was unbounded): a decade of catalogue entries on one
+    // screen rebuilds the whole grid on every keystroke. `limit: 0` opts out —
+    // see [all].
     final query = db.select(db.items)
       ..where((t) => t.firmId.equals(firmId) & t.isDeleted.equals(false))
       ..orderBy([(t) => OrderingTerm(expression: t.name)]);
@@ -127,7 +138,10 @@ class ItemRepository with SyncQueueMixin {
     if (search.trim().isNotEmpty) {
       final s = '%${search.trim().toLowerCase()}%';
       query.where((t) =>
-          t.name.lower().like(s) | t.sku.lower().like(s) | t.hsn.lower().like(s));
+          t.name.lower().like(s) |
+          t.sku.lower().like(s) |
+          t.hsn.lower().like(s) |
+          t.barcode.lower().like(s));
     }
     return query.watch();
   }
@@ -207,6 +221,14 @@ class ItemRepository with SyncQueueMixin {
   // ---- Stock ledger ----
 
   Future<void> _recordMovement(StockMovementInput input) async {
+    // The three writes below (insert the movement, enqueue it, rewrite
+    // currentStock) MUST be atomic together: `currentStock` is a cached
+    // balance derived from the movement log, so an error or an app kill between
+    // the insert and the update leaves the two permanently disagreeing and the
+    // stock ledger — the table of record — contradicting every count. Nothing
+    // in here opens a transaction of its own, so callers that are not already
+    // inside one (the stock-adjustment screen) must wrap this call; see
+    // [applyStockEffect].
     final item = await getById(input.itemId);
     if (item == null) {
       // A missing item row must never pass silently: the stock ledger would
@@ -249,7 +271,13 @@ class ItemRepository with SyncQueueMixin {
         );
   }
 
-  /// Applies a stock effect for a document. Call within a transaction.
+  /// Applies a stock effect for a document.
+  ///
+  /// Call within a transaction. This deliberately does NOT open one — the
+  /// document repositories already hold one, and nesting would need drift's
+  /// `TransactionExecutor` — but the movement insert and the `currentStock`
+  /// update inside are two separate writes, so a caller outside a transaction
+  /// (the stock-adjustment screen) must supply one itself.
   Future<void> applyStockEffect({
     required String itemId,
     required double quantity, // signed: negative for sales
@@ -281,6 +309,20 @@ class ItemRepository with SyncQueueMixin {
     return query.watch();
   }
 
+  /// Every movement in the firm, watched.
+  ///
+  /// Not for display — this is a change signal. `currentStock` is a cached
+  /// balance that every movement rewrites, so a screen that wants fresh totals
+  /// watches this and re-reads rather than polling or waiting for a tab
+  /// rebuild that the nav shell's IndexedStack never sends.
+  Stream<List<StockMovementEntity>> watchAllMovements({int limit = 1}) {
+    final query = db.select(db.stockMovements)
+      ..where((t) => t.firmId.equals(firmId))
+      ..orderBy([(t) => OrderingTerm.desc(t.date)])
+      ..limit(limit);
+    return query.watch();
+  }
+
   Future<List<StockMovementEntity>> movements(String itemId,
       {int limit = 500}) async {
     final query = db.select(db.stockMovements)
@@ -295,7 +337,10 @@ class ItemRepository with SyncQueueMixin {
     final items = await all();
     double total = 0;
     for (final i in items) {
-      if (i.stockType != 'tracked') continue;
+      // A service carries no physical stock, so a service left 'tracked' would
+      // sit here holding a frozen opening balance forever — the same test the
+      // movement writer uses to decide it isn't counted.
+      if (i.isService || i.stockType != 'tracked') continue;
       total += i.currentStock * (atSale ? i.salePrice : i.purchasePrice);
     }
     return total;
@@ -306,6 +351,7 @@ class ItemRepository with SyncQueueMixin {
       ..where((t) =>
           t.firmId.equals(firmId) &
           t.isDeleted.equals(false) &
+          t.isService.equals(false) &
           t.stockType.equals('tracked') &
           t.lowStockAlert.isBiggerThanValue(0) &
           t.currentStock.isSmallerOrEqual(t.lowStockAlert))

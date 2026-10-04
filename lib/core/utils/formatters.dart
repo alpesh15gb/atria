@@ -66,16 +66,16 @@ class Formatters {
     final abs = value < Decimal.zero ? -value : value;
     final crore = _div(abs, 10000000);
     final lakh = _div(abs, 100000);
-    final thousand = _div(abs, 1000);
 
     String compact;
     if (crore >= Decimal.one) {
       compact = '${_trim(crore)} Cr';
     } else if (lakh >= Decimal.one) {
       compact = '${_trim(lakh)} L';
-    } else if (thousand >= Decimal.one) {
-      compact = '${_trim(thousand)} K';
     } else {
+      // Below a lakh there is no Indian compact unit — "K" is not used here,
+      // and rounding 12,345 up to "12.35 K" both loses the exact figure and
+      // reads as a percentage to many shopkeepers. Show the grouped number.
       compact = indianGroup(abs.round(scale: 0).toStringAsFixed(0));
     }
     return value < Decimal.zero ? '-$symbol$compact' : '$symbol$compact';
@@ -121,6 +121,19 @@ class Formatters {
   }
 
   /// Percentage with up to 2dp.
+  /// A rate as a *field* value, for prefilling an input rather than for
+  /// display: no percent sign, and trailing zeros trimmed so "0.10" comes back
+  /// as "0.1". A non-positive or non-finite rate is "0", never "NaN%" or an
+  /// empty box the user has to guess at.
+  static String rateInput(double value) {
+    if (!value.isFinite || value <= 0) return '0';
+    var s = value.toStringAsFixed(3);
+    if (s.contains('.')) {
+      s = s.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
+    }
+    return s;
+  }
+
   static String percent(num value, {int decimals = 2}) {
     var s = value.toStringAsFixed(decimals);
     if (s.contains('.')) {
@@ -157,6 +170,37 @@ class Formatters {
     if (diff.inDays < 30) return '${diff.inDays} days ago';
     return date(value);
   }
+
+  /// Pluralises a singular noun.
+  ///
+  /// Only the two rules the app's nouns need: a consonant before a final `y`
+  /// takes `ies` (`party` -> `parties`, `category` -> `categories`) and a
+  /// sibilant ending takes `es` (`class`, `match`, `box`). Appending a bare `s`
+  /// is what put "6 partys" on the party list.
+  static String pluralise(String singular, {String? plural}) {
+    if (plural != null) return plural;
+    final lower = singular.toLowerCase();
+    if (lower.endsWith('y') &&
+        singular.length > 1 &&
+        !'aeiou'.contains(lower[lower.length - 2])) {
+      return '${singular.substring(0, singular.length - 1)}ies';
+    }
+    if (lower.endsWith('s') ||
+        lower.endsWith('x') ||
+        lower.endsWith('z') ||
+        lower.endsWith('ch') ||
+        lower.endsWith('sh')) {
+      return '${singular}es';
+    }
+    return '${singular}s';
+  }
+
+  /// `"1 party"` / `"6 parties"`, so a count is never printed without its
+  /// noun agreeing with it.
+  static String count(int value, String singular, {String? plural}) =>
+      value == 1
+          ? '$value $singular'
+          : '$value ${pluralise(singular, plural: plural)}';
 
   /// Truncates with an ellipsis.
   static String ellipsis(String value, int length) {

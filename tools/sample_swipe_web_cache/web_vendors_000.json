@@ -1,0 +1,28 @@
+{
+  "success": true,
+  "total": 1,
+  "columns": [],
+  "tags": [],
+  "you_will_get": 0,
+  "you_will_give": 0,
+  "allData": [
+    {
+      "vendor_id": 1,
+      "id": 1,
+      "name": "I-HEAP ELECTRONICS PVT LTD",
+      "gstin": "36AAHCI7898C2Z3",
+      "email": "sales@iheap.in",
+      "phone": "9100960692",
+      "dial_code": "91",
+      "billing": {
+        "address_1": "2nd Floor, Parklane Circle",
+        "address_2": "",
+        "city": "Hyderabad",
+        "state": "36-TELANGANA",
+        "pincode": "500003"
+      },
+      "type": "vendor",
+      "is_delete": 0
+    }
+  ]
+}

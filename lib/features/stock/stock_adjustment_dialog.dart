@@ -6,6 +6,8 @@ import '../../core/database/repositories/report_repository.dart';
 import '../../core/state/providers.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/money.dart';
+import '../../shared/widgets/atria_field_icon.dart';
+import '../../shared/widgets/item_type_ahead.dart';
 
 /// Result of a confirmed stock adjustment.
 class StockAdjustmentInput {
@@ -47,6 +49,7 @@ class _StockAdjustmentDialog extends ConsumerStatefulWidget {
 
 class _StockAdjustmentDialogState
     extends ConsumerState<_StockAdjustmentDialog> {
+  final _itemController = TextEditingController();
   final _countController = TextEditingController();
   final _notesController = TextEditingController();
   List<ItemEntity> _items = const [];
@@ -62,6 +65,7 @@ class _StockAdjustmentDialogState
 
   @override
   void dispose() {
+    _itemController.dispose();
     _countController.dispose();
     _notesController.dispose();
     super.dispose();
@@ -69,17 +73,23 @@ class _StockAdjustmentDialogState
 
   Future<void> _load() async {
     final repo = ref.read(itemRepositoryProvider);
-    final items = await repo?.all() ?? const <ItemEntity>[];
+    // limit: 0 = every row. The picker used to be a DropdownButtonFormField fed
+    // by `repo.all()`'s DEFAULT cap of 1000 with no search, so on a catalogue
+    // past a thousand items the item being counted simply could not be chosen
+    // — and the stock screen lists every tracked item, so this dialog is how
+    // each of them is adjusted.
+    final items = await repo?.all(limit: 0) ?? const <ItemEntity>[];
     final tracked = items.where((i) => i.stockType == 'tracked').toList();
     if (!mounted) return;
     setState(() {
       _items = tracked;
       if (widget.initial != null) {
-        _selected = tracked
+        final found = tracked
             .where((i) => i.id == widget.initial!.itemId)
             .cast<ItemEntity?>()
-            .firstWhere((i) => i?.id == widget.initial!.itemId,
-                orElse: () => null);
+            .firstWhere((i) => i != null, orElse: () => null);
+        _selected = found;
+        if (found != null) _itemController.text = found.name;
         _countController.text = _qty(widget.initial!.stock);
       }
       _loading = false;
@@ -97,10 +107,78 @@ class _StockAdjustmentDialogState
     return selected.currentStock;
   }
 
+  /// What the user typed into "Counted quantity", or null when it is not a
+  /// number.
+  double? get _counted => double.tryParse(_countController.text.trim());
+
+  /// A physical count is a count: it cannot be below zero.
+  ///
+  /// This dialog posts a DELTA (`counted - current`), so `-12` against a current
+  /// 40 silently booked a removal of 52 — stock the shop says it does not have,
+  /// written to the ledger with no warning. Rejected inline instead.
+  bool get _countNegative => (_counted ?? 0) < 0 && _counted != null;
+
+  /// Signed adjustment, or null when there is nothing sensible to post.
   double? get _delta {
-    final counted = double.tryParse(_countController.text.trim());
-    if (counted == null) return null;
+    final counted = _counted;
+    if (counted == null || counted < 0) return null;
     return counted - _currentStock;
+  }
+
+  void _select(ItemEntity item) {
+    setState(() {
+      _selected = item;
+      _itemController.text = item.name;
+      _countController.text = _qty(item.currentStock);
+    });
+  }
+
+  /// The searchable item field.
+  ///
+  /// The stock type-ahead, not a dropdown: this is the app's own line-item
+  /// picker, so the search matches name, SKU, HSN and barcode the way every
+  /// other picker in the app does, and it shows a price and unit per suggestion.
+  /// `allowCreate: false` is essential — adjusting stock must never invent a
+  /// product, so there is no "Save item" row and nothing here can write to the
+  /// catalogue.
+  Widget _itemField() {
+    return ItemTypeAheadField(
+      controller: _itemController,
+      label: 'Item *',
+      hintText: 'Type a name, SKU or barcode to search',
+      allowCreate: false,
+      items: [
+        for (final item in _items)
+          ItemSuggestion(
+            id: item.id,
+            name: item.name,
+            salePrice: item.salePrice,
+            unit: item.unit,
+            sku: item.sku,
+            hsn: item.hsn,
+            barcode: item.barcode,
+          ),
+      ],
+      onPickItem: (suggestion) {
+        // By id, not by name equality: two items differing only by case would
+        // otherwise resolve to whichever came first in the catalogue.
+        final id = suggestion.id;
+        if (id == null) return;
+        final match = _items
+            .where((i) => i.id == id)
+            .cast<ItemEntity?>()
+            .firstWhere((i) => i != null, orElse: () => null);
+        if (match != null) _select(match);
+      },
+      // Unreachable with allowCreate: false; present because the widget's
+      // contract requires a handler.
+      onCreateItem: (_) {},
+      decoration: (context) => InputDecoration(
+        labelText: 'Item *',
+        hintText: 'Type a name, SKU or barcode to search',
+        prefixIcon: const AtriaFieldIcon(Icons.inventory_2_outlined),
+      ),
+    );
   }
 
   @override
@@ -108,7 +186,11 @@ class _StockAdjustmentDialogState
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final delta = _delta;
-    final canSave = _selected != null && delta != null && delta != 0 && !_saving;
+    final canSave = _selected != null &&
+        delta != null &&
+        delta != 0 &&
+        !_countNegative &&
+        !_saving;
 
     return AlertDialog(
       title: const Text('Adjust stock'),
@@ -118,63 +200,37 @@ class _StockAdjustmentDialogState
               height: 80,
               child: Center(child: CircularProgressIndicator()),
             )
-          : SizedBox(
-              width: 380,
+          : ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 380),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  DropdownButtonFormField<ItemEntity>(
-                    initialValue: _selected,
-                    decoration: const InputDecoration(
-                      labelText: 'Item',
-                      prefixIcon: Icon(Icons.inventory_2_outlined),
-                    ),
-                    items: [
-                      for (final item in _items)
-                        DropdownMenuItem(
-                          value: item,
-                          child: Text(item.name,
-                              maxLines: 1, overflow: TextOverflow.ellipsis),
-                        ),
-                    ],
-                    onChanged: _saving
-                        ? null
-                        : (item) {
-                            setState(() {
-                              _selected = item;
-                              if (item != null) {
-                                _countController.text = _qty(item.currentStock);
-                              }
-                            });
-                          },
-                  ),
+                  _itemField(),
                   const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: _countController,
-                          keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true),
-                          decoration: InputDecoration(
-                            labelText: 'Counted quantity',
-                            helperText:
-                                'System says ${_qty(_currentStock)} — enter what you actually have',
-                            // Save used to grey out with no reason when the
-                            // text wasn't a number (grouped digits, stray
-                            // spaces) — now the field says what's wrong.
-                            errorText: _countController.text.trim().isEmpty ||
-                                    delta != null
-                                ? null
-                                : 'Enter a number, e.g. 12 or 12.5',
-                            prefixIcon:
-                                const Icon(Icons.straighten_rounded),
-                          ),
-                          onChanged: (_) => setState(() {}),
-                        ),
-                      ),
-                    ],
+                  TextFormField(
+                    controller: _countController,
+                    enabled: !_saving,
+                    keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true),
+                    decoration: InputDecoration(
+                      labelText: 'Counted quantity',
+                      helperText: _selected == null
+                          ? 'Pick an item first'
+                          : 'System says ${_qty(_currentStock)} — enter what '
+                              'you actually have',
+                      // Save used to grey out with no reason when the text
+                      // wasn't a number (grouped digits, stray spaces) — now the
+                      // field says what's wrong. A negative count gets the same
+                      // treatment as an unparseable one: it cannot be posted.
+                      errorText: _countNegative
+                          ? 'A counted quantity cannot be negative'
+                          : _countController.text.trim().isEmpty || delta != null
+                              ? null
+                              : 'Enter a number, e.g. 12 or 12.5',
+                      prefixIcon: const AtriaFieldIcon(Icons.straighten_rounded),
+                    ),
+                    onChanged: (_) => setState(() {}),
                   ),
                   const SizedBox(height: 12),
                   Text(
@@ -197,7 +253,7 @@ class _StockAdjustmentDialogState
                     decoration: const InputDecoration(
                       labelText: 'Reason (optional)',
                       hintText: 'e.g. damaged, theft, recount',
-                      prefixIcon: Icon(Icons.notes_rounded),
+                      prefixIcon: AtriaFieldIcon(Icons.notes_rounded),
                     ),
                   ),
                 ],

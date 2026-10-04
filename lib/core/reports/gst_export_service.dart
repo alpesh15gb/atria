@@ -3,18 +3,58 @@ import 'dart:io';
 
 import 'package:decimal/decimal.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
+import '../services/csv_export.dart';
 import 'gst_return_builder.dart';
 import 'gstr1_report.dart';
 
-/// Writes GST return files to `<Documents>/atria/gst/<period>/`:
+/// Writes GST return files to `<exports>/atria/gst/<gstin>/<period>/`:
 ///  * `gstr1_<gstin>_<fp>.json` — upload-ready for the GST portal's Returns
 ///    Offline Tool (v1.1 schema);
-///  * `gstr1_<section>.csv` — Excel-readable worksheets per GSTR-1 table;
+///  * `gstr1_<section>.csv` — spreadsheet-readable worksheets per GSTR-1 table;
 ///  * `gstr3b_...json/csv` — the 3B summary tables.
-/// Excel opens CSVs with UTF-8 BOM + comma separators cleanly; a true .xlsx
-/// writer is a heavier dependency and can come later without format churn.
+/// Excel opens these CSVs with the UTF-8 BOM + comma separators cleanly, so a
+/// true .xlsx writer is not required for a file the user opens in Excel; the
+/// buttons say "JSON + CSV" for exactly this reason.
+///
+/// On Android the destination is the app's shared-storage directory rather
+/// than the app-private one — see `exportRootDirectory`. A return the user
+/// cannot reach is a return they cannot file.
+///
+/// One month of a fiscal-year summary.
+///
+/// A fiscal-year view is not a portal upload — GSTR-1 and 3B are filed month
+/// by month — so this is deliberately a *working paper*: what each month of the
+/// year came to, in one sheet, for the accountant who reconciles the year.
+class FiscalYearGstRow {
+  /// Every amount is required: `Decimal.zero` is not a compile-time constant,
+  /// and a defaulted column here would quietly print a blank month.
+  const FiscalYearGstRow({
+    required this.period,
+    required this.taxable,
+    required this.igst,
+    required this.cgst,
+    required this.sgst,
+    required this.cess,
+    required this.itc,
+    required this.netPayable,
+    required this.zeroRated,
+    required this.nilRated,
+  });
+
+  /// Filing period, MM-YYYY.
+  final String period;
+  final Decimal taxable;
+  final Decimal igst;
+  final Decimal cgst;
+  final Decimal sgst;
+  final Decimal cess;
+  final Decimal itc;
+  final Decimal netPayable;
+  final Decimal zeroRated;
+  final Decimal nilRated;
+}
+
 class GstExportService {
   GstExportService();
 
@@ -68,6 +108,19 @@ class GstExportService {
   Future<Directory> exportReconciliation(
       Gstr2aReconciliation rec, String gstin, String fp) async {
     final dir = await _periodDir(gstin, fp);
+    // The totals row has to land under its OWN heading. It used to be
+    // ['Totals', '', booksTotalTax, portalTotalTax] against a six-column
+    // header, so the books *tax* printed under "Books Taxable", the portal
+    // *tax* under "Books Tax", and both taxable columns were left blank —
+    // the one row a CA checks first was the one row nobody could read.
+    // The taxable totals aren't carried on the report, so they are summed
+    // from the rows above; summing them keeps the sheet self-consistent.
+    var booksTaxable = Decimal.zero;
+    var portalTaxable = Decimal.zero;
+    for (final r in rec.rows) {
+      booksTaxable += _d(r.booksTaxable);
+      portalTaxable += _d(r.portalTaxable);
+    }
     final rows = <List<Object?>>[
       ['Invoice No', 'Status', 'Books Taxable', 'Books Tax',
           'Portal Taxable', 'Portal Tax'],
@@ -81,11 +134,70 @@ class GstExportService {
           r.portalTax ?? '',
         ],
       [],
-      ['Totals', '', rec.booksTotalTax.toStringAsFixed(2),
-          rec.portalTotalTax.toStringAsFixed(2)],
+      [
+        'Totals',
+        '',
+        _n(booksTaxable),
+        _n(_d(rec.booksTotalTax)),
+        _n(portalTaxable),
+        _n(_d(rec.portalTotalTax)),
+      ],
     ];
     await _writeCsv(p.join(dir.path, 'gstr2a_reconciliation.csv'), rows);
     return dir;
+  }
+
+  /// One month's totals for the fiscal-year summary.
+  Future<Directory> exportFiscalYear({
+    required String gstin,
+    required String fyLabel,
+    required List<FiscalYearGstRow> months,
+  }) async {
+    final dir = await _periodDir(gstin, 'FY-$fyLabel');
+    final rows = <List<Object?>>[
+      ['Period', 'Taxable', 'IGST', 'CGST', 'SGST', 'Cess', 'ITC',
+          'Net payable', 'Zero-rated', 'Nil-rated'],
+      for (final m in months)
+        [
+          m.period,
+          _n(m.taxable),
+          _n(m.igst),
+          _n(m.cgst),
+          _n(m.sgst),
+          _n(m.cess),
+          _n(m.itc),
+          _n(m.netPayable),
+          _n(m.zeroRated),
+          _n(m.nilRated),
+        ],
+      [],
+      [
+        'Total',
+        _n(_sum(months, (m) => m.taxable)),
+        _n(_sum(months, (m) => m.igst)),
+        _n(_sum(months, (m) => m.cgst)),
+        _n(_sum(months, (m) => m.sgst)),
+        _n(_sum(months, (m) => m.cess)),
+        _n(_sum(months, (m) => m.itc)),
+        _n(_sum(months, (m) => m.netPayable)),
+        _n(_sum(months, (m) => m.zeroRated)),
+        _n(_sum(months, (m) => m.nilRated)),
+      ],
+    ];
+    await _writeCsv(
+        p.join(dir.path, 'fy_${fyLabel}_gst_summary.csv'), rows);
+    return dir;
+  }
+
+  Decimal _sum(
+    List<FiscalYearGstRow> rows,
+    Decimal Function(FiscalYearGstRow) pick,
+  ) {
+    var total = Decimal.zero;
+    for (final row in rows) {
+      total += pick(row);
+    }
+    return total;
   }
 
   // ---- CSV builders -------------------------------------------------------
@@ -163,12 +275,19 @@ class GstExportService {
 
   Object _n(Decimal d) => double.tryParse(d.toStringAsFixed(2)) ?? 0;
 
+  /// A nullable money column off the reconciliation, as an exact [Decimal].
+  /// These arrive as `double`s from the database, so they are pinned to the
+  /// reported 2dp before any arithmetic — a total that disagrees with the sum
+  /// of its own rows by a paisa is worse than no total at all.
+  Decimal _d(double? v) =>
+      v == null ? Decimal.zero : Decimal.parse(v.toStringAsFixed(2));
+
   /// Period folder keyed by firm GSTIN then filing period — two firms
   /// filing the same month must not overwrite each other's returns.
   Future<Directory> _periodDir(String gstin, String fp) async {
-    final docs = await getApplicationDocumentsDirectory();
+    final root = await exportRootDirectory();
     final safeGstin = gstin.trim().isEmpty ? 'NOGSTIN' : gstin.trim();
-    final dir = Directory(p.join(docs.path, 'atria', 'gst', safeGstin, fp));
+    final dir = Directory(p.join(root.path, 'atria', 'gst', safeGstin, fp));
     if (!dir.existsSync()) dir.createSync(recursive: true);
     return dir;
   }

@@ -4,6 +4,7 @@ import '../app_database.dart';
 import 'audit_repository.dart';
 import 'firm_repository.dart';
 import 'item_repository.dart';
+import 'ledger_repository.dart';
 import 'party_repository.dart';
 import 'payment_repository.dart';
 import 'purchase_repository.dart';
@@ -38,6 +39,10 @@ extension DatabaseRepositories on AppDatabase {
 
   ReportRepository reportRepositoryFor(String firmId) =>
       ReportRepository(this, firmId);
+
+  /// Chart of accounts, journal vouchers and the ledger reports.
+  LedgerRepository ledgerRepositoryFor(String firmId) =>
+      LedgerRepository(this, firmId);
 
   SettingsRepository get settingsRepository => SettingsRepository(this);
   BackupRepository get backupRepository => BackupRepository(this);

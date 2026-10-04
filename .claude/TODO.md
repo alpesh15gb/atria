@@ -2,7 +2,52 @@
 
 ## Next
 
-- [x] **Editor screens revamped (2026-09-26):** shared EditorShell chrome
+- [ ] **MEDIUM — editing a payment breaks the cheque-state invariant.**
+      `payments_screen.dart` ~845–867 keeps `chequeStatus` when the mode
+      changes: cheque→cash leaves a stale `pending`/`cleared` on a cash
+      payment, cash→cheque leaves `chequeStatus` null so the cheque never
+      appears in "Cheques to deposit". The last real correctness item from the
+      2026-10-03 audit. Test to write: flip the mode both ways and assert the
+      stored `chequeStatus` matches the mode.
+- [ ] **Exports / SEZ supplies cannot be recorded at all** — nothing in `lib/`
+      sets `isExport`, and `exportType` (`wp`/`wop`) is persisted but read
+      nowhere. This is what blocked the two GST "HIGH" findings as unreachable.
+      A feature addition (a WP/WOP choice in the sale editor + EXPWP/EXPWOP
+      tables in `gstr1_report`), not a calculation fix. Decide as
+      post-launch scope.
+- [ ] Rebuild + install debug APK on the Android device to confirm the route
+      fix on hardware (pure-Dart change; gradle surface untouched).
+- [ ] Release builds: `--release` for Windows and APK (APK needs a signing
+      config; the template signs with debug keys today).
+- [ ] The three `*_plus` plugins still apply the Kotlin Gradle Plugin; a future
+      Flutter will refuse `build apk` until they migrate to built-in Kotlin.
+
+## Done
+
+- [x] **Go-live verification pass (2026-10-03):** four real bugs found and
+      fixed, each with a test proven to fail when the fix is reverted —
+      (1) the account-ledger Balance column was not a running balance;
+      (2) Indian-grouped amounts ("1,00,000") silently parsed as 0 in the
+      journal editor and the chart of accounts; (3) **party opening balances
+      never reached the books**, so Sundry Debtors disagreed with every
+      customer statement by exactly the opening; (4) the Payments cards
+      disagreed with the ledger because they summed payment rows alone.
+      Suite **439 passed / 1 skipped / 0 failed**, `flutter analyze lib/ test/`
+      clean. See `.claude/memory/bugs.md` (items 34–37).
+- [x] **Android + Windows alignment pass (2026-10-03):** pumped every tab at
+      360×640 and the dashboard/sales list at 1920×1080 with the app's real
+      Inter registered, and fixed the thirteen layout defects that surfaced
+      (pill-label overflow, dashboard trend bars, the POS pane squeezing the
+      cart, `EmptyState` in a flex parent, ledger column headers and running
+      balance, sale-detail meta chips and table floor, list trailing slots,
+      journal/chart/ledger ellipsis, payments summary cards, the reports rate
+      table's misaligned amounts). `contentMaxWidth` was dead code — now used
+      by `AtriaListPage`, plus a new `AtriaContentWidth` for the four settings
+      screens that stretched full-width. Five new test files, each verified to
+      fail without its fix. Suite **435 passed / 1 skipped / 0 failed**,
+      `flutter analyze lib/ test/` clean. See `.claude/STATE.md` and
+      `.claude/memory/bugs.md` (2026-10-03 sections).
+- [x] Editor screens revamped (2026-09-26):** shared EditorShell chrome
       (exit ✕ / title / Save & New / Save + sticky totals panel on desktop,
       `editor_shell.dart` + `editor_totals.dart`); sale editor gained Save &
       New, Mark-as-fully-paid settlement on save, dashed Add-Item strip,
@@ -37,14 +82,6 @@
       status, stock adjustment dialog, per-tab sales FAB label, Ctrl+S on all
       editors, shared PeriodPillRow with ripple, unused deps removed.
       56/56 tests, analyzer clean.
-
-- [ ] Rebuild + install debug APK on the Android device to confirm the route
-      fix on hardware (pure-Dart change; gradle surface untouched).
-- [ ] Release builds: `--release` for Windows and APK (APK needs a signing config;
-      the template signs with debug keys today).
-- [ ] `git init` — the project is still not version-controlled.
-- [ ] The three `*_plus` plugins still apply the Kotlin Gradle Plugin; a future
-      Flutter will refuse `build apk` until they migrate to built-in Kotlin.
 
 ## Later
 

@@ -1,7 +1,23 @@
-# The light-mode goldens are capture-only: each one opens drift streams whose
-# teardown takes minutes, and their value is the PNG a human eyeballs, not a
-# pass/fail in CI. Exclude them from the default `flutter test` run; regenerate
-# on demand with:
+# The goldens (light and dark) are capture-only: each one opens drift streams
+# whose teardown takes minutes, and their value is the PNG a human eyeballs, not
+# a pass/fail in CI. Exclude them from the default `flutter test` run.
 #
-#   flutter test --tags golden --update-goldens test/golden_light_mode_test.dart
+# Regenerating them needs this file's exclude to be commented out first: a
+# `--tags golden` flag cannot override an exclude, and the run reports
+# "No tests match the requested tag selectors".
+#
+#   1. comment out `exclude_tags: golden` below
+#   2. flutter test --update-goldens test/golden_light_mode_test.dart
+#      flutter test --update-goldens test/golden_dark_mode_test.dart
+#   3. put it back
+#
+# A single screen can be regenerated on its own, which is much faster because
+# the drift teardown is paid once instead of per capture:
+#
+#   flutter test --update-goldens test/golden_dark_mode_test.dart \
+#     --plain-name "chart of accounts"
+#
+# A capture whose drift streams are slow to release can overrun the file's
+# five-minute per-test budget in teardown *after* writing its PNG. Run it on its
+# own with --plain-name; the image is written either way.
 exclude_tags: golden

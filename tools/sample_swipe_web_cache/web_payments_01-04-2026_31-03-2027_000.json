@@ -1,0 +1,79 @@
+{
+  "success": true,
+  "total_records": 2,
+  "users": [],
+  "transactions": [
+    {
+      "id": 4530413,
+      "hash_id": "4v5peTaylN8",
+      "serial_number": "PAYIN-1",
+      "payment_type": "in",
+      "status": "success",
+      "payment_date": "20-04-2026",
+      "payment_mode": "Net Banking",
+      "amount": "2,360.00",
+      "total_amount": 2360,
+      "amount_remaining": "0.00",
+      "reconciled_amount": 0,
+      "reconciliation_status": "pending",
+      "party_id": 5,
+      "party_type": "customer",
+      "name": "Keystone Infra Pvt Ltd",
+      "bank_id": 1,
+      "bank_name": "DCB BANK",
+      "account_number": "02711500000268",
+      "ifsc": "DCBL0000027",
+      "branch_name": "Hyderabad",
+      "notes": "NEFT 9912",
+      "exclusive_notes": "",
+      "linked_docs_count": 1,
+      "linked_docs": [
+        {
+          "id": 3896501,
+          "document_type": "invoice",
+          "doc_serial_number": "INV-2026-001",
+          "invoice_serial_number": "INV-2026-001",
+          "serial_number": "PAYIN-1",
+          "amount_paid": 2360,
+          "payment_doc_count": 1,
+          "pay_count": 0,
+          "is_delete": 0
+        }
+      ]
+    },
+    {
+      "id": 4530414,
+      "hash_id": "9kQm2ZtRp1x",
+      "serial_number": "PAYOUT-1",
+      "payment_type": "out",
+      "status": "success",
+      "payment_date": "22-04-2026",
+      "payment_mode": "Cash",
+      "amount": "5,000.00",
+      "total_amount": 5000,
+      "amount_remaining": "4,440.00",
+      "reconciled_amount": 0,
+      "reconciliation_status": "pending",
+      "party_id": 1,
+      "party_type": "vendor",
+      "name": "I-HEAP ELECTRONICS PVT LTD",
+      "bank_id": 0,
+      "bank_name": "",
+      "notes": "Part payment",
+      "exclusive_notes": "Paid at the counter",
+      "linked_docs_count": 1,
+      "linked_docs": [
+        {
+          "id": 3896601,
+          "document_type": "purchase",
+          "doc_serial_number": "SUP-001",
+          "serial_number": "PAYOUT-1",
+          "amount_paid": 5000,
+          "payment_doc_count": 1,
+          "pay_count": 0,
+          "is_delete": 0
+        }
+      ]
+    }
+  ]
+}

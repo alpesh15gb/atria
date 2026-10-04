@@ -1,6 +1,507 @@
 # Project State
 
-_Last updated: 2026-09-27 (hotfix pass: Payments Decimal crash + Parties overflow)
+_Last updated: 2026-10-03 (go-live verification: two more real bugs found + fixed)_
+
+## 2026-10-03: "are we ready to go live?" — verification pass
+
+The answer required checking the open MEDIUM findings against source rather than
+from memory. Four were real. All four are now fixed, each with a test proven to
+fail when the fix is reverted in place.
+
+Suite: **439 passed, 1 skipped, 0 failed** (was 435 at the start of this pass).
+`flutter analyze lib/ test/` → **No issues found!**
+
+### Fixed this pass
+
+1. **The account-ledger Balance column was not a running balance** (MEDIUM).
+   `_LedgerMovementRow` added the account's *opening* to every row, so the
+   column read 100/200/300 while "Closing" said 600 — the list contradicted
+   itself. `LedgerEntryRow` gained a `balance` field; `accountLedger` carries a
+   separate `running` accumulator (`opening` must stay put because `closing`
+   folds over it — feeding one from the other double-counts). Test:
+   `test/ledger_test.dart` (rows 1180 / 780, last == closing).
+2. **Indian-grouped amounts were silently dropped** (MEDIUM).
+   `journal_editor_screen.dart` and `chart_of_accounts_screen.dart` used
+   `double.tryParse`, which returns null for "1,00,000" and fell back to 0 — a
+   voucher saved with no amount and no warning. Both now use `Money.tryParse`.
+   Test: `test/journal_grouped_amount_test.dart`.
+3. **Party opening balances never reached the books** (MEDIUM — the big one).
+   `outstandingFor` and the party statement both count a party's opening, but
+   the ledger's Sundry Debtors account never did, so the books disagreed with
+   every customer statement by exactly the opening, from day one. `_book` now
+   derives the posting from the party row (Dr/Cr Debtors vs Creditors, contra
+   Capital) rather than writing a voucher at party-save time — a voucher would
+   go stale when the opening is edited and be orphaned when the party is
+   purged. Test: `test/reconciliation_test.dart` (customer ₹15,000 Dr + supplier
+   ₹8,000 Cr, both also asserting `trialBalance.isBalanced`).
+4. **The Payments cards disagreed with the ledger** (MEDIUM).
+   `_summarize` summed the payment rows alone, so a ₹3,000 cash expense left
+   "Cash in hand" ₹3,000 richer than the Cash account. New
+   `cashBankBalancesProvider` reads the trial balance; new
+   `LedgerRepository.watchBookMovement` ticks it on any of the seven posting
+   tables. `CashBankSummary`/`_summarize`/`_cashBankProvider` deleted.
+   Test: `test/payments_ledger_agreement_test.dart`.
+
+### Still open
+
+- **MEDIUM — editing a payment breaks the cheque-state invariant**
+  (`payments_screen.dart` keeps `chequeStatus` when the mode changes:
+  cheque→cash leaves `pending`, cash→cheque leaves null). The one remaining
+  real correctness item from the 2026-10-03 audit.
+- **Exports/SEZ cannot be recorded at all** — nothing sets `isExport`, and
+  `exportType` is persisted but read nowhere. A feature addition (a WP/WOP
+  choice in the sale editor + EXPWP/EXPWOP tables in `gstr1_report`), not a
+  calculation fix. Blocked the two GST "HIGH" findings as unreachable.
+- **LOW** — reports grid 2-up at 360dp ellipsizes labels; POS cart row amount
+  fixed 96dp; sale editor date row has no compact fallback; filter-pill touch
+  targets under 48dp.
+- **Release/packaging** — release builds (`--release` Windows + APK; APK needs
+  a signing config), rebuild + install the debug APK on hardware to confirm the
+  route fix, three `*_plus` plugins still apply the Kotlin Gradle Plugin.
+
+### Test-writing lessons (recorded in `.claude/memory/bugs.md`)
+
+- Assert on the **rendered figure** (`find.text('₹7,000.00')`), not on a
+  widget-tree path. The payments card stacks icon-above-text below the compact
+  breakpoint, so the Row carrying the label is not the Row carrying the figure.
+- A provider that re-derives from an async report needs a **pump-until-emitted**
+  loop, not `pumpAndSettle`, which can stop before the stream ticks.
+- Prove every new test catches its bug: revert in place, run, confirm the exact
+  failure, restore. This pass's four reverts produced four distinct failures.
+
+---
+
+## 2026-10-03 (earlier): phone-width and widescreen alignment pass
+
+Goal was "check for ui is it properly aligned on both android and windows". The
+method that worked: pump each screen at a real viewport in a widget test and
+let Flutter say whether it overflowed, with the app's bundled Inter registered
+first (the test fallback font is far wider — see `.claude/memory/bugs.md`).
+
+Baseline before this pass: 411 passed / 1 skipped. After: 435 passed, 1
+skipped, 0 failed, `flutter analyze lib/ test/` clean.
+
+Tests added (each verified to fail without the fix it guards):
+
+- `test/pos_double_billing_test.dart` — the POS double-billing fix.
+- `test/journal_editor_archived_account_test.dart` — archived account in a
+  journal editor's dropdown.
+- `test/phone_width_smoke_test.dart` — all 13 tabs at 360×640 + the dashboard at
+  1920×1080 + a *measurement* test asserting the sales list's column is capped
+  at a reading width on 1920dp (`headerWidth < 1500`).
+- `test/statement_ledger_phone_test.dart` — both ledger screens with a crore
+  running balance at 360dp.
+- `test/settings_widescreen_test.dart` — printer settings, period lock, audit
+  log and payment reminders at 1920×1080, each asserting the column is capped
+  *and* seeded with real rows (an empty screen's centred message is narrow by
+  design, which would pass the width check for the wrong reason).
+
+Fixes (all in `.claude/memory/bugs.md` under this date):
+
+- `atria_list_toolbar.dart` pill label — overflowed 26–48px on five list tabs.
+- `dashboard_screen.dart` trend bars — 36px of bars in a ~34.8px slot.
+- `pos_screen.dart` — totals pane bounded + scrollable; was squeezing the cart
+  to a sliver and pushing Complete off a short phone.
+- `common_widgets.dart` `EmptyState` — the actual POS overflow source; its
+  intrinsic Column height exceeds a squeezed flex parent.
+- `party_statement_screen.dart` / `statement_of_account_screen.dart` — column
+  header ellipsis, compact running balance, and the **redundant reference chip
+  removed** (see bugs.md — it duplicated the number already in `particulars`
+  and could not fit a 91dp column).
+- `sale_detail_screen.dart` — meta-chip ellipsis; items table floor used the
+  window width instead of `constraints.maxWidth`, so at 1920px the card held
+  ~1040px while the table was forced to 1880px.
+- `sales_list_screen.dart` / `purchase_list_screen.dart` — trailing slot 36→48
+  to match `DocumentRowMenu`'s real tap target.
+- `journal_list_screen.dart`, `chart_of_accounts_screen.dart`,
+  `ledger_reports_screen.dart` — ellipsis where `overflow` alone was wrapping.
+- `payments_screen.dart` `_SummaryCard` — stacks three cards vertically under
+  600dp instead of crushing each to ~101dp.
+- `money_text.dart` — gained a `textAlign` param; `reports_screen.dart`'s rate
+  table right-aligns its headers but its amounts were left-aligned.
+- **Widescreen**: `AtriaListPage` now centres and caps at
+  `constraints.contentMaxWidth` (the token was dead code), new
+  `AtriaContentWidth` widget applied to `printer_settings_screen.dart` (both
+  the list and the editor), `period_lock_and_audit_screens.dart` (both bodies)
+  and `payment_reminders_screen.dart`; the two statement screens unified on
+  980.
+
+Not changed, deliberately: `firm_settings_screen.dart` has an explicit reasoned
+comment about staying full width (its fields group two-up via `_FieldRow`), and
+`EditorShellBody` / `AtriaEditorForm` already own their own `maxFormWidth` /
+`maxContentWidth`.
+
+Also fixed this day (earlier audit pass, tests in place):
+- **HIGH — a bounced cheque stayed in the books as an asset.** `_book` selected
+  every non-deleted payment with no `chequeStatus` filter. Now
+  `isNull() | not(equals('bounced'))` (drift 2.31 has no `isDistinctFrom`, and
+  plain `not(equals())` on a null is SQL-null and would drop every cash/bank
+  payment too). Test: `test/bounced_cheque_ledger_test.dart`.
+- **HIGH — archiving an account erased its opening balance.** `_book` now loads
+  `allAccounts(includeInactive: true)`. Test:
+  `test/archived_account_balance_test.dart`.
+- **LOW — the recycle bin's Restore icon had no error handling**; the invoice
+  title printed the raw slug (`sales_order`) instead of "Sales order".
+
+## Exact next action
+
+1. Fix the last MEDIUM: the payment editor's cheque-state invariant when the
+   mode changes (`payments_screen.dart` ~845–867). Add a test that flips
+   cheque→cash and cash→cheque and asserts `chequeStatus` is right.
+2. Re-run the full suite + analyzer after that edit.
+3. Release builds (`--release`): Windows + APK. APK needs a signing config.
+4. Rebuild + install the debug APK on hardware to confirm the route fix.
+5. Decide on exports/SEZ as a post-launch feature.
+
+## ⚠️ Build toolchains are MISSING from this machine (2026-10-03)
+
+`flutter doctor`: "Visual Studio not installed" and "Unable to locate Android
+SDK". Verified by disk search, not just doctor:
+
+- `C:/Program Files/Microsoft Visual Studio` and
+  `C:/Program Files (x86)/Microsoft Visual Studio` **do not exist**. The only
+  `MSBuild.exe` on C: is the .NET Framework one in `WinSxS` — not the C++
+  workload Windows builds need. `vswhere.exe` is absent.
+- No Android SDK anywhere: `AppData/Local/Android`, `C:/Android`,
+  `D:/*/Sdk`, `E:/*/Sdk` all absent; `ANDROID_HOME`/`ANDROID_SDK_ROOT` are
+  empty; `~/.gradle` does not exist either.
+- Both build commands fail immediately:
+  - `flutter build windows --debug` → "Unable to find suitable Visual Studio
+    toolchain."
+  - `flutter build apk --debug` → "No Android SDK found."
+
+This is the same class of loss as the Flutter SDK disappearing earlier (see
+the note below) — a working install stopped being visible.
+
+**The on-disk artifacts are stale** and must not be shipped as if current:
+
+| Artifact | Built | Last commit |
+|---|---|---|
+| `build/windows/x64/runner/Debug/atria.exe` | 2026-09-27 00:14 | HEAD 2026-10-02 |
+| `build/app/outputs/flutter-apk/app-debug.apk` | 2026-09-27 21:00 | HEAD 2026-10-02 |
+
+Both predate the whole October audit pass (the router fix, the editor/list
+revamps, and every fix recorded above). They contain known bugs that have
+since been fixed — the ledger running balance, the grouped-amount parse, the
+party-opening reconciliation gap.
+
+**To restore builds**, one of:
+- Reinstall Visual Studio with the "Desktop development with C++" workload,
+  and Android Studio (or a standalone SDK + `flutter config --android-sdk`),
+  then rebuild; or
+- Restore from whatever backup/image held these before the loss, if there is
+  one; or
+- Build on another machine that has the toolchains — the repo is git-tracked,
+  so `git clone` + `flutter pub get` + `build_runner` is enough.
+
+`git`, `flutter`, and `dart` themselves still work (the whole 439-test suite
+ran on this SDK today). Only the two native toolchains are gone.
+
+## Useful commands
+
+```bash
+# Analyzer (clean exit = success)
+/c/flutter/bin/flutter.bat analyze lib/ test/
+
+# Tests (goldens excluded by dart_test.yaml)
+/c/flutter/bin/flutter.bat test
+
+# Native builds
+/c/flutter/bin/flutter.bat build windows --debug
+/c/flutter/bin/flutter.bat build apk --debug
+```
+
+Before any `flutter test`, stop lingering processes or `sqlite3.dll` locks the
+build dir: `Get-Process -Name dart,dartvm,flutter_tester,flutter | Stop-Process -Force`
+
+---
+
+## Prior sessions
+
+## Current objective
+
+Bring Atria to a clean, production-ready baseline: zero analyzer issues, passing tests,
+and building binaries for every target. Then fix the functional/UX bugs the user reported.
+
+## Current implementation state
+
+- Working:
+  - Full Flutter app: GST invoicing, purchases, parties, stock, expenses, reports, PDF.
+  - `dart analyze lib/` → **No issues found!**
+  - `flutter test --exclude-tags golden` → **439 passed, 1 skipped, 0 failed.**
+
+_Last updated: 2026-10-02 (audit pass; toolchain unavailable — see the blocker note below)
+
+## ⚠️ Toolchain restored and the 2026-10-02 edits VERIFIED (2026-10-02, later)
+
+The SDK was restored at `C:\flutter` (Dart 3.13.5, Flutter revision 5fc346839b).
+Re-ran after `flutter pub get`:
+
+- `dart analyze lib/ test/` → **No issues found!**
+- `flutter test --exclude-tags golden` → **397 passed, 1 skipped** (the suite has
+  grown far beyond the 87 recorded for 2026-09-27; +4 are the new
+  service-stock / SKU / refresh tests below).
+- `flutter test test/invoice_discount_apportionment_test.dart` → 7/7, all
+  hand-traced expectations exact.
+
+Two corrections surfaced when the compiler could finally run, both in the GSTIN
+uniqueness check (the engine fix was clean as written):
+
+1. `party_editor_screen.dart` imported drift as `show Value`, so drift's `&` on
+   `Expression<bool>` was out of scope → `import ... show BooleanExpressionOperators, Value`.
+2. `repository!.firmId` inside the `repository != null` block was a redundant
+   `!` on a promoted non-nullable → `repository.firmId`.
+
+**The percent-discount shift flagged earlier did not break anything** —
+`money_precision_test`'s 'awkward rates' case still passes; the stored
+`taxableValue` lands where it displays.
+
+## ⚠️ Previous blocker (resolved): no Flutter SDK on this machine
+
+`C:\flutter` **no longer exists** (the location recorded near the bottom of this
+file). `where flutter` / `where dart` find nothing, PATH has no entry, and a
+depth-4 sweep of C:/D:/E: found no `dart.exe` or `flutter.bat`. The last known
+baseline (`dart analyze` clean, 87/87 tests, both builds) was produced by that
+SDK on 2026-09-27 — **it is not reproducible here now.**
+
+Consequence: **no change made on 2026-10-02 was compiled or test-run** until the
+SDK was restored later that day (see the note above). Treat "exit 0" from any
+background build with suspicion — a stale task id once reported an old log as
+fresh success.
+
+### Unverified changes made 2026-10-02 → now VERIFIED (see the note above)
+
+1. **`lib/features/parties/party_editor_screen.dart`** — GSTIN uniqueness check
+   in `_save` (mirrors the barcode check in `item_editor_screen.dart`). Verified
+   by inspection only: `db.select(db.parties)` matches the pattern at
+   `party_repository.dart:76`; `firmId`/`gstin`/`isDeleted` are real columns; no
+   other GSTIN-uniqueness logic exists (not redundant, not conflicting).
+2. **`lib/core/engine/gst_engine.dart`** — fixed the invoice-level-discount
+   apportionment (HIGH). The old code scaled each line by
+   `ratio = Money.div(invoiceDiscount, preDiscountTaxable)`, which rounds a
+   non-terminating quotient to 2 dp: ₹10 off ₹300 used 0.03 instead of 1/30 and
+   left the line at ₹291 rather than ₹290; ₹1 off ₹300 rounded to 0.00 and was
+   dropped while the PDF still printed "Discount ₹1.00". Replaced with exact
+   paisa-level apportionment (`_apportionInvoiceDiscount`, largest fractional
+   remainder) so `Σ lineTaxable == preDiscountTaxable − invoiceDiscount`. Also
+   added `invoiceDiscount = Money.round2(invoiceDiscount)` so a percent discount
+   (7.5% of ₹299.97 = ₹22.49775) settles to paisa first; that shifts the stored
+   `taxableValue` for such a document by a sub-rupee — it displays identically,
+   but **re-check any test that pins a percent-discount document's totals.**
+   Regression test added: `test/invoice_discount_apportionment_test.dart`
+   (7 tests, expectations hand-traced, **NOT YET RUN**).
+
+### 2026-10-03 — second audit pass: reports, ledger, payments, recycle bin
+
+Verified against source before changing anything; the two agents' reports
+caught three live bugs and one dead-code path.
+
+**FIXED (with regression tests):**
+- **HIGH — a bounced cheque stayed in the books as an asset.**
+  `ledger_repository._book` selected every non-deleted payment with no
+  `chequeStatus` filter, so a returned cheque kept posting Dr Cheques in hand
+  while the payment repository had already released the invoice it settled —
+  the ledger and the party reports disagreed, over a balance sheet that still
+  foots. Now `chequeStatus.isDistinctFrom('bounced')`, using the codebase's
+  existing null-safe idiom (`isNull() | not(equals(...))` — drift 2.31 has no
+  `isDistinctFrom`, and plain `not(equals())` on a null status is SQL-null and
+  would silently drop every cash/bank payment too). The app's own contract is
+  stated in three places that all agree now: `payment_repository:302`,
+  `payments_screen:351` and `markChequeBounced`'s doc. Test:
+  `test/bounced_cheque_ledger_test.dart` (3 tests, incl. a cleared cheque that
+  must still post to Bank).
+- **HIGH — archiving an account erased its opening balance.** `_book` loaded
+  active accounts only, so a retired account's opening vanished with no contra
+  (trial balance out by that amount) and its journal movements were re-posted
+  to Suspense. `setAccountActive`'s own doc says the account "stays in the
+  chart for the entries that reference it", and the delete dialog sends users
+  with history to archive for exactly that reason. `_book` now loads
+  `allAccounts(includeInactive: true)`. Test:
+  `test/archived_account_balance_test.dart` (2 tests; the opening one uses a
+  balanced Dr-asset/Cr-capital pair so `isBalanced` is a meaningful check).
+- **LOW — the recycle bin's Restore icon had no error handling**, so a restore
+  refused by the period lock failed silently (the purge path already caught
+  and surfaced its error). Now both do. Also: the invoice title printed the
+  raw slug (`sales_order`) instead of "Sales order" — replaced with a small
+  `_docTypeLabel` switch.
+
+**ASSESSED, NOT A BUG:** the GST agent's two HIGH findings
+(exports-with-payment taxed but unreported in 3.1(b); GSTR-1 dropping exports
+from every section) are in code the app **cannot reach**: nothing in `lib/`
+ever sets `isExport` true — not the sale editor, not the seeder, not the
+importer — and `exportType` (`wp`/`wop`) is persisted but read nowhere. So
+both are latent at most. The real gap is that **the app cannot record an
+export or SEZ supply at all**, which is a feature addition (a WP/WOP choice in
+the editor plus EXPWP/EXPWOP tables in `gstr1_report`), not a calculation fix.
+
+**ASSESSED, NOT A BUG:** the cross-branch deep-link finding (see below) — the
+Sales branch's home already is the invoice list.
+
+### Remaining open (from the 2026-10-03 agents, verified as real but not yet fixed)
+
+Ledger/payments agent — MEDIUM, all confirmed against source:
+- **Account-ledger Balance column is not a running balance** —
+  `ledger_reports_screen.dart:814` adds the account's *opening* to every row
+  instead of accumulating. The list contradicts itself and its own closing row.
+- **Journal amounts typed with Indian grouping are silently dropped** —
+  `journal_editor_screen.dart:35-36` uses `double.tryParse` (rejects "1,000")
+  and `_save` skips lines whose parsed value is 0, so a line vanishes from the
+  saved voucher with no message. `payments_screen` already uses `Money.parse`
+  and shows an error — the model to copy.
+- **Editing a voucher whose account was archived hits a Flutter assertion** —
+  `journal_editor_screen.dart:148` filters the dropdown to active accounts
+  while `_LineRow` passes the archived id as `initialValue` →
+  "There should be exactly one item with the value". Debug crash; release
+  renders the field blank.
+- **POS can bill the same cart twice** — `pos_screen.dart:351-410` commits the
+  invoice before the receipt; if payment creation or printing throws, the
+  message says "Could not complete the sale" and the cart is retained, so
+  pressing Complete issues a second invoice for the same goods.
+- **Editing a payment breaks the cheque-state invariant** —
+  `payments_screen.dart:845-867` keeps `chequeStatus` when the mode changes
+  (cheque→cash leaves `pending`, cash→cheque leaves null).
+- **Debtors/Creditors can never reconcile to party balances** — party
+  openings are posted nowhere in the ledger, and party-less payments post to
+  Debtors/Creditors while `party_repository` attributes only party-carrying
+  ones. No report exposes the gap.
+- **Payments-screen balance cards disagree with the ledger** —
+  `_summarize` counts payments only, while expenses/income also post to
+  Cash/Bank; `_cashBankProvider` is also capped at 10,000 rows.
+
+GST agent — real, lower priority: GSTR-1 has no EXPWP/EXPWOP table (moot until
+exports are recordable, above); `doc_issue` from/to emit the number *prefix*
+(`INV-1`) instead of the numeric serial the offline utility wants
+(`gst_return_builder.dart:326-342`); 3B clamps net reversals to zero
+asymmetrically; the 2A reconciliation CSV's totals row is column-shifted
+(`gst_export_service.dart:105-119`); CDNR/`_invoice` can emit an empty
+`itms`; the envelope emits an unknown `gtin` key; B2CL gates on taxable value
+rather than invoice value (flagged with deliberate uncertainty by the agent).
+
+### Test harness: three widget tests hung at `db.close()` after the healing fix
+
+After `ActiveFirmController` gained its drift existence watch, three widget
+tests started timing out — always the same three, in a parallel run, a
+two-file run, **and** `--concurrency=1`. My first hypothesis was parallel-suite
+contention; that was **wrong** (the serial run failed identically), and running
+`service_stock_test.dart` on its own reproduced it. All three were the
+teardown: the tests called `select(...)` and then let a file-level
+`tearDown(() => db.close())` close the database with no pump-down, so the
+watch's teardown timers never fired. Fixed with a local helper in
+`service_stock_test` and a corrected teardown in the router test. See
+`.claude/memory/bugs.md` (2026-10-03) for the pattern to copy into any future
+test that selects a firm — **the 1s pumps must come after `container.dispose()`**,
+since the teardown timer only starts when the subscription is cancelled.
+
+**Suite status: 411 passed, 1 skipped, 0 failed, no timeouts**
+(`flutter test --exclude-tags golden --concurrency=1`).
+
+### Open audit findings (verified against source, not yet fixed)
+
+Dashboard/parties/items/stock agent:
+- ~~**HIGH** — a `Service` item can be stock-tracked, polluting the Stock screen
+  and low-stock counts.~~ **FIXED 2026-10-02** — the item editor now forces
+  `stockType = 'untracked` when "Service" is picked, locks the toggle with an
+  explanatory caption, and the save path re-derives it; the read side
+  (`item_repository.stockValue`/`lowStock`, `report_repository` stock value +
+  summary, `items_screen` stats) now applies the same `isService` test the two
+  movement writers already used, so pre-existing bad rows stop distorting
+  totals. Regression test: `test/service_stock_test.dart` (2 tests, passing).
+  Compiles + full suite verified.
+- ~~**MEDIUM** — stock summary never refreshes after a sale made elsewhere
+  (IndexedStack keeps the tab mounted; needs a branch-index signal).~~
+  **FIXED 2026-10-02** — `_stockSummaryProvider` now depends on
+  `itemMovementSignalProvider`, a `StreamProvider` over the firm's movement log
+  (`ItemRepository.watchAllMovements`). `currentStock` is a cached balance every
+  movement rewrites, so any sale/purchase/adjustment anywhere re-runs the
+  summary. Chosen over a branch-index signal through the router (one less thing
+  to plumb) and over a lifecycle observer (only covers app-resume, not the
+  common sell-then-switch-tab path). Regression test verified by control: it
+  FAILS against the stashed fix and passes with it.
+  **Test gotcha:** a widget test that mounts `StockScreen` hangs at `db.close()`
+  unless it unmounts with ≥1s pump steps after `container.dispose()` — the
+  stream-teardown timers must fire inside fake async. Copy the teardown in
+  `stock_screen_regression_test.dart`. Also: output is buffered to the end of a
+  `flutter test` process, so a hung test shows an empty log; instrument with
+  prints and read them only after exit.
+- ~~**MEDIUM** — duplicate SKU allowed.~~ **FIXED 2026-10-02** — app-side
+  uniqueness check in `item_editor_screen._save`, mirroring the existing
+  barcode check (hoisted `db` so both share it). Case-insensitive, because a
+  SKU is read off a label. Blank codes exempt. Regression test covers the
+  case-differing duplicate and asserts the error names the owning item.
+- ~~**MEDIUM** — a sale price of ₹0.00 is accepted (`Validators.amount`
+  `allowZero: true`).~~ **FIXED 2026-10-02** — the item's sale-price field now
+  validates `allowZero: false`.
+- ~~**LOW** — a sale price below the purchase price saves silently.~~
+  **FIXED 2026-10-02** — advisory validator message ('Selling below cost
+  (₹…)') on submit. Deliberately non-blocking: below-cost selling is a real
+  business choice (clearance, loss leader), so the user is told and can
+  re-submit, not stopped.
+
+Router/app-state agent (the rest of that report verified correct — redirect,
+boot gate, shell, query params, per-firm caching all sound):
+- ~~**MEDIUM** — `pull_applier.dart:148` hard-deletes a firm on a sync tombstone
+  without repointing the active firm (the local deletion path does repoint via
+  `_repointActiveFirm`); leaves a phantom selected business until relaunch.~~
+  **FIXED 2026-10-02** — rather than push Riverpod into the applier,
+  `ActiveFirmController` heals itself: `_watchFirmExistence` subscribes to
+  `watchById` for the selected firm and, when the row goes, applies the same
+  policy as the local path (clear when none remain, else the default, else the
+  first remaining, promoting it to default). `select`/`_init` both install the
+  watch; `dispose` cancels it. Regression test `test/active_firm_healing_test.dart`
+  (3 tests: repoint to default, clear when the last business dies, an unrelated
+  deletion leaves the open one alone). UNVERIFIED whether a second signed-in
+  device is even reachable in this build — the fix is defensive, exercised by
+  a raw `DELETE` that mimics the tombstone path.
+  **Test gotcha:** the test must `await ...ready` *before* `select(...)`. If
+  `select` races `_init`, init's `state = defaultFirm.id` lands afterwards and
+  overwrites the selection — and it cancels the watch on the deleted firm, so
+  the healing never runs at all. The app is safe from this because the boot
+  gate awaits `ready` before any UI can pick a firm.
+- ~~**LOW** — `syncStatusProvider` (`providers.dart:86`) is computed once and only
+  invalidated after a manual sync, so "changes waiting to be sent" is stale
+  after writes made before Settings is opened.~~ **FIXED 2026-10-02** — it is
+  now a `StreamProvider` over `SyncEngine.watchPendingCount()` (a drift
+  `watchSingle` count of unsent outbox rows), so the count follows the outbox.
+  Settings is branch 11 of 13 and stays mounted offscreen under the shell's
+  IndexedStack, so a cached read really would have kept reading the value from
+  when the screen was first built. The raw stream emits once per write, so
+  `_coalesceOutboxChanges` passes the first event through at once and then
+  waits a second of quiet — a billing burst becomes one re-read, not one per
+  document. Regression test `test/sync_status_freshness_test.dart`.
+- ~~**LOW** — adaptive nav shell: a cross-branch deep link (`/sales?type=invoice`
+  from the More sheet) becomes the tab's remembered root, so re-tapping Sales
+  reopens the filtered list instead of its home.~~ **ASSESSED, NOT A BUG
+  (2026-10-02)** — the Sales branch's *home already is* the invoice list:
+  `SalesListScreen._docType` defaults to `'invoice'` when `initialType` is
+  absent (`sales_list_screen.dart:44`), and the in-screen Type segmented filter
+  can switch back to it. Nothing strands the user anywhere they can't leave in
+  one tap; the "remembered root" behaviour is the shell deliberately keeping
+  each tab's place.
+
+GST/math agent (partly disputed):
+- `money.dart` `div`/`over100` do not round a *terminating* quotient to scale 2
+  (`div(1, 8)` = 0.125), contradicting their docstrings. The agent's parallel
+  claim that `percent` leaks scale 4 is **wrong** — `percent` wraps its result
+  in `round2`. Harmless in practice (every display path re-rounds).
+- ~~`formatters.dart` `moneyCompact(12345)` returns `₹12.35 K`, contradicting its
+  own docstring (LOW).~~ **FIXED 2026-10-02** — the `K` branch is gone; below a
+  lakh there is no Indian compact unit, so the amount renders as the grouped
+  figure the docstring always promised (`₹12,345`). "K" also read as a
+  percentage to many shopkeepers, and rounding 12,345 up to 12.35 K lost the
+  exact figure. Regression test `test/formatters_test.dart` (4 tests).
+### How to resume
+
+1. Restore or point at a Flutter SDK (`C:\flutter\bin` was the recorded path).
+2. `dart analyze lib/ test/` — the engine edit is the risky one.
+3. `flutter test --exclude-tags golden` — was 87/87; the new apportionment file
+   adds 7, and `money_precision_test`'s 'awkward rates' case is the one to
+   watch for the percent-rounding shift.
+4. Re-verify the open findings against the current tree before fixing them —
+   the audit agents were briefed on an older file inventory.
+
+---
+
+## Prior sessions
 
 ## Current objective
 

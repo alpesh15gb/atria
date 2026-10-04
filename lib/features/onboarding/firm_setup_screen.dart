@@ -297,10 +297,22 @@ class _FirmSetupScreenState extends ConsumerState<FirmSetupScreen> {
   Future<void> _loadRestoreOptions() async {
     setState(() => _busy = true);
     try {
-      final token = await ref.read(authControllerProvider.notifier).accessToken();
+      // Not `accessToken()`: a null token means two different things, and this
+      // screen used to report the wrong one. An unreachable server reads as
+      // "your session has expired, sign in again" — which sends a perfectly
+      // signed-in shopkeeper off to re-enter a password they already have,
+      // when the actual fix is to try again on a connection.
+      final session = await ref
+          .read(authControllerProvider.notifier)
+          .resolveAccessToken();
+      final token = session.accessToken;
       if (token == null) {
+        if (!mounted) return;
         setState(() {
-          _restoreMessage = 'Your session has expired. Sign in again.';
+          _restoreMessage = session.temporarilyUnavailable
+              ? 'Could not reach Atria, so nothing could be checked for restore. '
+                  'Check your connection and try again.'
+              : 'Your session has expired. Sign in again.';
           _restoreFirms = null;
         });
         return;
@@ -341,25 +353,38 @@ class _FirmSetupScreenState extends ConsumerState<FirmSetupScreen> {
   /// look like data loss.
   Future<void> _restoreFirm(ServerFirmMembership firm) async {
     setState(() => _busy = true);
+    // Captured before the awaits, because the success path navigates and this
+    // State is gone by the time anything could ask for a messenger through it.
+    final messenger = ScaffoldMessenger.maybeOf(context);
     try {
       final engine = ref.read(syncEngineProvider);
       final report = await engine.restoreFirm(firm.firmId);
       if (!report.restored) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(report.describe)),
-          );
-        }
+        messenger?.showSnackBar(
+          SnackBar(content: Text(report.describe)),
+        );
         return;
       }
       await ref.read(onboardingDoneProvider.notifier).complete();
       await ref.read(activeFirmIdProvider.notifier).select(firm.firmId);
+      // Navigate into the books, exactly as `_chooseDemo` and `_save` do.
+      //
+      // This used to stop at the two provider writes above, which made the
+      // SUCCESSFUL path the silent one: the router's `refreshListenable` pulses
+      // only on `appInitializationProvider`, and that resolves once at boot —
+      // so flipping the first-run flag did not re-run `redirect`, the panel
+      // reappeared unchanged, and the books the user had just pulled in were
+      // never opened. The failure branch snackbared, which is why a failed
+      // restore announced itself and a successful one did not.
+      if (!mounted) return;
+      messenger?.showSnackBar(
+        SnackBar(content: Text(report.describe)),
+      );
+      context.go('/dashboard');
     } on Object catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Restore failed: $error')),
-        );
-      }
+      messenger?.showSnackBar(
+        SnackBar(content: Text('Restore failed: $error')),
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }

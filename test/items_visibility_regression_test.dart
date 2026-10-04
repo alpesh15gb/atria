@@ -59,7 +59,9 @@ void main() {
 
     // A layout crash here used to blank the whole pane — surface it loudly.
     expect(tester.takeException(), isNull);
-    expect(find.text('Items'), findsOneWidget);
+    // The list page's own heading — QBO calls this section "Products and
+    // services", and the header replaces the old app-bar title.
+    expect(find.text('Products and services'), findsOneWidget);
     expect(find.text('Stock value (sale)'), findsOneWidget,
         reason: 'the stats row must render above the list');
     expect(find.text('kkskks'), findsOneWidget,

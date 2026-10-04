@@ -7,10 +7,14 @@ import '../../core/database/app_database.dart';
 import '../../core/database/repositories/report_repository.dart';
 import '../../core/state/providers.dart';
 import '../../core/theme/app_radius.dart';
+import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/money.dart';
 import 'stock_adjustment_dialog.dart';
+import '../../shared/widgets/atria_list_toolbar.dart';
+import '../../shared/widgets/atria_list_page.dart';
+import '../../shared/widgets/atria_page_header.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/money_text.dart';
 import '../../shared/widgets/status_chip.dart';
@@ -18,6 +22,12 @@ import '../../shared/widgets/status_chip.dart';
 final _stockSummaryProvider = FutureProvider<List<StockSummaryRow>>((ref) async {
   final repo = ref.watch(reportRepositoryProvider);
   if (repo == null) return const <StockSummaryRow>[];
+  // The tab stays mounted under the nav shell, so it is never rebuilt when the
+  // user sells something in another tab. `currentStock` is a cached balance
+  // that every movement rewrites, so depending on the movement log keeps this
+  // reading fresh without a poll and without a focus signal to plumb through
+  // the router.
+  ref.watch(itemMovementSignalProvider);
   return repo.stockSummary();
 });
 
@@ -95,13 +105,24 @@ class _StockScreenState extends ConsumerState<StockScreen> {
     if (itemRepo == null) return;
     final saved = await showStockAdjustmentDialog(context, row: row);
     if (saved == null || !mounted) return;
+    final db = ref.read(appDatabaseProvider);
     try {
-      await itemRepo.applyStockEffect(
-        itemId: saved.itemId,
-        quantity: saved.quantity,
-        kind: 'adjustment',
-        source: 'adjustment',
-        notes: saved.notes,
+      // Written inside a transaction, not bare. `applyStockEffect` posts TWO
+      // writes — the stock-movement row and the `currentStock` rewrite — and it
+      // deliberately opens no transaction of its own, because the document
+      // repositories that call it already hold one (nesting would need drift's
+      // `TransactionExecutor`). Called bare from here, an error or an app kill
+      // between those two writes left the ledger — the table of record —
+      // permanently disagreeing with the cached balance every count reads, and
+      // nothing could reconcile them afterwards.
+      await db.transaction(
+        () => itemRepo.applyStockEffect(
+          itemId: saved.itemId,
+          quantity: saved.quantity,
+          kind: 'adjustment',
+          source: 'adjustment',
+          notes: saved.notes,
+        ),
       );
     } catch (e) {
       // The adjustment dialog had already closed: a failed write vanished
@@ -143,7 +164,7 @@ class _StockScreenState extends ConsumerState<StockScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 6, 20, 14),
+                  padding: const EdgeInsets.fromLTRB(0, 6, 0, 14),
                   child: Row(
                     children: [
                       Expanded(
@@ -222,27 +243,30 @@ class _StockScreenState extends ConsumerState<StockScreen> {
     // the cards disagree with the table whenever the low-stock filter was on.
     final totals = _computeTotals(rows);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Stock Summary'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.tune_rounded),
-            tooltip: 'Adjust stock',
-            onPressed: repo == null ? null : () => _adjustStock(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded),
-            tooltip: 'Refresh',
-            onPressed: () => ref.invalidate(_stockSummaryProvider),
-          ),
-        ],
-      ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          return CustomScrollView(
+    // The shared page frame owns the heading, its inset and the position of
+    // the actions. The body stays a sliver list so the table can size itself
+    // from the available width.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return AtriaListPage(
+          title: 'Stock summary',
+          actions: [
+            AtriaHeaderIconAction(
+              icon: Icons.tune_rounded,
+              tooltip: 'Adjust stock',
+              onPressed: repo == null ? null : () => _adjustStock(),
+            ),
+            AtriaHeaderIconAction(
+              icon: Icons.refresh_rounded,
+              tooltip: 'Refresh',
+              onPressed: () => ref.invalidate(_stockSummaryProvider),
+            ),
+          ],
+          body: CustomScrollView(
             slivers: [
-              SliverToBoxAdapter(child: _summaryCards(context, totals, repo == null)),
+              SliverToBoxAdapter(
+                child: _summaryCards(context, totals, repo == null),
+              ),
               SliverToBoxAdapter(child: _filterRow()),
               if (repo == null)
                 const SliverFillRemaining(
@@ -275,80 +299,105 @@ class _StockScreenState extends ConsumerState<StockScreen> {
                   child: _table(context, constraints.maxWidth, rows, totals),
                 ),
             ],
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 
   Widget _summaryCards(BuildContext context, _Totals totals, bool noFirm) {
     final text = Theme.of(context).textTheme;
+    final isCompact = MediaQuery.sizeOf(context).width < 600;
+
+    final trackedCard = _StatCard(
+      label: 'Tracked items',
+      icon: Icons.inventory_2_outlined,
+      value: Text(
+        noFirm ? '-' : '${totals.count}',
+        style: text.titleLarge?.copyWith(
+          fontWeight: FontWeight.w700,
+          fontFeatures: const [FontFeature.tabularFigures()],
+        ),
+      ),
+    );
+
+    final valueCard = _StatCard(
+      label: 'Stock at sale',
+      icon: Icons.savings_outlined,
+      value: MoneyText(
+        totals.saleValue,
+        compact: true,
+        style: text.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+      ),
+    );
+
+    final lowCard = _StatCard(
+      label: 'Low stock',
+      icon: Icons.warning_amber_rounded,
+      value: Text(
+        noFirm ? '-' : '${totals.lowCount}',
+        style: text.titleLarge?.copyWith(
+          fontWeight: FontWeight.w700,
+          color: totals.lowCount > 0 ? atriaColors(context).danger : null,
+          fontFeatures: const [FontFeature.tabularFigures()],
+        ),
+      ),
+      onTap: totals.lowCount > 0
+          ? () => setState(() => _lowOnly = true)
+          : null,
+    );
+
+    if (isCompact) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(0, 12, 0, 4),
+        child: Column(
+          children: [
+            valueCard,
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(child: trackedCard),
+                const SizedBox(width: 8),
+                Expanded(child: lowCard),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      padding: const EdgeInsets.fromLTRB(0, 12, 0, 4),
       child: Row(
         children: [
-          Expanded(
-            child: _StatCard(
-              label: 'Tracked items',
-              icon: Icons.inventory_2_outlined,
-              value: Text(
-                noFirm ? '-' : '${totals.count}',
-                style: text.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
-            ),
-          ),
+          Expanded(child: trackedCard),
           const SizedBox(width: 10),
-          Expanded(
-            child: _StatCard(
-              label: 'Stock at sale',
-              icon: Icons.savings_outlined,
-              value: MoneyText(
-                totals.saleValue,
-                compact: true,
-                style: text.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-              ),
-            ),
-          ),
+          Expanded(child: valueCard),
           const SizedBox(width: 10),
-          Expanded(
-            child: _StatCard(
-              label: 'Low stock',
-              icon: Icons.warning_amber_rounded,
-              value: Text(
-                noFirm ? '-' : '${totals.lowCount}',
-                style: text.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: totals.lowCount > 0
-                      ? atriaColors(context).danger
-                      : null,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
-              onTap: totals.lowCount > 0
-                  ? () => setState(() => _lowOnly = true)
-                  : null,
-            ),
-          ),
+          Expanded(child: lowCard),
         ],
       ),
     );
   }
 
   Widget _filterRow() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: FilterChip(
-          label: const Text('Low stock only'),
-          avatar: const Icon(Icons.warning_amber_rounded, size: 16),
-          selected: _lowOnly,
-          onSelected: (selected) => setState(() => _lowOnly = selected),
+    return AtriaFilterBar(
+      filters: [
+        AtriaAdaptiveFilter<bool>(
+          label: 'Show',
+          scrollable: false,
+          segments: const [
+            AtriaSegment(value: false, label: 'All items'),
+            AtriaSegment(
+              value: true,
+              label: 'Low stock',
+              icon: Icons.warning_amber_rounded,
+            ),
+          ],
+          value: _lowOnly,
+          onChanged: (lowOnly) => setState(() => _lowOnly = lowOnly),
         ),
-      ),
+      ],
     );
   }
 
@@ -361,11 +410,14 @@ class _StockScreenState extends ConsumerState<StockScreen> {
     final scheme = Theme.of(context).colorScheme;
     final minWidth = availableWidth < 760.0 ? 760.0 : availableWidth;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+      padding: const EdgeInsets.fromLTRB(0, 4, 0, 12),
       child: Container(
         decoration: BoxDecoration(
+          color: scheme.surface,
           borderRadius: AppRadius.lgAll,
-          border: Border.all(color: scheme.outline, width: 0.9),
+          boxShadow: Theme.of(context).brightness == Brightness.dark
+              ? AppShadows.darkCard
+              : AppShadows.card,
         ),
         clipBehavior: Clip.antiAlias,
         child: SingleChildScrollView(
@@ -676,7 +728,7 @@ class _MovementTile extends StatelessWidget {
         alignment: Alignment.center,
         child: Icon(
           _movementKindIcon(movement.kind),
-          size: 17,
+          size: 18,
           color: positive ? colors.onSuccessSurface : colors.onDangerSurface,
         ),
       ),

@@ -1,0 +1,5 @@
+[
+  {"id": "ITEM1", "name": "Canon NPG90 Toner", "quantity": 10, "unit_price": 1000, "tax_rate": 18, "price_with_tax": 1180, "discount_percent": 0, "description": "Mono laser cartridge", "hsn_code": "84439959", "item_type": "Product", "unit": "pcs", "category": "Consumables", "swipe_id": "1"},
+  {"id": "ITEM2", "name": "Annual Maintenance Contract", "quantity": 0, "unit_price": 1129, "tax_rate": 18, "price_with_tax": 1332, "description": "AMC for the year", "hsn_code": "9987313", "item_type": "Service", "unit": "nos", "category": "Services", "swipe_id": "2"},
+  {"id": "ITEM3", "name": "Installation Service", "quantity": 0, "unit_price": 1000, "tax_rate": 18, "price_with_tax": 1180, "description": "On-site installation", "hsn_code": "998721", "item_type": "Service", "unit": "nos", "category": "Services", "swipe_id": "3"}
+]

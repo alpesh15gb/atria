@@ -32,18 +32,20 @@ void main() {
       await tester.pump(const Duration(milliseconds: 32));
     }
 
-    // Action bar: exit affordance, Save & New (new documents), Save.
+    // Action bar, in QuickBooks' wording: exit, Save and new (new documents),
+    // Save and close.
     expect(find.byTooltip('Exit'), findsOneWidget);
-    expect(find.text('Save & New'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, 'Save'), findsOneWidget);
+    expect(find.text('Save and new'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Save and close'), findsOneWidget);
 
-    // Form: dashed add-item strip and the collapsed link sections.
-    expect(find.text('Add item'), findsOneWidget);
-    expect(find.text('Add Notes'), findsOneWidget);
-    expect(find.text('Add Discount & Charges'), findsOneWidget);
+    // Form: the QBO add-lines link and the page-level message block.
+    expect(find.text('Add lines'), findsOneWidget);
+    expect(find.text('Message on invoice'), findsOneWidget);
+    expect(find.text('Discount, shipping and round off'), findsOneWidget);
 
-    // Sticky summary: breakdown + total + one-tap settlement.
-    expect(find.text('Total Amount'), findsOneWidget);
+    // Totals sit under the line table now (QBO), with the one-tap settlement
+    // toggle beneath them.
+    expect(find.text('Total'), findsOneWidget);
     expect(find.text('Mark as fully paid'), findsOneWidget);
 
     // Unmount before disposing so stream teardown fires inside the test.

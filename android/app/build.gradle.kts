@@ -1,7 +1,33 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// Release signing, read from android/key.properties when it exists.
+//
+// The template ships release builds signed with the *debug* key, which is fine
+// for `flutter run --release` and unacceptable for a shop: a debug-signed APK
+// cannot be updated by a release-signed one, Play rejects it outright, and
+// anybody who has the (public, well-known) debug keystore can sign a build that
+// Android will accept as an update to the installed app.
+//
+// key.properties is deliberately not committed. Create it with:
+//
+//   storeFile=C:/keys/atria-upload.jks
+//   storePassword=...
+//   keyAlias=upload
+//   keyPassword=...
+//
+// and keep the .jks somewhere backed up: losing it means no existing install
+// can ever be updated in place.
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+val hasReleaseKeystore = keystorePropertiesFile.exists()
+if (hasReleaseKeystore) {
+    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
 }
 
 android {
@@ -32,11 +58,31 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as String
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Falls back to the debug key when key.properties is absent, so a
+            // developer can still `flutter build apk --release` without the
+            // shop's keystore — loudly, in the build log, rather than silently.
+            if (hasReleaseKeystore) {
+                signingConfig = signingConfigs.getByName("release")
+            } else {
+                signingConfig = signingConfigs.getByName("debug")
+                logger.warn(
+                    "Atria: android/key.properties not found — the release APK is "
+                        + "signed with the debug key and must not be distributed."
+                )
+            }
         }
     }
 }

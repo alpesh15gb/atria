@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../../core/database/app_database.dart';
 import '../../core/state/providers.dart';
+import '../../core/utils/formatters.dart';
 import '../../core/utils/money.dart';
 import '../../shared/widgets/common_widgets.dart';
 
@@ -65,13 +66,16 @@ class RecycleBinScreen extends ConsumerWidget {
           children: [
             _DeletedList(
               stream: deletedDocs,
-              titleOf: (entity) =>
-                  '${(entity as SalesInvoiceEntity).docType == "invoice" ? "Invoice" : entity.docType} '
-                  '${entity.number}',
+              titleOf: (entity) {
+                final doc = entity as SalesInvoiceEntity;
+                return '${_docTypeLabel(doc.docType)} ${doc.number}';
+              },
               subtitleOf: (entity) =>
                   '${entity.partyName ?? "Walk-in"} · '
-                      '₹${Money.of(entity.grandTotal)} · '
+                      '${Formatters.money(Money.of(entity.grandTotal))} · '
                       'Deleted ${_when(entity.deletedAt)}',
+              purgeNote:
+                  'A document dated inside a locked period cannot be removed.',
               onRestore: (id) => docs?.restore(id) ?? Future.value(),
               onDeleteForever: (id) => docs?.purge(id) ?? Future.value(),
             ),
@@ -81,8 +85,10 @@ class RecycleBinScreen extends ConsumerWidget {
                   'Bill ${(entity as PurchaseBillEntity).number}',
               subtitleOf: (entity) =>
                   '${entity.partyName ?? "Supplier"} · '
-                      '₹${Money.of(entity.grandTotal)} · '
+                      '${Formatters.money(Money.of(entity.grandTotal))} · '
                       'Deleted ${_when(entity.deletedAt)}',
+              purgeNote:
+                  'A bill dated inside a locked period cannot be removed.',
               onRestore: (id) => bills?.restore(id) ?? Future.value(),
               onDeleteForever: (id) => bills?.purge(id) ?? Future.value(),
             ),
@@ -91,16 +97,21 @@ class RecycleBinScreen extends ConsumerWidget {
               titleOf: (entity) => (entity as PaymentEntity).number,
               subtitleOf: (entity) =>
                   '${entity.partyName ?? "Payment"} · '
-                      '₹${Money.of(entity.amount)} · '
+                      '${Formatters.money(Money.of(entity.amount))} · '
                       'Deleted ${_when(entity.deletedAt)}',
+              purgeNote:
+                  'A payment dated inside a locked period cannot be removed.',
               onRestore: (id) => payments?.restore(id) ?? Future.value(),
-              onDeleteForever: (id) => payments?.deleteForever(id) ?? Future.value(),
+              onDeleteForever: (id) =>
+                  payments?.deleteForever(id) ?? Future.value(),
             ),
             _DeletedList(
               stream: deletedParties,
               titleOf: (entity) => (entity as PartyEntity).name,
               subtitleOf: (entity) =>
                   'Deleted ${_when((entity as PartyEntity).deletedAt)}',
+              purgeNote:
+                  'A party used on any invoice or bill is refused automatically.',
               onRestore: partyRepo.restore,
               onDeleteForever: partyRepo.deleteForever,
             ),
@@ -109,6 +120,8 @@ class RecycleBinScreen extends ConsumerWidget {
               titleOf: (entity) => (entity as ItemEntity).name,
               subtitleOf: (entity) =>
                   'Deleted ${_when((entity as ItemEntity).deletedAt)}',
+              purgeNote:
+                  'An item with stock history is refused automatically.',
               onRestore: itemRepo.restore,
               onDeleteForever: itemRepo.deleteForever,
             ),
@@ -117,6 +130,17 @@ class RecycleBinScreen extends ConsumerWidget {
       ),
     );
   }
+
+  /// The document types the bin can hold, as a person reads them. The stored
+  /// value is the slug the rest of the app keys filters on.
+  String _docTypeLabel(String docType) => switch (docType) {
+        'invoice' => 'Invoice',
+        'quotation' => 'Quotation',
+        'sales_order' => 'Sales order',
+        'delivery_note' => 'Delivery note',
+        'credit_note' => 'Credit note',
+        _ => docType,
+      };
 
   String _when(DateTime? at) {
     if (at == null) return 'earlier';
@@ -129,6 +153,7 @@ class _DeletedList extends StatelessWidget {
     required this.stream,
     required this.titleOf,
     required this.subtitleOf,
+    required this.purgeNote,
     required this.onRestore,
     required this.onDeleteForever,
   });
@@ -136,19 +161,22 @@ class _DeletedList extends StatelessWidget {
   final Stream<List<dynamic>> stream;
   final String Function(dynamic) titleOf;
   final String Function(dynamic) subtitleOf;
+
+  /// Why a permanent delete may be refused for this tab. It used to be a
+  /// hard-coded "party records" / "item records" line, so binning a payment
+  /// warned about items.
+  final String purgeNote;
+
   final Future<void> Function(String) onRestore;
   final Future<void> Function(String) onDeleteForever;
 
   Future<void> _confirmDeleteForever(
       BuildContext context, dynamic entity) async {
-    final repo = entity is PartyEntity ? 'party' : 'item';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text('Delete "${titleOf(entity)}" forever?'),
-        content: Text(
-            'This cannot be undone. $repo records referenced by documents or '
-            'history are refused automatically.'),
+        content: Text('This cannot be undone. $purgeNote'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -191,9 +219,8 @@ class _DeletedList extends StatelessWidget {
           return const EmptyState(
             icon: Icons.delete_outline_rounded,
             title: 'Nothing here',
-            message:
-                'Deleted parties and items wait here until they are restored '
-                'or removed for good.',
+            message: 'Deleted records wait here until they are restored or '
+                'removed for good.',
           );
         }
         return ListView.separated(
@@ -234,11 +261,20 @@ class _DeletedList extends StatelessWidget {
                     tooltip: 'Restore',
                     icon: const Icon(Icons.restore_rounded),
                     onPressed: () async {
-                      await onRestore(entity.id);
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-                        SnackBar(content: Text('Restored "${titleOf(entity)}"')),
-                      );
+                      final messenger = ScaffoldMessenger.maybeOf(context);
+                      try {
+                        await onRestore(entity.id);
+                        if (!context.mounted) return;
+                        messenger?.showSnackBar(
+                          SnackBar(content: Text('Restored "${titleOf(entity)}"')),
+                        );
+                      } catch (error) {
+                        // A restore is lock-guarded like a purge is, so this
+                        // can be refused — and without a message the row would
+                        // just sit there, looking broken.
+                        if (!context.mounted) return;
+                        messenger?.showSnackBar(SnackBar(content: Text('$error')));
+                      }
                     },
                   ),
                   IconButton(

@@ -46,6 +46,14 @@ dependencies:
   excel: ^4.0.6
   printing: ^5.13.4
 
+  # Reads Vyapar's .vyb backups, which are ZIP archives holding a SQLite
+  # file. Constrained to 3.x because excel already pins ^3.6.1.
+  archive: ^3.6.1
+
+  # Raw spooling to a Windows print queue (winspool.drv) for USB label
+  # printers. Pure Dart, already present transitively via file_picker.
+  ffi: ^2.1.0
+
   # Utilities
   uuid: ^4.5.1
   collection: ^1.18.0
@@ -60,6 +68,21 @@ dependencies:
   # Optional cloud sync (inert until configured in Settings)
   supabase_flutter: ^2.8.0
   crypto: ^3.0.7
+  # `simple_barcode_scanner` was REMOVED from here.
+  #
+  # It was declared but imported nowhere in the app, so there has never been any
+  # camera barcode scanning on any platform: POS relies entirely on a hardware
+  # scanner presenting itself as a keyboard wedge (see `pos_screen.dart`), and
+  # scanning a supplier bill goes through `file_picker`'s system camera picker.
+  #
+  # Keeping it also cost three transitive Windows plugins - `webview_windows`,
+  # `permission_handler` and `permission_handler_windows` - and
+  # `webview_windows_plugin.vcxproj` no longer compiles at all against MSVC
+  # 14.51: its C++ uses `<experimental/coroutine>`, which MSVC now rejects with
+  # `STL1011 ... will be REMOVED SOON`. The entire Windows build failed on it.
+  #
+  # To bring camera scanning back for real, add a maintained scanner and call it
+  # from the POS search field; do not re-add this package expecting it to work.
 
 dev_dependencies:
   flutter_test:

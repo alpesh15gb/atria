@@ -91,7 +91,7 @@ _No `TODO`/`FIXME`/`UnsupportedError`/`unimplemented` in `lib/` at all — these
 - **Compliance:** e-invoice / IRN / ACK-NO, e-way bill, TDS, TCS computation, GSTR-9/9C, live 2A sync — absent (2A = file import only; 9 = known-deferred).
 - **Sending:** e-mail send, SMS, scheduled WhatsApp reminders (current reminders are manual one-tap) — absent.
 - **Automation:** recurring invoices, auto payment reminders / dunning schedule, interest on overdue (the "Interest @18% p.a." string is **hard-coded PDF text** at `invoice_pdf.dart:606`, never computed) — absent.
-- **Sales ops:** POS / quick-bill mode, thermal ESC/POS printing, barcode *scanning* (no camera package; only label printing), price lists/price levels at billing. (Estimates/quotations **are** numbered — `quotationPrefix/quotationSequence` — ✅.)
+- **Sales ops:** POS / quick-bill mode ✅ and thermal *label* printing (TSPL for TSC, ZPL for Zebra) ✅ — both shipped in §17. **Still absent:** ESC/POS *receipt* printing (a counter sale prints stickers, not a customer bill), barcode *scanning* (no camera package; the search box accepts a wedge scanner because it types into the focused field), price lists/price levels at billing. (Estimates/quotations **are** numbered — `quotationPrefix/quotationSequence` — ✅.)
 - **Inventory:** multi-godown, batch/expiry, item images, unit conversion (kg↔g — `units.dart` has no conversion factor), stock valuation method (FIFO/weighted avg) — absent.
 - **Purchases:** purchase orders, PO→bill, 2A auto-match → bill, purchase attachments — absent.
 - **Parties/finance:** credit-limit enforcement, debit/credit ageing buckets, bank reconciliation (known-deferred), TDS party ledgers, payroll — absent.
@@ -148,7 +148,7 @@ Covered: gst_engine, document_numbering, validators, formatters/money/number_wor
 | 9 | **App lock / biometric** | [missing] | Books on a shared shop phone with no lock is a non-starter vs Vyapar |
 | 10 | **Recurring invoices + scheduled reminders** | [missing] | Retainers/AMC/SaaS billing is common; reminders are manual taps |
 | 11 | **TDS/TCS computation & reporting** | [missing] (dead columns) | Collecting TCS without computing it is a compliance risk |
-| 12 | **POS / quick-bill + thermal printing** | [missing] | Counter sales need fast bills; print = OS dialog only |
+| 12 | **POS / quick-bill + thermal printing** | [partial] ✅ §17 | Quick-bill and label printing shipped; **ESC/POS receipt printing still missing**, so a customer bill still goes through the OS dialog |
 | 13 | **Multi-godown / batch-expiry / item images / unit conversion** | [known-deferred] / [missing] | Retail & pharma/food SMBs can't run stock without these |
 | 14 | **Tests on money paths: `invoice_pdf.dart`, `report_repository.dart`, editor save-totals; plus CI** | [partial] | 87 tests but the printed PDF and every P&L/day-book number are unverified |
 | 15 | **Performance: unbounded `watchAll`, never-drained `sync_queue`, UI-thread report aggregation** | [partial] | Degrades exactly when a real business gets big (1000+ items) |
@@ -186,7 +186,7 @@ Covered: gst_engine, document_numbering, validators, formatters/money/number_wor
 4. E-mail/SMS delivery (5), Tally/Vyapar/Excel import (6) — format + UX design needed.
 5. Hindi/regional i18n (8) — `.arb` + `l10n.yaml` scaffolding.
 6. App lock/biometric (9) — `local_auth` integration.
-7. Recurring invoices + scheduled reminders (10), TDS/TCS computation (11), POS/thermal (12).
+7. Recurring invoices + scheduled reminders (10), TDS/TCS computation (11), ESC/POS receipt printing for the counter screen (12, the remainder of §17).
 8. Multi-godown / batch-expiry / unit conversion (13) — schema work.
 9. Branded launcher icons — assets exist (`assets/logo/atria_logo.svg`) but rasterizing SVG → mipmaps needs a tool run (`flutter_launcher_icons`); current icons are stock.
 10. Dark-mode goldens, 360dp/1600px goldens, integration_test/, accessibility Semantics/Tooltip sweep (audit L-series partial: tooltips added where touched).

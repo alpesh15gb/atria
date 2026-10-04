@@ -1,0 +1,24 @@
+{
+  "invoice_details": {
+    "serial_number": "SUP-001",
+    "document_type": "purchase",
+    "document_date": "16-04-2026",
+    "due_date": "16-05-2026",
+    "hash_id": "BILLHASH1",
+    "party": {"id": "VEND1", "type": "vendor", "name": "I-HEAP ELECTRONICS PVT LTD", "country_code": "91", "phone_number": "9100960692", "email": "sales@iheap.in", "gstin": "36AAHCI7898C2Z3",
+      "billing_address": {"address_line1": "2nd Floor, Parklane Circle", "city": "Hyderabad", "state": "TELANGANA", "country": "India", "pincode": "500003"}},
+    "items": [
+      {"id": "ITEM1", "item_type": "Product", "name": "Canon NPG90 Toner", "quantity": 10, "unit_price": 800, "tax_rate": 18, "price_with_tax": 944, "net_amount": 8000, "total_amount": 9440, "discount_percent": 0, "discount_amount": 0, "description": "Bulk order", "hsn_code": "84439959", "unit": "pcs", "category": "Consumables"}
+    ],
+    "net_amount": 8000,
+    "tax_amount": 1440,
+    "total_amount": 9440,
+    "total_discount": 0,
+    "amount_paid": 5000,
+    "amount_pending": 4440,
+    "payment_status": "pending",
+    "notes": "Supplier invoice 4471",
+    "terms": "",
+    "payments": []
+  }
+}

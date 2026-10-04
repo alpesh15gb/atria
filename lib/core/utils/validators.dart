@@ -10,9 +10,17 @@ class Validators {
   static const int _mod = 36;
 
   // Official GSTIN structure regex.
-  // 2-digit state (00-38) | 10-char PAN | entity char | 'Z' | checksum.
+  // 2-digit state | 10-char PAN | entity char | 'Z' | checksum.
+  //
+  // `97` is "Other Territory" and is a real, issued state code — it is in the
+  // state dropdown in `indian_states.dart` — so refusing it here left anyone who
+  // picked it permanently unable to save a GSTIN: the regex rejected every
+  // value, because nothing else in the pattern could ever match a `97` prefix.
+  // The alternatives stay disjoint on their first character, so the order is
+  // irrelevant; the check digit below is computed from the same
+  // `0-9A-Z` code-point table and handles `9` and `7` without special cases.
   static final RegExp _gstinRegex = RegExp(
-    r'^([0-2][0-9]|[3][0-8])[A-Z]{3}[ABCFGHLJPTK][A-Z]\d{4}[A-Z][A-Z0-9]Z[A-Z0-9]$',
+    r'^([0-2][0-9]|3[0-8]|97)[A-Z]{3}[ABCFGHLJPTK][A-Z]\d{4}[A-Z][A-Z0-9]Z[A-Z0-9]$',
   );
 
   static final RegExp _panRegex = RegExp(r'^[A-Z]{5}[0-9]{4}[A-Z]{1}$');

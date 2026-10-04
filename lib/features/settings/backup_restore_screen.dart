@@ -64,17 +64,33 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
     try {
       final db = ref.read(appDatabaseProvider);
       final path = await db.backupRepository.exportToFile();
+      // A backup that cannot be read back is not a backup. Offer Share and Open
+      // only once the file is really there and non-empty — sharing a missing
+      // path hands the user a broken file with a cheerful label.
+      final file = File(path);
+      final written = await file.exists() && await file.length() > 0;
       final stamp = DateTime.now();
-      await db.settingsRepository.set(
-        SettingsRepository.kLastBackupAt,
-        stamp.toUtc().toIso8601String(),
-      );
+      // Only stamp the backup as taken when the file is really there: otherwise
+      // the "last backup" line would promise a file that cannot be restored.
+      if (written) {
+        await db.settingsRepository.set(
+          SettingsRepository.kLastBackupAt,
+          stamp.toUtc().toIso8601String(),
+        );
+      }
       if (!mounted) return;
       setState(() {
         _state = _State.idle;
-        _exportPath = path;
-        _lastBackup = stamp;
+        _exportPath = written ? path : null;
+        if (written) _lastBackup = stamp;
       });
+      if (!written) {
+        messenger?.showSnackBar(SnackBar(
+          content: Text('The backup file could not be read back from '
+              '${Formatters.ellipsis(path, 40)} — try exporting again.'),
+        ));
+        return;
+      }
       messenger?.showSnackBar(
         const SnackBar(content: Text('Backup created')),
       );
@@ -88,23 +104,28 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
   // ---- Restore -----------------------------------------------------------
 
   Future<void> _pickAndRestore() async {
+    // withData: false, deliberately. A backup is every firm, party, item and
+    // document on the device as JSON — pulling it through the platform channel
+    // put the whole thing in RAM twice (once as bytes, once as the decoded
+    // payload) and made the file.path fallback below unreachable. Reading the
+    // path lets the OS stream it instead.
     final picked = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: const ['json'],
-      withData: true,
+      withData: false,
     );
     if (picked == null || picked.files.isEmpty) return;
 
     final file = picked.files.first;
     Map<String, dynamic>? payload;
     try {
-      final bytes = file.bytes;
-      if (bytes != null) {
-        payload = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
-      } else if (file.path != null) {
-        payload =
-            jsonDecode(await _readFile(file.path!)) as Map<String, dynamic>;
-      }
+      final path = file.path;
+      final json = path != null
+          ? await _readFile(path)
+          : // No path (an unusual provider, or a cloud-backed pick): the bytes
+            // the plugin did give us are the only way in.
+            utf8.decode(file.bytes ?? const <int>[]);
+      payload = jsonDecode(json) as Map<String, dynamic>;
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -112,7 +133,6 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
       );
       return;
     }
-    if (payload == null) return;
     if (!mounted) return;
 
     // Reject a wrong file BEFORE the destructive confirmation — the restore

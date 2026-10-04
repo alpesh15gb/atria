@@ -199,10 +199,23 @@ class PurchaseRepository with SyncQueueMixin {
       }
 
       final paidAmount = existing?.paidAmount ?? 0.0;
-      final balance = grandTotal.toDouble() - paidAmount;
-      final paymentStatus = balance <= 0.001
-          ? 'paid'
-          : (paidAmount > 0.001 ? 'partial' : 'unpaid');
+      // One derivation for both columns (see [DocumentSettlement]). This write
+      // used to store `grandTotal - paid` unclamped, so deleting a ₹3,000 line
+      // off a ₹10,000 bill that had been paid in full wrote a **−₹3,000**
+      // payable with a 'paid' status beside it, and totalPayable() then netted
+      // that negative against every other supplier's balance.
+      //
+      // Only a bill is payable. A purchase order (nothing received) and a debit
+      // note (goods returned, credit to come) carry no outstanding amount, and
+      // their status is now derived from that stored zero rather than from the
+      // unclamped difference — which is why they used to read "Unpaid" beside a
+      // ₹0 balance for ever.
+      final settlement = draft.docType == 'bill'
+          ? DocumentSettlement.of(
+              grandTotal: grandTotal.toDouble(),
+              paidAmount: paidAmount,
+            )
+          : DocumentSettlement.settled;
 
       final companion = PurchaseBillsCompanion.insert(
         id: draft.id,
@@ -214,9 +227,9 @@ class PurchaseRepository with SyncQueueMixin {
         billDate: draft.billDate,
         dueDate: Value(draft.dueDate),
         status: Value(draft.status),
-        paymentStatus: Value(paymentStatus),
+        paymentStatus: Value(settlement.status),
         paidAmount: Value(paidAmount),
-        balanceDue: Value(draft.docType == 'bill' ? balance : 0),
+        balanceDue: Value(settlement.balance),
         partyName: Value(draft.partyName),
         partyGstin: Value(draft.partyGstin),
         partyGstType: Value(draft.partyGstType),
@@ -306,12 +319,23 @@ class PurchaseRepository with SyncQueueMixin {
     return query.getSingleOrNull();
   }
 
+  /// How a refusal names the row it refused — "Bill PUR-4", not a uuid.
+  String _docLabel(PurchaseBillEntity bill) =>
+      '${bill.docType == 'bill' ? 'Bill' : 'Document'} ${bill.number}';
+
   /// Soft-deletes into the document recycle bin (stock-in reversed, audit
   /// written, locked periods respected). See sales_repository.softDelete.
+  ///
+  /// Refuses a bill that is already in the bin: the guard used to live only in
+  /// the UI that hides the action, so a second delete reversed the reversal
+  /// and doubled the stock back in.
   Future<void> softDelete(String id, {String? actor}) async {
     await db.transaction(() async {
       final bill = await getById(id);
       if (bill == null) return;
+      if (bill.isDeleted) {
+        throw StateError('${_docLabel(bill)} is already in the recycle bin.');
+      }
       await db.assertDateEditable(firmId, bill.billDate);
       await db.reverseStockForSource(firmId, id);
       await (db.update(db.purchaseBills)..where((t) => t.id.equals(id))).write(
@@ -340,10 +364,18 @@ class PurchaseRepository with SyncQueueMixin {
   /// add stock back in, debit notes (purchase returns) deduct it again —
   /// matching the sign each doc type posts on save, so delete+restore is
   /// net zero on the stock ledger.
+  ///
+  /// Refuses a bill that is not in the bin — re-posting a live bill's stock
+  /// added its quantity a second time, with no state check at all.
   Future<void> restore(String id, {String? actor}) async {
     await db.transaction(() async {
       final bill = await getById(id);
       if (bill == null) return;
+      if (!bill.isDeleted) {
+        throw StateError(
+            '${_docLabel(bill)} is not in the recycle bin — there is nothing '
+            'to restore.');
+      }
       await db.assertDateEditable(firmId, bill.billDate);
       await (db.update(db.purchaseBills)..where((t) => t.id.equals(id))).write(
         PurchaseBillsCompanion(
@@ -536,13 +568,15 @@ class PurchaseRepository with SyncQueueMixin {
         amount = doc.balanceDue;
       }
       final paid = doc.paidAmount + amount;
-      final balance = doc.grandTotal - paid;
-      final status =
-          balance <= 0.001 ? 'paid' : (paid > 0.001 ? 'partial' : 'unpaid');
+      // Same derivation the save path uses (see [DocumentSettlement]).
+      final settlement = DocumentSettlement.of(
+        grandTotal: doc.grandTotal,
+        paidAmount: paid,
+      );
       await db.update(db.purchaseBills).replace(doc.copyWith(
             paidAmount: paid,
-            balanceDue: balance < 0 ? 0 : balance,
-            paymentStatus: status,
+            balanceDue: settlement.balance,
+            paymentStatus: settlement.status,
             updatedAt: DateTime.now(),
           ));
       await enqueue(

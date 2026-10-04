@@ -16,17 +16,21 @@ import '../../core/constants/indian_states.dart';
 import '../../core/database/app_database.dart';
 import '../../core/database/repositories/firm_repository.dart';
 import '../../core/engine/gst_engine.dart';
+import '../../core/printer/printer_service.dart';
 import '../../core/services/invoice_pdf.dart';
 import '../../core/state/providers.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/file_names.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/number_words.dart';
 import '../../core/utils/whatsapp_links.dart';
+import '../../shared/widgets/atria_pdf_preview.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/money_text.dart';
 import '../../shared/widgets/status_chip.dart';
+import '../../core/theme/app_sizes.dart';
 
 class SaleDetailScreen extends ConsumerStatefulWidget {
   const SaleDetailScreen({super.key, required this.id});
@@ -66,6 +70,11 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
   }
 
   FirmEntity? _firm() => ref.read(activeFirmProvider).valueOrNull;
+
+  /// `INV/2026-27/001` → `INV_2026-27_001.pdf`. The invoice number is a
+  /// series label, not a file name — writing it raw makes the OS treat the
+  /// slashes as folders and the write fails.
+  String get _pdfFileName => '${sanitizeFileName(_invoice?.number ?? '')}.pdf';
 
   @override
   Widget build(BuildContext context) {
@@ -107,16 +116,22 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
                   switch (value) {
                     case 'edit':
                       context.push(
-                          '/sales/edit/${invoice.id}?type=${invoice.docType}');
+                        '/sales/edit/${invoice.id}?type=${invoice.docType}',
+                      );
                       break;
                     case 'convert':
-                      context.push('/sales/new?type=invoice&from=${invoice.id}');
+                      context.push(
+                        '/sales/new?type=invoice&from=${invoice.id}',
+                      );
                       break;
                     case 'pdf':
                       _openPdf();
                       break;
                     case 'print':
                       _print();
+                      break;
+                    case 'receipt':
+                      _printReceipt();
                       break;
                     case 'cancel':
                       _confirmCancel();
@@ -138,23 +153,38 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
                       invoice.status != 'converted' &&
                       invoice.status != 'cancelled')
                     const PopupMenuItem(
-                        value: 'convert', child: Text('Convert to invoice')),
+                      value: 'convert',
+                      child: Text('Convert to invoice'),
+                    ),
                   const PopupMenuItem(value: 'pdf', child: Text('Open as PDF')),
                   const PopupMenuItem(value: 'print', child: Text('Print')),
+                  // A till-roll receipt, not the A4 document: different paper,
+                  // different printer and different command language, so it is
+                  // a separate action rather than a setting on Print.
                   const PopupMenuItem(
-                      value: 'cancel',
-                      child: Row(children: [
+                    value: 'receipt',
+                    child: Text('Print receipt'),
+                  ),
+                  const PopupMenuItem(
+                    value: 'cancel',
+                    child: Row(
+                      children: [
                         Icon(Icons.cancel_outlined, size: 18),
                         SizedBox(width: 10),
                         Text('Cancel invoice'),
-                      ])),
+                      ],
+                    ),
+                  ),
                   const PopupMenuItem(
-                      value: 'delete',
-                      child: Row(children: [
+                    value: 'delete',
+                    child: Row(
+                      children: [
                         Icon(Icons.delete_outline_rounded, size: 18),
                         SizedBox(width: 10),
                         Text('Delete'),
-                      ])),
+                      ],
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(width: 8),
@@ -162,22 +192,45 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
           ),
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-            sliver: SliverList(
-              delegate: SliverChildListDelegate([
-                _StatusHero(invoice: invoice),
-                const SizedBox(height: 16),
-                _PartyAndMeta(invoice: invoice, items: _items),
-                const SizedBox(height: 16),
-                _ItemsTable(invoice: invoice, items: _items),
-                const SizedBox(height: 16),
-                _AmountBreakdown(invoice: invoice),
-                const SizedBox(height: 16),
-                if (invoice.docType == 'invoice' &&
-                    invoice.status != 'cancelled')
-                  _PaymentSection(invoice: invoice, onChanged: _load),
-                const SizedBox(height: 8),
-                _PdfPreviewCard(invoice: invoice, items: _items),
-              ]),
+            sliver: SliverToBoxAdapter(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1080),
+                  child: Column(
+                    children: [
+                      _StatusHero(invoice: invoice),
+                      const SizedBox(height: 16),
+                      _PartyAndMeta(
+                        invoice: invoice,
+                        items: _items,
+                        firmStateCode: _firm()?.stateCode,
+                      ),
+                      const SizedBox(height: 16),
+                      _ItemsTable(
+                        invoice: invoice,
+                        items: _items,
+                        firmStateCode: _firm()?.stateCode,
+                      ),
+                      const SizedBox(height: 16),
+                      _AmountBreakdown(
+                        invoice: invoice,
+                        firmStateCode: _firm()?.stateCode,
+                      ),
+                      const SizedBox(height: 16),
+                      if (invoice.docType == 'invoice' &&
+                          invoice.status != 'cancelled')
+                        _PaymentSection(invoice: invoice, onChanged: _load),
+                      const SizedBox(height: 8),
+                      _PdfPreviewCard(
+                        invoice: invoice,
+                        items: _items,
+                        onPrint: () => _print(),
+                        onShare: () => _share(context),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ),
         ],
@@ -196,11 +249,12 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
         firm: firm,
       );
       final dir = await getTemporaryDirectory();
-      final file = File(p.join(dir.path, '${_invoice!.number}.pdf'));
+      final file = File(p.join(dir.path, _pdfFileName));
       await file.writeAsBytes(bytes, flush: true);
 
       final phone = _invoice!.partyPhone ?? '';
-      final text = 'Hi ${_invoice!.partyName ?? ''}, '
+      final text =
+          'Hi ${_invoice!.partyName ?? ''}, '
           'here is your ${_invoice!.docType == 'invoice' ? 'invoice' : 'quotation'} '
           '${_invoice!.number} for ${Formatters.money(Decimal.parse(_invoice!.grandTotal.toStringAsFixed(2)))}.'
           '${(firm.upiId ?? '').isNotEmpty ? ' Pay via UPI: ${firm.upiId}' : ''}';
@@ -211,19 +265,25 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
         // which is what the user picks the chat target in.
         final digits = phone.replaceAll(RegExp(r'[^\d]'), '');
         final waUri = Uri.parse(
-            WhatsAppLinks.chat(digits, message: text).toString());
+          WhatsAppLinks.chat(digits, message: text).toString(),
+        );
         try {
           await launchUrl(waUri, mode: LaunchMode.externalApplication);
         } catch (_) {
           // No WhatsApp on this device — the share sheet below still works.
         }
-        await Share.shareXFiles([XFile(file.path)],
-            text: text,
-            subject: '${_invoice!.number} from ${firm.name}',
-            sharePositionOrigin: const Rect.fromLTWH(0, 0, 100, 100));
+        await Share.shareXFiles(
+          [XFile(file.path)],
+          text: text,
+          subject: '${_invoice!.number} from ${firm.name}',
+          sharePositionOrigin: const Rect.fromLTWH(0, 0, 100, 100),
+        );
       } else {
-        await Share.shareXFiles([XFile(file.path)],
-            text: text, subject: '${_invoice!.number} from ${firm.name}');
+        await Share.shareXFiles(
+          [XFile(file.path)],
+          text: text,
+          subject: '${_invoice!.number} from ${firm.name}',
+        );
       }
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text('Could not share: $e')));
@@ -243,7 +303,7 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
       final dir = await getApplicationDocumentsDirectory();
       final outDir = Directory(p.join(dir.path, 'atria', 'invoices'));
       if (!outDir.existsSync()) outDir.createSync(recursive: true);
-      final file = File(p.join(outDir.path, '${_invoice!.number}.pdf'));
+      final file = File(p.join(outDir.path, _pdfFileName));
       await file.writeAsBytes(bytes, flush: true);
       await OpenFilex.open(file.path);
     } catch (e) {
@@ -259,15 +319,64 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
     final messenger = ScaffoldMessenger.of(context);
     try {
       await Printing.layoutPdf(
-        onLayout: (format) => InvoicePdf.build(
-          invoice: _invoice!,
-          items: _items,
-          firm: firm,
-        ),
+        onLayout: (format) =>
+            InvoicePdf.build(invoice: _invoice!, items: _items, firm: firm),
         name: _invoice!.number,
       );
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text('Could not print: $e')));
+    }
+  }
+
+  /// Prints the customer's till-roll receipt.
+  ///
+  /// A receipt printer is a *different device* from the one the A4 invoice goes
+  /// to, so this asks for the printer configured for receipts rather than the
+  /// default printer — and says which setting to open when there is none,
+  /// instead of failing inside the socket layer.
+  Future<void> _printReceipt() async {
+    final firm = _firm();
+    final invoice = _invoice;
+    if (firm == null || invoice == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final profile = await ref
+          .read(printerRegistryProvider)
+          .forKind(PrinterKind.receipt);
+      if (profile == null) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No receipt printer is set up yet. Add one in Settings → Label '
+              'printers and set its job to "Customer receipts".',
+            ),
+          ),
+        );
+        return;
+      }
+
+      final paid = invoice.paidAmount;
+      await ThermalPrinterService.printReceipt(
+        profile,
+        ThermalPrinterService.receiptForInvoice(
+          firm: firm,
+          invoice: invoice,
+          items: _items,
+          paidLine: paid > 0.001
+              ? 'Received ${Formatters.money(Decimal.tryParse(paid.toStringAsFixed(2)) ?? Decimal.zero)}'
+              : null,
+        ),
+      );
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('Receipt sent to ${profile.name}.')),
+      );
+    } on LabelException catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+    } on Object catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Could not print the receipt: $error')),
+      );
     }
   }
 
@@ -288,7 +397,8 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
             style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
             child: const Text('Cancel invoice'),
           ),
         ],
@@ -311,8 +421,9 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
       builder: (dialogContext) => AlertDialog(
         title: Text('Delete ${invoice.number}?'),
         content: const Text(
-            'Stock and balances are reversed. The document moves to the '
-            'recycle bin and can be restored from Settings.'),
+          'Stock and balances are reversed. The document moves to the '
+          'recycle bin and can be restored from Settings.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -345,7 +456,8 @@ class _StatusHero extends StatelessWidget {
     final colors = atriaColors(context);
     final cancelled = invoice.status == 'cancelled';
     final due = invoice.dueDate;
-    final isOverdue = !cancelled &&
+    final isOverdue =
+        !cancelled &&
         invoice.balanceDue > 0.001 &&
         due != null &&
         due.isBefore(DateTime.now());
@@ -361,11 +473,11 @@ class _StatusHero extends StatelessWidget {
           colors: cancelled
               ? [Colors.grey.shade600, Colors.grey.shade800]
               : isOverdue
-                  // dangerSurface is a pale tint meant for chip backgrounds;
-                  // ending the gradient there would put white text on near-white
-                  // in light mode. Fade toward a deep red instead.
-                  ? [colors.negative, colors.danger]
-                  : [colors.brandGradientStart, colors.brandGradientEnd],
+              // dangerSurface is a pale tint meant for chip backgrounds;
+              // ending the gradient there would put white text on near-white
+              // in light mode. Fade toward a deep red instead.
+              ? [colors.negative, colors.danger]
+              : [colors.brandGradientStart, colors.brandGradientEnd],
         ),
         boxShadow: AppShadows.cardHigh,
       ),
@@ -380,9 +492,10 @@ class _StatusHero extends StatelessWidget {
                   'Total ${invoice.docType == 'quotation' ? 'quotation' : 'invoice'} value',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
+                  // On the type scale, not a 12.5px one-off: the hero's label is
+                  // the same rank as every other secondary label in the app.
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
                     color: Colors.white.withValues(alpha: 0.85),
-                    fontSize: 12.5,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -390,21 +503,20 @@ class _StatusHero extends StatelessWidget {
               if (cancelled)
                 const StatusChip(label: 'Cancelled', kind: ChipKind.danger)
               else if (isOverdue)
-                const StatusChip(
-                    label: 'Overdue', kind: ChipKind.danger)
+                const StatusChip(label: 'Overdue', kind: ChipKind.danger)
               else
                 StatusChip.payment(invoice.paymentStatus),
             ],
           ),
           const SizedBox(height: 6),
           Text(
-            Formatters.money(Decimal.parse(invoice.grandTotal.toStringAsFixed(2))),
-            style: const TextStyle(
+            Formatters.money(
+              Decimal.parse(invoice.grandTotal.toStringAsFixed(2)),
+            ),
+            style: Theme.of(context).textTheme.displayLarge?.copyWith(
               color: Colors.white,
-              fontSize: 32,
-              fontWeight: FontWeight.w800,
               height: 1.05,
-              fontFeatures: [FontFeature.tabularFigures()],
+              fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
           const SizedBox(height: 4),
@@ -418,13 +530,12 @@ class _StatusHero extends StatelessWidget {
           if (!cancelled && invoice.balanceDue > 0.001) ...[
             const SizedBox(height: 12),
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
                 color: Colors.black.withValues(alpha: 0.18),
                 borderRadius: BorderRadius.circular(AppRadius.md),
               ),
-                child: Row(
+              child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
@@ -437,7 +548,8 @@ class _StatusHero extends StatelessWidget {
                   ),
                   Text(
                     Formatters.money(
-                        Decimal.parse(invoice.balanceDue.toStringAsFixed(2))),
+                      Decimal.parse(invoice.balanceDue.toStringAsFixed(2)),
+                    ),
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 15,
@@ -456,10 +568,15 @@ class _StatusHero extends StatelessWidget {
 }
 
 class _PartyAndMeta extends StatelessWidget {
-  const _PartyAndMeta({required this.invoice, required this.items});
+  const _PartyAndMeta({
+    required this.invoice,
+    required this.items,
+    this.firmStateCode,
+  });
 
   final SalesInvoiceEntity invoice;
   final List<SalesInvoiceItemEntity> items;
+  final String? firmStateCode;
 
   @override
   Widget build(BuildContext context) {
@@ -478,36 +595,32 @@ class _PartyAndMeta extends StatelessWidget {
                   children: [
                     Text(
                       'Bill to',
-                      style:
-                          Theme.of(context).textTheme.labelSmall?.copyWith(
-                                color: scheme.onSurfaceVariant,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.8,
-                              ),
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       invoice.partyName ?? 'Walk-in customer',
-                      style:
-                          Theme.of(context).textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
+                      style: Theme.of(context).textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w700),
                     ),
                     if ((invoice.partyGstin ?? '').isNotEmpty)
                       Text(
                         'GSTIN: ${invoice.partyGstin!.toUpperCase()}',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                            ),
+                        style: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(color: scheme.onSurfaceVariant),
                       ),
                     if (invoice.billingAddress != null &&
                         invoice.billingAddress!.isNotEmpty)
                       Text(
                         invoice.billingAddress!,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                              height: 1.45,
-                            ),
+                          color: scheme.onSurfaceVariant,
+                          height: 1.45,
+                        ),
                       ),
                   ],
                 ),
@@ -521,35 +634,32 @@ class _PartyAndMeta extends StatelessWidget {
                         ? 'Quotation date'
                         : 'Invoice date',
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.8,
-                        ),
+                      color: scheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     Formatters.date(invoice.invoiceDate),
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                    style: Theme.of(context).textTheme.bodyMedium
+                        ?.copyWith(fontWeight: FontWeight.w600),
                   ),
                   if (due != null) ...[
                     const SizedBox(height: 8),
                     Text(
                       'Due date',
-                      style:
-                          Theme.of(context).textTheme.labelSmall?.copyWith(
-                                color: scheme.onSurfaceVariant,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.8,
-                              ),
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       Formatters.date(due),
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
+                      style: Theme.of(context).textTheme.bodyMedium
+                          ?.copyWith(fontWeight: FontWeight.w600),
                     ),
                   ],
                 ],
@@ -562,7 +672,9 @@ class _PartyAndMeta extends StatelessWidget {
               _metaChip(
                 context,
                 invoice.isInterState ? 'Inter-state' : 'Intra-state',
-                invoice.isInterState ? 'IGST' : 'CGST + SGST',
+                invoice.isInterState
+                    ? 'IGST'
+                    : 'CGST + ${intraStateSecondHead(resolveGstSplit(supplierState: firmStateCode, buyerState: invoice.placeOfSupply))}',
               ),
               const SizedBox(width: 10),
               _metaChip(
@@ -573,11 +685,7 @@ class _PartyAndMeta extends StatelessWidget {
                     '-',
               ),
               const SizedBox(width: 10),
-              _metaChip(
-                context,
-                'Items',
-                '${items.length}',
-              ),
+              _metaChip(context, 'Items', '${items.length}'),
             ],
           ),
         ],
@@ -600,16 +708,20 @@ class _PartyAndMeta extends StatelessWidget {
             Text(
               label,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w700,
-                  ),
+                color: scheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+              ),
+              // "Place of supply" is ~106dp against ~72dp of text room at
+              // 360dp, so the label has to give way exactly like the value
+              // below it does.
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 1),
             Text(
               value,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(fontWeight: FontWeight.w600),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -621,10 +733,15 @@ class _PartyAndMeta extends StatelessWidget {
 }
 
 class _ItemsTable extends StatelessWidget {
-  const _ItemsTable({required this.invoice, required this.items});
+  const _ItemsTable({
+    required this.invoice,
+    required this.items,
+    this.firmStateCode,
+  });
 
   final SalesInvoiceEntity invoice;
   final List<SalesInvoiceItemEntity> items;
+  final String? firmStateCode;
 
   @override
   Widget build(BuildContext context) {
@@ -638,77 +755,143 @@ class _ItemsTable extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: SectionHeader(
-              title: 'Items',
-              padding: EdgeInsets.zero,
-            ),
+            child: SectionHeader(title: 'Items', padding: EdgeInsets.zero),
           ),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minWidth: MediaQuery.of(context).size.width - 40,
-              ),
-              child: DataTable(
-                headingRowHeight: 38,
-                dataRowMinHeight: 44,
-                columnSpacing: 12,
-                horizontalMargin: 12,
-                columns: [
-                  const DataColumn(label: Text('Item')),
-                  const DataColumn(label: Text('HSN')),
-                  const DataColumn(label: Text('Qty'), numeric: true),
-                  const DataColumn(label: Text('Rate'), numeric: true),
-                  const DataColumn(label: Text('Taxable'), numeric: true),
-                  if (interState)
-                    const DataColumn(label: Text('IGST'), numeric: true)
-                  else ...[
-                    const DataColumn(label: Text('CGST'), numeric: true),
-                    const DataColumn(label: Text('SGST'), numeric: true),
-                  ],
-                  const DataColumn(label: Text('Amount'), numeric: true),
-                ],
-                rows: [
-                  for (final l in items)
-                    DataRow(
-                      cells: [
-                        DataCell(Text(
-                          l.name,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        )),
-                        DataCell(Text(l.hsn ?? '-',
-                            style: TextStyle(color: scheme.onSurfaceVariant))),
-                        DataCell(Text(Formatters.qty(
-                            Decimal.parse(l.quantity.toString())))),
-                        DataCell(Text(Formatters.money(
-                            Decimal.parse(l.rate.toStringAsFixed(2))))),
-                        DataCell(Text(Formatters.money(
-                            Decimal.parse(l.taxableValue.toStringAsFixed(2))))),
-                        if (interState)
-                          DataCell(Text(l.igst > 0.001
-                              ? Formatters.money(
-                                  Decimal.parse(l.igst.toStringAsFixed(2)))
-                              : '-'))
-                        else ...[
-                          DataCell(Text(l.cgst > 0.001
-                              ? Formatters.money(
-                                  Decimal.parse(l.cgst.toStringAsFixed(2)))
-                              : '-')),
-                          DataCell(Text(l.sgst > 0.001
-                              ? Formatters.money(
-                                  Decimal.parse(l.sgst.toStringAsFixed(2)))
-                              : '-')),
-                        ],
-                        DataCell(Text(
-                          Formatters.money(
-                              Decimal.parse(l.total.toStringAsFixed(2))),
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        )),
+          // The floor is the width this card actually has, not the window's:
+          // the screen centres content in a 1080-wide column, so at 1920px
+          // the card holds ~1040px while `MediaQuery.size.width - 40` is
+          // 1880px — a horizontal scrollbar with ~800px of dead scroll in it.
+          LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                  child: DataTable(
+                    headingRowHeight: 38,
+                    dataRowMinHeight: 44,
+                    columnSpacing: 12,
+                    horizontalMargin: 12,
+                    columns: [
+                      const DataColumn(label: Text('Item')),
+                      const DataColumn(label: Text('HSN')),
+                      const DataColumn(label: Text('Qty'), numeric: true),
+                      const DataColumn(label: Text('Rate'), numeric: true),
+                      const DataColumn(label: Text('Taxable'), numeric: true),
+                      if (interState)
+                        const DataColumn(label: Text('IGST'), numeric: true)
+                      else ...[
+                        const DataColumn(label: Text('CGST'), numeric: true),
+                        DataColumn(
+                          label: Text(
+                            intraStateSecondHead(
+                              resolveGstSplit(
+                                supplierState: firmStateCode,
+                                buyerState: invoice.placeOfSupply,
+                              ),
+                            ),
+                          ),
+                          numeric: true,
+                        ),
                       ],
-                    ),
-                ],
-              ),
-            ),
+                      const DataColumn(label: Text('Amount'), numeric: true),
+                    ],
+                    rows: [
+                      for (final l in items)
+                        DataRow(
+                          cells: [
+                            DataCell(
+                              Text(
+                                l.name,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            DataCell(
+                              Text(
+                                l.hsn ?? '-',
+                                style: TextStyle(
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                            DataCell(
+                              Text(
+                                Formatters.qty(
+                                  Decimal.parse(l.quantity.toString()),
+                                ),
+                              ),
+                            ),
+                            DataCell(
+                              Text(
+                                Formatters.money(
+                                  Decimal.parse(l.rate.toStringAsFixed(2)),
+                                ),
+                              ),
+                            ),
+                            DataCell(
+                              Text(
+                                Formatters.money(
+                                  Decimal.parse(
+                                    l.taxableValue.toStringAsFixed(2),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            if (interState)
+                              DataCell(
+                                Text(
+                                  l.igst > 0.001
+                                      ? Formatters.money(
+                                          Decimal.parse(
+                                            l.igst.toStringAsFixed(2),
+                                          ),
+                                        )
+                                      : '-',
+                                ),
+                              )
+                            else ...[
+                              DataCell(
+                                Text(
+                                  l.cgst > 0.001
+                                      ? Formatters.money(
+                                          Decimal.parse(
+                                            l.cgst.toStringAsFixed(2),
+                                          ),
+                                        )
+                                      : '-',
+                                ),
+                              ),
+                              DataCell(
+                                Text(
+                                  l.sgst > 0.001
+                                      ? Formatters.money(
+                                          Decimal.parse(
+                                            l.sgst.toStringAsFixed(2),
+                                          ),
+                                        )
+                                      : '-',
+                                ),
+                              ),
+                            ],
+                            DataCell(
+                              Text(
+                                Formatters.money(
+                                  Decimal.parse(l.total.toStringAsFixed(2)),
+                                ),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
         ],
       ),
@@ -717,9 +900,13 @@ class _ItemsTable extends StatelessWidget {
 }
 
 class _AmountBreakdown extends StatelessWidget {
-  const _AmountBreakdown({required this.invoice});
+  const _AmountBreakdown({required this.invoice, this.firmStateCode});
 
   final SalesInvoiceEntity invoice;
+
+  /// The seller's state, so the intra-state total can be named CGST + UTGST
+  /// where that is what was actually charged.
+  final String? firmStateCode;
 
   @override
   Widget build(BuildContext context) {
@@ -733,37 +920,75 @@ class _AmountBreakdown extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          _line(context, 'Subtotal',
-              Decimal.parse(invoice.subTotal.toStringAsFixed(2))),
+          _line(
+            context,
+            'Subtotal',
+            Decimal.parse(invoice.subTotal.toStringAsFixed(2)),
+          ),
           if (invoice.itemDiscount.abs() > 0.001 ||
               invoiceDiscount.abs() > 0.001)
             _line(
-                context,
-                'Discount',
-                Decimal.parse(
-                    (invoice.itemDiscount + invoiceDiscount)
-                        .toStringAsFixed(2)),
-                negate: true),
+              context,
+              'Discount',
+              Decimal.parse(
+                (invoice.itemDiscount + invoiceDiscount).toStringAsFixed(2),
+              ),
+              negate: true,
+            ),
           if (invoice.shippingCharge.abs() > 0.001)
-            _line(context, 'Shipping / freight',
-                Decimal.parse(invoice.shippingCharge.toStringAsFixed(2))),
-          _line(context, 'Taxable value',
-              Decimal.parse(invoice.taxableValue.toStringAsFixed(2))),
+            _line(
+              context,
+              'Shipping / freight',
+              Decimal.parse(invoice.shippingCharge.toStringAsFixed(2)),
+            ),
+          _line(
+            context,
+            'Taxable value',
+            Decimal.parse(invoice.taxableValue.toStringAsFixed(2)),
+          ),
           if (invoice.cgst.abs() > 0.001)
-            _line(context, 'CGST',
-                Decimal.parse(invoice.cgst.toStringAsFixed(2))),
+            _line(
+              context,
+              'CGST',
+              Decimal.parse(invoice.cgst.toStringAsFixed(2)),
+            ),
           if (invoice.sgst.abs() > 0.001)
-            _line(context, 'SGST',
-                Decimal.parse(invoice.sgst.toStringAsFixed(2))),
+            _line(
+              context,
+              intraStateSecondHead(
+                resolveGstSplit(
+                  supplierState: firmStateCode,
+                  buyerState: invoice.placeOfSupply,
+                ),
+              ),
+              Decimal.parse(invoice.sgst.toStringAsFixed(2)),
+            ),
           if (invoice.igst.abs() > 0.001)
-            _line(context, 'IGST',
-                Decimal.parse(invoice.igst.toStringAsFixed(2))),
+            _line(
+              context,
+              'IGST',
+              Decimal.parse(invoice.igst.toStringAsFixed(2)),
+            ),
           if (invoice.cess.abs() > 0.001)
-            _line(context, 'Cess',
-                Decimal.parse(invoice.cess.toStringAsFixed(2))),
+            _line(
+              context,
+              'Cess',
+              Decimal.parse(invoice.cess.toStringAsFixed(2)),
+            ),
+          if (invoice.tcs.abs() > 0.001)
+            _line(
+              context,
+              invoice.tcsRate > 0
+                  ? 'TCS @ ${Formatters.percent(invoice.tcsRate)}'
+                  : 'TCS',
+              Decimal.parse(invoice.tcs.toStringAsFixed(2)),
+            ),
           if (invoice.roundOff.abs() > 0.001)
-            _line(context, 'Round off',
-                Decimal.parse(invoice.roundOff.toStringAsFixed(2))),
+            _line(
+              context,
+              'Round off',
+              Decimal.parse(invoice.roundOff.toStringAsFixed(2)),
+            ),
           const Divider(height: 22),
           Padding(
             padding: const EdgeInsets.only(top: 2),
@@ -772,15 +997,13 @@ class _AmountBreakdown extends StatelessWidget {
               children: [
                 Text(
                   'Grand total',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                  style: Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
                 ),
                 MoneyText(
                   Decimal.parse(invoice.grandTotal.toStringAsFixed(2)),
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                  style: Theme.of(context).textTheme.headlineSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
                   colorize: false,
                 ),
               ],
@@ -788,18 +1011,28 @@ class _AmountBreakdown extends StatelessWidget {
           ),
           if (invoice.paidAmount.abs() > 0.001) ...[
             const SizedBox(height: 6),
-            _line(context, 'Received',
-                Decimal.parse(invoice.paidAmount.toStringAsFixed(2))),
-            _line(context, 'Balance',
-                Decimal.parse(invoice.balanceDue.toStringAsFixed(2))),
+            _line(
+              context,
+              'Received',
+              Decimal.parse(invoice.paidAmount.toStringAsFixed(2)),
+            ),
+            _line(
+              context,
+              'Balance',
+              Decimal.parse(invoice.balanceDue.toStringAsFixed(2)),
+            ),
           ],
         ],
       ),
     );
   }
 
-  Widget _line(BuildContext context, String label, Decimal value,
-      {bool negate = false}) {
+  Widget _line(
+    BuildContext context,
+    String label,
+    Decimal value, {
+    bool negate = false,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
@@ -808,17 +1041,15 @@ class _AmountBreakdown extends StatelessWidget {
           Text(
             label,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
           Text(
-            negate
-                ? '- ${Formatters.money(value)}'
-                : Formatters.money(value),
+            negate ? '- ${Formatters.money(value)}' : Formatters.money(value),
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
+              fontWeight: FontWeight.w600,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
           ),
         ],
       ),
@@ -843,6 +1074,17 @@ class _PaymentSectionState extends ConsumerState<_PaymentSection> {
   DateTime _date = DateTime.now();
   bool _recording = false;
 
+  /// Whether the amount in the field is the USER's figure rather than the
+  /// invoice's balance. Once they have typed, a re-sync would overwrite a
+  /// half-typed amount mid-keystroke; the field only goes back to tracking the
+  /// balance after a payment is actually recorded (see [_record]).
+  bool _amountIsTyped = false;
+
+  /// The balance, formatted the way the field shows it.
+  String _amountTextFor(double balance) => balance > 0
+      ? Formatters.indianGroup(balance.toStringAsFixed(2))
+      : '0.00';
+
   @override
   void dispose() {
     _amountController.dispose();
@@ -853,16 +1095,25 @@ class _PaymentSectionState extends ConsumerState<_PaymentSection> {
   @override
   void initState() {
     super.initState();
-    final balance = widget.invoice.balanceDue;
-    _amountController.text = balance > 0
-        ? Formatters.indianGroup(balance.toStringAsFixed(2))
-        : '0.00';
+    _amountController.text = _amountTextFor(widget.invoice.balanceDue);
+  }
+
+  @override
+  void didUpdateWidget(covariant _PaymentSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The parent reloads the invoice after every payment, so this section is
+    // rebuilt with a smaller balance. There was no re-sync here at all: record
+    // 400 of 1,000, the field still read 1,000.00, and tapping Record again
+    // took the whole remaining balance in one go.
+    if (oldWidget.invoice.balanceDue == widget.invoice.balanceDue) return;
+    // A figure the user is still typing wins over the new balance.
+    if (_amountIsTyped) return;
+    _amountController.text = _amountTextFor(widget.invoice.balanceDue);
   }
 
   @override
   Widget build(BuildContext context) {
-    final balance =
-        Decimal.parse(widget.invoice.balanceDue.toStringAsFixed(2));
+    final balance = Decimal.parse(widget.invoice.balanceDue.toStringAsFixed(2));
     if (balance <= Decimal.zero) return const SizedBox.shrink();
     final colors = atriaColors(context);
 
@@ -873,14 +1124,16 @@ class _PaymentSectionState extends ConsumerState<_PaymentSection> {
         children: [
           Row(
             children: [
-              Icon(PhosphorIconsRegular.moneyWavy,
-                  size: 18, color: colors.positive),
+              Icon(
+                PhosphorIconsRegular.moneyWavy,
+                size: 18,
+                color: colors.positive,
+              ),
               const SizedBox(width: 8),
               Text(
                 'Record payment',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                style: Theme.of(context).textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w700),
               ),
             ],
           ),
@@ -891,26 +1144,30 @@ class _PaymentSectionState extends ConsumerState<_PaymentSection> {
                 flex: 2,
                 child: TextFormField(
                   controller: _amountController,
+                  onChanged: (_) => _amountIsTyped = true,
                   decoration: const InputDecoration(
                     labelText: 'Amount received',
                     prefixText: '₹ ',
                   ),
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 flex: 2,
                 child: DropdownButtonFormField<String>(
+                  iconSize: AppIconSize.md,
                   initialValue: _mode,
                   decoration: const InputDecoration(labelText: 'Mode'),
                   items: const [
                     DropdownMenuItem(value: 'cash', child: Text('Cash')),
                     DropdownMenuItem(value: 'upi', child: Text('UPI')),
                     DropdownMenuItem(
-                        value: 'bank_transfer',
-                        child: Text('Bank transfer')),
+                      value: 'bank_transfer',
+                      child: Text('Bank transfer'),
+                    ),
                     DropdownMenuItem(value: 'cheque', child: Text('Cheque')),
                     DropdownMenuItem(value: 'card', child: Text('Card')),
                   ],
@@ -968,11 +1225,11 @@ class _PaymentSectionState extends ConsumerState<_PaymentSection> {
   Future<void> _record() async {
     if (_recording) return;
     var amount = double.tryParse(
-        _amountController.text.replaceAll(RegExp(r'[^\d.]'), ''));
+      _amountController.text.replaceAll(RegExp(r'[^\d.]'), ''),
+    );
     if (amount == null || amount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a valid amount.')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Enter a valid amount.')));
       return;
     }
     // An over-payment used to sail through: applyPayment clamps balanceDue at
@@ -1000,7 +1257,9 @@ class _PaymentSectionState extends ConsumerState<_PaymentSection> {
       // A button that does nothing at all reads as a crash to the user.
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Open a firm before recording a payment.')),
+        const SnackBar(
+          content: Text('Open a firm before recording a payment.'),
+        ),
       );
       return;
     }
@@ -1024,8 +1283,7 @@ class _PaymentSectionState extends ConsumerState<_PaymentSection> {
             : _referenceController.text.trim(),
         linkedInvoiceId: widget.invoice.id,
         linkedInvoiceNumber: widget.invoice.number,
-        onLinked: (id, amt) =>
-            sales.applyPayment(invoiceId: id, amount: amt),
+        onLinked: (id, amt) => sales.applyPayment(invoiceId: id, amount: amt),
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1036,12 +1294,16 @@ class _PaymentSectionState extends ConsumerState<_PaymentSection> {
           ),
         ),
       );
+      // Hand the field back to the balance it is tracking: the recorded
+      // payment is settled, so the next amount to enter is what is left, not
+      // what the user typed before the tap.
+      _amountIsTyped = false;
       widget.onChanged();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not record payment: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not record payment: $e')));
     } finally {
       _recording = false;
     }
@@ -1049,10 +1311,20 @@ class _PaymentSectionState extends ConsumerState<_PaymentSection> {
 }
 
 class _PdfPreviewCard extends StatefulWidget {
-  const _PdfPreviewCard({required this.invoice, required this.items});
+  const _PdfPreviewCard({
+    required this.invoice,
+    required this.items,
+    this.onPrint,
+    this.onShare,
+  });
 
   final SalesInvoiceEntity invoice;
   final List<SalesInvoiceItemEntity> items;
+
+  /// The screen's own print and share flows — the same ones the app-bar menu
+  /// runs, so the card does not grow a second, differently-behaving pair.
+  final VoidCallback? onPrint;
+  final VoidCallback? onShare;
 
   @override
   State<_PdfPreviewCard> createState() => _PdfPreviewCardState();
@@ -1073,15 +1345,17 @@ class _PdfPreviewCardState extends State<_PdfPreviewCard> {
             borderRadius: BorderRadius.circular(AppRadius.md),
             child: Row(
               children: [
-                Icon(PhosphorIconsRegular.filePdf,
-                    size: 19, color: Theme.of(context).colorScheme.error),
+                Icon(
+                  PhosphorIconsRegular.filePdf,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.error,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     'Preview invoice PDF',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                    style: Theme.of(context).textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.w600),
                   ),
                 ),
                 Icon(
@@ -1101,22 +1375,15 @@ class _PdfPreviewCardState extends State<_PdfPreviewCard> {
                 if (firm == null) {
                   return const Text('Firm not available');
                 }
-                return SizedBox(
+                return AtriaPdfPreview(
                   height: 380,
-                  child: PdfPreview(
-                    maxPageWidth: 640,
-                    canChangeOrientation: false,
-                    canChangePageFormat: false,
-                    allowPrinting: true,
-                    allowSharing: true,
-                    actions: const [],
-                    pdfFileName: '${widget.invoice.number}.pdf',
-                    build: (format) => InvoicePdf.build(
-                      invoice: widget.invoice,
-                      items: widget.items,
-                      firm: firm,
-                    ),
+                  builder: (format) => InvoicePdf.build(
+                    invoice: widget.invoice,
+                    items: widget.items,
+                    firm: firm,
                   ),
+                  onPrint: widget.onPrint,
+                  onShare: widget.onShare,
                 );
               },
             ),

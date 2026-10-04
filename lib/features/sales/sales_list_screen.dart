@@ -13,7 +13,11 @@ import '../../core/responsive/breakpoints.dart';
 import '../../core/state/providers.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/money.dart';
+import '../../shared/widgets/atria_list_page.dart';
+import '../../shared/widgets/atria_list_toolbar.dart';
+import '../../shared/widgets/atria_page_header.dart';
 import '../../shared/widgets/common_widgets.dart';
+import '../../shared/widgets/document_row_menu.dart';
 import '../../shared/widgets/period_selector.dart';
 import '../../shared/widgets/status_chip.dart';
 import '../../shared/widgets/transaction_list.dart';
@@ -32,14 +36,24 @@ class SalesListScreen extends ConsumerStatefulWidget {
 class _SalesListScreenState extends ConsumerState<SalesListScreen> {
   final _searchController = TextEditingController();
   String _search = '';
-  Period _period = Period.thisMonth;
+  PeriodRange _range = PeriodRange(period: Period.thisMonth);
   Timer? _searchDebounce;
 
   /// The document type this list shows — one screen per type now that the
   /// five tabs moved into the left rail's Sales dropdown.
-  late String _docType = _supported.contains(widget.initialType)
-      ? widget.initialType!
-      : 'invoice';
+  ///
+  /// Derived from the route on every build, never latched into a field.
+  /// `StatefulShellRoute.indexedStack` keeps each branch's navigator alive, so
+  /// `/sales?type=quotation` → `/sales?type=invoice` resolves to this same
+  /// State, not a new one. A `late` field seeded from `initialType` was
+  /// therefore written exactly once per session: whichever type the rail was
+  /// first opened on won for good, and the heading, the filter pills and the
+  /// primary action went on naming a document the user had already left —
+  /// "every screen says invoice" until the app was restarted. The route is the
+  /// only holder of the current type, so it is the only thing allowed to
+  /// answer.
+  String get _docType =>
+      _supported.contains(widget.initialType) ? widget.initialType! : 'invoice';
 
   static const _supported = [
     'invoice',
@@ -49,13 +63,46 @@ class _SalesListScreenState extends ConsumerState<SalesListScreen> {
     'credit_note',
   ];
 
-  String get _typeLabel => switch (_docType) {
-        'quotation' => 'Quotations',
-        'sales_order' => 'Sales Orders',
-        'delivery_note' => 'Delivery Notes',
-        'credit_note' => 'Credit Notes',
-        _ => 'Invoices',
-      };
+  /// The document types as filter options — the same list the rail's Sales
+  /// section offers, so the two can never disagree.
+  static const _typeSegments = [
+    AtriaSegment(value: 'invoice', label: 'Invoices'),
+    AtriaSegment(value: 'quotation', label: 'Quotations'),
+    AtriaSegment(value: 'sales_order', label: 'Sales orders'),
+    AtriaSegment(value: 'delivery_note', label: 'Delivery notes'),
+    AtriaSegment(value: 'credit_note', label: 'Credit notes'),
+  ];
+
+  /// The page heading follows the filter, the way QBO's page title names the
+  /// list you are actually on.
+  String get _pageTitle => switch (_docType) {
+    'quotation' => 'Quotations',
+    'sales_order' => 'Sales orders',
+    'delivery_note' => 'Delivery notes',
+    'credit_note' => 'Credit notes',
+    _ => 'Invoices',
+  };
+
+  String get _newLabel => switch (_docType) {
+    'quotation' => 'New quotation',
+    'sales_order' => 'New sales order',
+    'delivery_note' => 'New delivery note',
+    'credit_note' => 'New credit note',
+    _ => 'New invoice',
+  };
+
+  /// Singular name of what this screen lists.
+  ///
+  /// The search field used to say "Search invoice or party…" on every one of
+  /// the five, which is the last place on the screen that still named a
+  /// document the person had already navigated away from.
+  String get _singularNoun => switch (_docType) {
+    'quotation' => 'quotation',
+    'sales_order' => 'sales order',
+    'delivery_note' => 'delivery note',
+    'credit_note' => 'credit note',
+    _ => 'invoice',
+  };
 
   @override
   void dispose() {
@@ -68,91 +115,78 @@ class _SalesListScreenState extends ConsumerState<SalesListScreen> {
   Widget build(BuildContext context) {
     final sales = ref.watch(salesRepositoryProvider);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Sales · $_typeLabel'),
-        actions: [
-          // The type switcher lives here now — swappable without touching
-          // the rail, so mobile keeps one-tap access too.
-          PopupMenuButton<String>(
-            tooltip: 'Switch document type',
-            onSelected: (value) => setState(() => _docType = value),
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'invoice', child: Text('Invoices')),
-              PopupMenuItem(value: 'quotation', child: Text('Quotations')),
-              PopupMenuItem(value: 'sales_order', child: Text('Sales Orders')),
-              PopupMenuItem(
-                  value: 'delivery_note', child: Text('Delivery Notes')),
-              PopupMenuItem(value: 'credit_note', child: Text('Credit Notes')),
-            ],
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_typeLabel,
-                      style: Theme.of(context).textTheme.bodyMedium),
-                  const Icon(Icons.arrow_drop_down_rounded),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push('/sales/new?type=$_docType'),
-        icon: const Icon(Icons.add_rounded),
-        label: Text(switch (_docType) {
-          'quotation' => 'New Quotation',
-          'sales_order' => 'New Order',
-          'delivery_note' => 'New Delivery Note',
-          'credit_note' => 'New Credit Note',
-          _ => 'New Invoice',
+    if (sales == null) {
+      return const AtriaListPage(
+        title: 'Sales',
+        body: EmptyState(
+          icon: PhosphorIconsRegular.receipt,
+          title: 'No business selected',
+          message: 'Choose or create a business to start selling.',
+        ),
+      );
+    }
+
+    // QBO's page anatomy: the page names itself and carries its own primary
+    // action at the right edge of the heading — there is no FAB and no second
+    // title bar, because the chrome band above already owns the app-wide
+    // controls.
+    return AtriaListPage(
+      title: _pageTitle,
+      actions: [
+        AtriaPrimaryAction(
+          label: _newLabel,
+          onPressed: () => context.push('/sales/new?type=$_docType'),
+        ),
+      ],
+      search: TransactionSearchField(
+        controller: _searchController,
+        hintText: 'Search $_singularNoun or party…',
+        onChanged: (value) {
+          // Debounced: rebuilding per keystroke re-subscribed the whole
+          // list stream on every letter, flashing the loader.
+          _searchDebounce?.cancel();
+          _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+            if (mounted) setState(() => _search = value);
+          });
+        },
+        onClear: () => setState(() {
+          _searchController.clear();
+          _search = '';
         }),
       ),
-      body: sales == null
-          ? EmptyState(
-              icon: PhosphorIconsRegular.receipt,
-              title: 'No business selected',
-              message: 'Choose or create a business to start selling.',
-            )
-          : Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                  child: TransactionSearchField(
-                    controller: _searchController,
-                    hintText: 'Search invoice or party…',
-                    onChanged: (value) {
-                      // Debounced: rebuilding per keystroke re-subscribed the
-                      // whole list stream on every letter, flashing the loader.
-                      _searchDebounce?.cancel();
-                      _searchDebounce = Timer(const Duration(milliseconds: 250), () {
-                        if (mounted) setState(() => _search = value);
-                      });
-                    },
-                    onClear: () => setState(() {
-                      _searchController.clear();
-                      _search = '';
-                    }),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                PeriodPillRow(
-                  value: _period,
-                  onChanged: (period) => setState(() => _period = period),
-                ),
-                const SizedBox(height: 4),
-                Expanded(
-                  child: _SaleList(
-                    key: ValueKey('$_docType|${_period.name}'),
-                    docType: _docType,
-                    search: _search,
-                    from: periodStart(_period),
-                  ),
-                ),
-              ],
-            ),
+      filters: [
+        AtriaAdaptiveFilter<String>(
+          label: 'Type',
+          segments: _typeSegments,
+          value: _docType,
+          // `go`, not `setState`: the type now lives in the URL, so switching
+          // it here has to write it back there. A local `setState` moved the
+          // screen off the rail's selection and off its own deep link, so the
+          // next router-driven rebuild snapped the heading back to the type in
+          // the address bar.
+          onChanged: (value) => context.go('/sales?type=$value'),
+        ),
+        AtriaAdaptiveFilter<Period>(
+          label: 'Date',
+          segments: periodSegments(),
+          value: _range.period,
+          onChanged: (period) =>
+              setState(() => _range = _range.withPeriod(period)),
+        ),
+        // A custom window needs its two days on screen; the named ones show
+        // the window in the select itself.
+        if (_range.isCustom)
+          PeriodCustomRange(
+            range: _range,
+            onChanged: (range) => setState(() => _range = range),
+          ),
+      ],
+      body: _SaleList(
+        key: ValueKey('$_docType|${_range.cacheKey}'),
+        docType: _docType,
+        search: _search,
+        range: _range,
+      ),
     );
   }
 }
@@ -162,32 +196,32 @@ class _SaleList extends ConsumerStatefulWidget {
     super.key,
     required this.docType,
     required this.search,
-    this.from,
+    required this.range,
   });
 
   final String docType;
   final String search;
-  final DateTime? from;
+  final PeriodRange range;
 
   @override
   ConsumerState<_SaleList> createState() => _SaleListState();
 }
 
 class _SaleListState extends ConsumerState<_SaleList> {
-  // One stream per (docType, search, from), kept across rebuilds — the old
+  // One stream per (docType, search, window), kept across rebuilds — the old
   // code constructed a fresh stream inside build, tearing down and
   // re-subscribing the drift watch on every parent setState (per keystroke).
   final Map<String, Stream<List<SalesInvoiceEntity>>> _streams = {};
 
   Stream<List<SalesInvoiceEntity>> _streamFor(SalesRepository? sales) {
     if (sales == null) return const Stream.empty();
-    final key =
-        '${widget.docType}|${widget.search}|${widget.from?.microsecondsSinceEpoch ?? 0}';
+    final key = '${widget.docType}|${widget.search}|${widget.range.cacheKey}';
     return _streams.putIfAbsent(key, () {
       return sales.watchList(
         docType: widget.docType,
         search: widget.search,
-        from: widget.from,
+        from: widget.range.from,
+        to: widget.range.to,
         limit: 200,
       );
     });
@@ -219,10 +253,17 @@ class _SaleListState extends ConsumerState<_SaleList> {
                   'all ${_emptyTitle.toLowerCase()}.',
             );
           }
+          // A period filter that has simply excluded every row used to read
+          // "No invoices yet" — which is why a user with an older bill open on
+          // "This Month" believed the document had vanished. Say which window
+          // is hiding them and name the way out.
+          final range = widget.range;
           return EmptyState(
             icon: PhosphorIconsRegular.receipt,
-            title: _emptyTitle,
-            message: _emptyMessage,
+            title: range.isAllTime ? _emptyTitle : 'Nothing in ${range.label}',
+            message: range.isAllTime
+                ? _emptyMessage
+                : range.emptyWindowMessage('${_resultNoun}s'),
             actionLabel: _actionLabel,
             onAction: () => context.push('/sales/new?type=${widget.docType}'),
           );
@@ -240,10 +281,16 @@ class _SaleListState extends ConsumerState<_SaleList> {
   Widget _cardList(BuildContext context, List<SalesInvoiceEntity> data) {
     final stats = _statsOf(data);
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+      padding: const EdgeInsets.fromLTRB(0, 8, 0, 28),
       children: [
         _TotalsSection(docType: widget.docType, stats: stats),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
+        AtriaResultsBar(
+          count: stats.count,
+          noun: _resultNoun,
+          filtered: widget.search.trim().isNotEmpty,
+        ),
+        const SizedBox(height: 4),
         for (final invoice in data)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
@@ -257,33 +304,44 @@ class _SaleListState extends ConsumerState<_SaleList> {
     );
   }
 
+  /// Desktop: the rows *are* the summarised figures, so the totals close the
+  /// table instead of sitting above it as a separate panel — QBO's arrangement.
   Widget _tableList(BuildContext context, List<SalesInvoiceEntity> data) {
     final stats = _statsOf(data);
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+      padding: const EdgeInsets.fromLTRB(0, 0, 0, 28),
       children: [
-        _TotalsSection(docType: widget.docType, stats: stats),
-        const SizedBox(height: 14),
-        SectionHeader(
-          title: 'Transactions',
-          actionLabel: '${data.length} shown',
+        AtriaResultsBar(
+          count: stats.count,
+          noun: _resultNoun,
+          filtered: widget.search.trim().isNotEmpty,
         ),
-        const SizedBox(height: 6),
         TransactionTableHeader(
           columns: const TransactionColumns(
             date: 'Date',
             number: 'No.',
-            party: 'Party',
+            party: 'Customer',
             detail: 'Status',
             amount: 'Amount',
             balance: 'Balance',
           ),
-          trailing: const SizedBox(width: 36),
+          // The kebab button a row shows is a full 48px tap target, so the
+          // header and totals reserve the same width — a 36px slot left the
+          // Amount and Balance figures 12px left of their own headings.
+          trailing: const SizedBox(width: 48),
         ),
         for (final invoice in data)
-          _SaleTableRow(
-            invoice: invoice,
-            docType: widget.docType,
+          _SaleTableRow(invoice: invoice, docType: widget.docType),
+        if (widget.docType == 'invoice')
+          TransactionTableTotals(
+            // Aligned under the same columns the rows use, kebab slot
+            // included, so "Balance ₹0.00" sits under its header.
+            trailingWidth: 48,
+            entries: [
+              TotalsEntry(label: 'Total', amount: stats.total),
+              TotalsEntry(label: 'Received', amount: stats.received),
+              TotalsEntry(label: 'Balance', amount: stats.balance),
+            ],
           ),
       ],
     );
@@ -293,10 +351,13 @@ class _SaleListState extends ConsumerState<_SaleList> {
     var total = Decimal.zero;
     var received = Decimal.zero;
     var balance = Decimal.zero;
-    var count = 0;
+    // The bar counts what is ON SCREEN. Cancelled rows are still rendered
+    // (dimmed, badged "Cancelled"), and skipping them here made the header say
+    // "12 invoices" above thirteen rows. The MONEY totals keep excluding them —
+    // a cancelled document contributes nothing to sales or to receivable.
+    final count = data.length;
     for (final doc in data) {
       if (doc.status == 'cancelled') continue;
-      count++;
       total += Money.of(doc.grandTotal);
       received += Money.of(doc.paidAmount);
       balance += Money.of(doc.balanceDue);
@@ -315,6 +376,10 @@ class _SaleListState extends ConsumerState<_SaleList> {
         return 'No quotations yet';
       case 'sales_order':
         return 'No sales orders yet';
+      case 'delivery_note':
+        return 'No delivery notes yet';
+      case 'credit_note':
+        return 'No credit notes yet';
       default:
         return 'No invoices yet';
     }
@@ -326,6 +391,12 @@ class _SaleListState extends ConsumerState<_SaleList> {
         return 'Create a quotation to share an estimate with your customers.';
       case 'sales_order':
         return 'Track confirmed orders before you ship them.';
+      case 'delivery_note':
+        return 'Record what you shipped — a delivery note is a paper record, '
+            'so it does not change stock. Raise an invoice to bill it.';
+      case 'credit_note':
+        return 'Record goods returned by a customer. The credit note adds them '
+            'back to stock and reduces their outstanding.';
       default:
         return 'Create your first GST invoice — it takes under a minute.';
     }
@@ -337,10 +408,23 @@ class _SaleListState extends ConsumerState<_SaleList> {
         return 'New quotation';
       case 'sales_order':
         return 'New sales order';
+      case 'delivery_note':
+        return 'New delivery note';
+      case 'credit_note':
+        return 'New credit note';
       default:
         return 'New invoice';
     }
   }
+
+  /// Singular noun for the results line (the bar pluralises it).
+  String get _resultNoun => switch (widget.docType) {
+    'quotation' => 'quotation',
+    'sales_order' => 'order',
+    'delivery_note' => 'delivery note',
+    'credit_note' => 'credit note',
+    _ => 'invoice',
+  };
 }
 
 class _SaleStats {
@@ -390,29 +474,71 @@ class _TotalsSection extends StatelessWidget {
   }
 
   String get _title => switch (docType) {
-        'quotation' => 'Total Quoted Amount',
-        'sales_order' => 'Total Ordered Amount',
-        'delivery_note' => 'Delivery Notes',
-        'credit_note' => 'Total Credited',
-        _ => 'Total Sales Amount',
-      };
+    'quotation' => 'Total Quoted Amount',
+    'sales_order' => 'Total Ordered Amount',
+    'delivery_note' => 'Delivery Notes',
+    'credit_note' => 'Total Credited',
+    _ => 'Total Sales Amount',
+  };
 }
 
 IconData _docIcon(String docType) => switch (docType) {
-      'quotation' => Icons.request_quote_outlined,
-      'sales_order' => Icons.shopping_bag_outlined,
-      'delivery_note' => Icons.local_shipping_outlined,
-      'credit_note' => Icons.assignment_return_outlined,
-      _ => Icons.receipt_long_outlined,
-    };
+  'quotation' => Icons.request_quote_outlined,
+  'sales_order' => Icons.shopping_bag_outlined,
+  'delivery_note' => Icons.local_shipping_outlined,
+  'credit_note' => Icons.assignment_return_outlined,
+  _ => Icons.receipt_long_outlined,
+};
 
-String? _statusText(SalesInvoiceEntity doc) {
-  if (doc.status == 'converted') return 'Converted';
+/// The lifecycle word for a row — or null when the payment state is what the
+/// Status column should carry.
+///
+/// Invoices deliberately return null when they are healthy: every saved
+/// invoice is stored as 'confirmed', so printing "Confirmed" there meant the
+/// Status column read "Confirmed" on a fully paid invoice and on a long-
+/// overdue one alike, and Paid / Partial / Unpaid were never visible. The
+/// lifecycle words are reserved for the document types where they mean
+/// something (estimates, orders, notes).
+String? _statusText(SalesInvoiceEntity doc, String docType) {
   if (doc.status == 'cancelled') return 'Cancelled';
-  if (doc.status == 'confirmed' || doc.status == 'draft') {
-    return doc.status == 'confirmed' ? 'Confirmed' : 'Draft';
+  switch (docType) {
+    case 'invoice':
+      return _isOverdue(doc) ? 'Overdue' : null; // null -> payment status
+    case 'quotation':
+    case 'sales_order':
+      if (doc.status == 'converted') return 'Converted';
+      return doc.status == 'draft' ? 'Draft' : 'Open';
+    case 'delivery_note':
+    case 'credit_note':
+      return doc.status == 'draft' ? 'Draft' : 'Issued';
+    default:
+      return null;
   }
-  return null;
+}
+
+/// The same rule the dashboard and the reminders list use: a live document
+/// with something still owing and a due date in the past.
+bool _isOverdue(SalesInvoiceEntity doc) {
+  final due = doc.dueDate;
+  return doc.balanceDue > 0.001 && due != null && due.isBefore(DateTime.now());
+}
+
+String _paymentLabel(SalesInvoiceEntity doc) => switch (doc.paymentStatus) {
+  'paid' => 'Paid',
+  'partial' => 'Partial',
+  _ => 'Unpaid',
+};
+
+ChipKind _statusKindFor(SalesInvoiceEntity doc, String docType) {
+  if (doc.status == 'cancelled') return ChipKind.danger;
+  if (doc.status == 'converted') return ChipKind.info;
+  if (docType != 'invoice') return ChipKind.info;
+  if (_isOverdue(doc)) return ChipKind.danger;
+  return switch (doc.paymentStatus) {
+    'paid' => ChipKind.success,
+    'partial' => ChipKind.warning,
+    _ => ChipKind.neutral,
+  };
 }
 
 class _SaleRow extends ConsumerWidget {
@@ -428,98 +554,28 @@ class _SaleRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isConvertible =
-        (docType == 'quotation' || docType == 'sales_order') &&
-            invoice.status != 'converted' &&
-            invoice.status != 'cancelled';
-
     return TransactionRow(
       leading: LeadingGlyph(icon: _docIcon(docType)),
       title: invoice.partyName ?? 'Walk-in customer',
       subtitle: _subtitle,
       amount: Money.of(invoice.grandTotal),
       amountColorize: false,
-      statusLabel: _statusText(invoice) ?? _paymentLabel,
-      statusKind: _statusKind,
+      statusLabel: _statusText(invoice, docType) ?? _paymentLabel(invoice),
+      statusKind: _statusKindFor(invoice, docType),
       dimmed: invoice.status == 'cancelled',
       onTap: () => context.push('/sales/detail/${invoice.id}'),
-      trailing: RowActionsButton(
-        actions: [
-          RowAction(
-            label: 'Edit',
-            icon: Icons.edit_outlined,
-            onSelected: () => context
-                .push('/sales/edit/${invoice.id}?type=$docType'),
-          ),
-          if (isConvertible)
-            RowAction(
-              label: 'Convert to invoice',
-              icon: Icons.receipt_long_outlined,
-              onSelected: () => context.push(
-                  '/sales/new?type=invoice&from=${invoice.id}'),
-            ),
-          RowAction(
-            label: 'Delete',
-            icon: Icons.delete_outline_rounded,
-            destructive: true,
-            onSelected: () async {
-              final ok = await showDialog<bool>(
-                context: context,
-                builder: (dialogContext) => AlertDialog(
-                  title: Text('Delete ${invoice.number}?'),
-                  content: const Text(
-                      'Stock and balances are reversed. The document moves '
-                      'to the recycle bin and can be restored from '
-                      'Settings.'),
-                  actions: [
-                    TextButton(
-                      onPressed: () =>
-                          Navigator.of(dialogContext).pop(false),
-                      child: const Text('Cancel'),
-                    ),
-                    FilledButton.tonal(
-                      style: FilledButton.styleFrom(
-                        foregroundColor:
-                            Theme.of(dialogContext).colorScheme.error,
-                      ),
-                      onPressed: () =>
-                          Navigator.of(dialogContext).pop(true),
-                      child: const Text('Delete'),
-                    ),
-                  ],
-                ),
-              );
-              if (ok == true) {
-                try {
-                  await ref
-                      .read(salesRepositoryProvider)
-                      ?.softDelete(invoice.id);
-                } catch (e) {
-                  if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Could not delete: $e')),
-                  );
-                }
-              }
-            },
-          ),
-        ],
+      // Content-aware kebab: the entries adapt to the document type and its
+      // state (Receive Payment only on a balanced invoice, Convert only on
+      // an open estimate, PDF/Print on sales documents, History always).
+      trailing: DocumentRowMenu(
+        docType: docType,
+        docId: invoice.id,
+        number: invoice.number,
+        status: invoice.status,
+        paymentStatus: invoice.paymentStatus,
+        balanceDue: invoice.balanceDue,
       ),
     );
-  }
-
-  String get _paymentLabel => switch (invoice.paymentStatus) {
-        'paid' => 'Paid',
-        'partial' => 'Partial',
-        _ => 'Unpaid',
-      };
-
-  ChipKind get _statusKind {
-    if (invoice.status == 'cancelled') return ChipKind.danger;
-    if (invoice.status == 'converted') return ChipKind.info;
-    if (_paymentLabel == 'Paid') return ChipKind.success;
-    if (_paymentLabel == 'Partial') return ChipKind.warning;
-    return ChipKind.neutral;
   }
 
   String get _subtitle {
@@ -527,7 +583,8 @@ class _SaleRow extends ConsumerWidget {
     if (showDate) parts.add(Formatters.date(invoice.invoiceDate));
     if (invoice.isInterState && (invoice.partyGstin ?? '').isNotEmpty) {
       parts.add(
-          'Inter-state · ${IndianStates.byCode(invoice.placeOfSupply)?.name ?? ''}');
+        'Inter-state · ${IndianStates.byCode(invoice.placeOfSupply)?.name ?? ''}',
+      );
     }
     return parts.join('  ·  ');
   }
@@ -541,100 +598,33 @@ class _SaleTableRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isConvertible =
-        (docType == 'quotation' || docType == 'sales_order') &&
-            invoice.status != 'converted' &&
-            invoice.status != 'cancelled';
-
     return TransactionTableRow(
       onTap: () => context.push('/sales/detail/${invoice.id}'),
       leading: LeadingGlyph(icon: _docIcon(docType)),
       date: Formatters.date(invoice.invoiceDate),
       number: invoice.number,
       party: invoice.partyName ?? 'Walk-in customer',
-      detail: _statusText(invoice) ?? _paymentLabel,
+      detail: _statusText(invoice, docType) ?? _paymentLabel(invoice),
       amount: Money.of(invoice.grandTotal),
       amountColorize: false,
       balance: Money.of(invoice.balanceDue),
-      statusLabel: _statusText(invoice) ?? _paymentLabel,
-      statusKind: _statusKind,
-      trailing: RowActionsButton(
-        actions: [
-          RowAction(
-            label: 'Edit',
-            icon: Icons.edit_outlined,
-            onSelected: () =>
-                context.push('/sales/edit/${invoice.id}?type=$docType'),
-          ),
-          if (isConvertible)
-            RowAction(
-              label: 'Convert to invoice',
-              icon: Icons.receipt_long_outlined,
-              onSelected: () =>
-                  context.push('/sales/new?type=invoice&from=${invoice.id}'),
-            ),
-          RowAction(
-            label: 'Delete',
-            icon: Icons.delete_outline_rounded,
-            destructive: true,
-            onSelected: () async {
-              final ok = await showDialog<bool>(
-                context: context,
-                builder: (dialogContext) => AlertDialog(
-                  title: Text('Delete ${invoice.number}?'),
-                  content: const Text(
-                      'Stock and balances are reversed. The document moves '
-                      'to the recycle bin and can be restored from '
-                      'Settings.'),
-                  actions: [
-                    TextButton(
-                      onPressed: () =>
-                          Navigator.of(dialogContext).pop(false),
-                      child: const Text('Cancel'),
-                    ),
-                    FilledButton.tonal(
-                      style: FilledButton.styleFrom(
-                        foregroundColor:
-                            Theme.of(dialogContext).colorScheme.error,
-                      ),
-                      onPressed: () =>
-                          Navigator.of(dialogContext).pop(true),
-                      child: const Text('Delete'),
-                    ),
-                  ],
-                ),
-              );
-              if (ok == true) {
-                try {
-                  await ref
-                      .read(salesRepositoryProvider)
-                      ?.softDelete(invoice.id);
-                } catch (e) {
-                  if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Could not delete: $e')),
-                  );
-                }
-              }
-            },
-          ),
-        ],
+      statusLabel: _statusText(invoice, docType) ?? _paymentLabel(invoice),
+      statusKind: _statusKindFor(invoice, docType),
+      // The Status column already says it — a pill beside the balance
+      // repeated the word and nudged the figure left of its header.
+      showStatusChip: false,
+      // Content-aware kebab: the entries adapt to the document type and its
+      // state (Receive Payment only on a balanced invoice, Convert only on
+      // an open estimate, PDF/Print on sales documents, History always).
+      trailing: DocumentRowMenu(
+        docType: docType,
+        docId: invoice.id,
+        number: invoice.number,
+        status: invoice.status,
+        paymentStatus: invoice.paymentStatus,
+        balanceDue: invoice.balanceDue,
       ),
       dimmed: invoice.status == 'cancelled',
     );
-  }
-
-  String get _paymentLabel => switch (invoice.paymentStatus) {
-        'paid' => 'Paid',
-        'partial' => 'Partial',
-        _ => 'Unpaid',
-      };
-
-  ChipKind get _statusKind {
-    if (invoice.status == 'cancelled') return ChipKind.danger;
-    if (invoice.status == 'converted') return ChipKind.info;
-    if (_paymentLabel == 'Paid') return ChipKind.success;
-    if (_paymentLabel == 'Partial') return ChipKind.warning;
-    return ChipKind.neutral;
   }
 }

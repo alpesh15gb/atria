@@ -15,6 +15,7 @@ class SyncReport {
     this.pending = 0,
     this.skipped = false,
     this.needsSignIn = false,
+    this.temporarilyUnavailable = false,
     this.error,
     this.at,
   });
@@ -35,18 +36,33 @@ class SyncReport {
   /// drain once the device is signed in again.
   final bool needsSignIn;
 
+  /// True when the session is fine and Atria could not be reached this run, so
+  /// the outbox is equally untouched — but nothing is wrong with the account
+  /// and there is no password for the user to type.
+  ///
+  /// Separate from [needsSignIn] because the two used to be the same report:
+  /// `AuthController.accessToken()` returns null both when there is no session
+  /// and when the renewal could not be delivered, so being on a train produced
+  /// "Sign in to Atria to sync" across the app. Only one of them can be acted
+  /// on, and the action is not the same, so they are not the same field.
+  final bool temporarilyUnavailable;
+
   /// Why the sync stopped, in words worth showing. Null when it finished.
   final String? error;
 
   /// When the run finished, for "last synced" display.
   final DateTime? at;
 
-  bool get ok => error == null && !needsSignIn;
+  bool get ok => error == null && !needsSignIn && !temporarilyUnavailable;
 
   /// A one-line summary for the settings screen.
   String get describe {
     if (skipped) return 'Sync is switched off.';
     if (needsSignIn) return 'Sign in to Atria to sync.';
+    if (temporarilyUnavailable) {
+      return 'Atria is unreachable right now, so nothing was sent or received. '
+          'Your changes are safe on this device and will go up on the next run.';
+    }
     if (error != null) return error!;
     if (pushed == 0 && pulled == 0 && pending == 0) {
       return 'Everything is already synced.';
@@ -83,9 +99,11 @@ class RestoreReport {
 /// One run is push-then-pull — pushing first means a pull can never make this
 /// device forget a local change that had not yet left.
 ///
-/// Merge policy on the pull side is row-level last-write-wins on `updated_at`
-/// (see [PullApplier]). The server arbitrates nothing: it stores a journal, and
-/// the journal's order plus each row's `updated_at` is the whole algorithm.
+/// Merge policy on the pull side is row-level last-write-wins on `updated_at`,
+/// with a tie going to the pull and a one-day bound on how far the local clock
+/// is trusted (see [PullApplier]). The server arbitrates nothing: it stores a
+/// journal, and the journal's order plus each row's `updated_at` is the whole
+/// algorithm.
 /// That is deliberately the simplest rule that cannot lose a *newer* edit, and
 /// it is stated once, in one class, rather than smeared across the UI.
 ///
@@ -249,10 +267,15 @@ class SyncEngine {
       return SyncReport(skipped: true, pending: await pendingCount(), at: now);
     }
 
-    final accessToken = await _auth.accessToken();
+    final token = await _auth.resolveAccessToken();
+    final accessToken = token.accessToken;
     if (accessToken == null) {
+      // Two different failures with two different remedies. Reporting the
+      // offline one as "needs sign in" is what put a password prompt on a
+      // phone with no signal, and the prompt does not even help.
       return SyncReport(
-        needsSignIn: true,
+        needsSignIn: !token.temporarilyUnavailable,
+        temporarilyUnavailable: token.temporarilyUnavailable,
         pending: await pendingCount(),
         at: now,
       );
@@ -349,6 +372,10 @@ class SyncEngine {
 
     final pushReport = await push();
     if (pushReport.needsSignIn || pushReport.skipped) return pushReport;
+    // Same reasoning one step down: a push that never got past the token check
+    // has nothing to receive either, and retrying would only produce a second
+    // failure line for one outage. `describe` already says "unreachable".
+    if (pushReport.temporarilyUnavailable) return pushReport;
 
     // A device can belong to firms this install has never opened (restore
     // created one while another was active) — pull for every firm the outbox
@@ -356,14 +383,22 @@ class SyncEngine {
     final firmIds = <String>{...await _knownFirmIds()};
     var pulled = 0;
     String? pullError;
+    var temporarilyUnavailable = false;
     for (final firmId in firmIds) {
+      // Resolved per firm because _pullFirm needs the outcome, not just the
+      // token: it used to treat a null token as "nothing to do" and return 0,
+      // which made an unreachable server look like a completed pull.
+      final token = await _auth.resolveAccessToken();
       try {
-        pulled += await _pullFirm(firmId);
+        pulled += await _pullFirm(firmId, token);
       } on ServerRequestException catch (failure) {
         pullError = failure.signedOut
             ? 'Atria no longer accepts this device\'s session. Sign in again to '
                 'resume syncing.'
             : failure.message;
+        // Only the token check can make this run "unreachable"; a 500 from a
+        // server that answered has its own message and must keep it.
+        temporarilyUnavailable = token.temporarilyUnavailable;
         break;
       } on Object catch (failure) {
         pullError = 'Sync stopped while receiving: $failure';
@@ -372,7 +407,10 @@ class SyncEngine {
     }
 
     final at = DateTime.now();
-    if (pullError == null) {
+    // "Last synced" claims a *round trip*, so it is stamped only when both
+    // halves completed. Keying it on the pull alone stamped it while the push
+    // half was still failing — the one thing the Settings row is read for.
+    if (pullError == null && pushReport.error == null) {
       await _settings.set(
         SettingsRepository.kSyncLastSyncedAt,
         at.toUtc().toIso8601String(),
@@ -382,6 +420,7 @@ class SyncEngine {
       pushed: pushReport.pushed,
       pulled: pulled,
       pending: pushReport.pending,
+      temporarilyUnavailable: temporarilyUnavailable,
       error: pullError ?? pushReport.error,
       at: at,
     );
@@ -399,11 +438,18 @@ class SyncEngine {
   /// not an action the person pressed), and a half-restored books database
   /// must not look like a complete one.
   Future<RestoreReport> restoreFirm(String firmId) async {
-    final accessToken = await _auth.accessToken();
+    final token = await _auth.resolveAccessToken();
+    final accessToken = token.accessToken;
     if (accessToken == null) {
-      return const RestoreReport(
+      return RestoreReport(
         restored: false,
-        describe: 'Your session has expired. Sign in again.',
+        // "Sign in again" is only true when the session really is gone; on a
+        // train the books are still safe on the other device and this one
+        // simply has to wait.
+        describe: token.temporarilyUnavailable
+            ? 'Could not reach Atria, so nothing was restored. Check this '
+                'device is online and try again.'
+            : 'Your session has expired. Sign in again.',
       );
     }
 
@@ -503,9 +549,22 @@ class SyncEngine {
 
   /// Replays one firm's journal from the stored cursor. Returns the number of
   /// changes applied.
-  Future<int> _pullFirm(String firmId) async {
-    final accessToken = await _auth.accessToken();
-    if (accessToken == null) return 0;
+  ///
+  /// [token] is resolved by the caller rather than here so that a pull which
+  /// could not start is *reported* instead of looking like a firm with nothing
+  /// new: a null token used to return 0 silently, and the run went on to record
+  /// a successful sync.
+  Future<int> _pullFirm(String firmId, AccessTokenResult token) async {
+    final accessToken = token.accessToken;
+    if (accessToken == null) {
+      throw ServerRequestException(
+        token.temporarilyUnavailable
+            ? 'Could not reach Atria, so nothing was received.'
+            : 'Atria no longer accepts this device\'s session. Sign in again '
+                'to resume syncing.',
+        signedOut: !token.temporarilyUnavailable,
+      );
+    }
 
     final cursorKey = 'sync_cursor_$firmId';
     var afterSeq = await _settings.getInt(cursorKey) ?? 0;
@@ -554,6 +613,16 @@ class SyncEngine {
       ..where(_db.syncQueue.syncedAt.isNull());
     final row = await query.getSingle();
     return row.read(count) ?? 0;
+  }
+
+  /// [pendingCount] as a stream, so Settings can show a count that is still
+  /// true after the outbox grew on another tab.
+  Stream<int> watchPendingCount() {
+    final count = _db.syncQueue.id.count();
+    final query = _db.selectOnly(_db.syncQueue)
+      ..addColumns([count])
+      ..where(_db.syncQueue.syncedAt.isNull());
+    return query.watchSingle().map((row) => row.read(count) ?? 0);
   }
 
   /// Sent rows older than [keepSentFor].

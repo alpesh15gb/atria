@@ -68,3 +68,8 @@ PRE_COMPACT*.md
 FRESH_SESSION_RECOVERY.md
 SAFE_SHELL_GUIDE.md
 SETUP_PROMPT.md
+
+# Windows installer output (built by installer/atria.iss) — 17 MB setup exe
+# plus a 20 MB portable zip, both regenerated from build\release.
+/installer/output/
+/installer/smoke-install/

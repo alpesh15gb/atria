@@ -1,6 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Sign-in and sync talk to api.apexbooks.in. This is a normal permission,
+         granted at install time with no prompt — but the Flutter template only
+         puts it in the debug/profile manifests, so a release build silently had
+         no network at all: every request failed as "can't reach Atria" while
+         `flutter run` worked fine. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="atria"
+        android:label="Atria"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

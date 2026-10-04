@@ -12,7 +12,6 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/money_text.dart';
-import '../../shared/widgets/status_chip.dart';
 
 enum _DateRange { thisMonth, thisFY, allTime }
 
@@ -44,9 +43,7 @@ class _PartyStatementScreenState extends ConsumerState<PartyStatementScreen> {
         actions: [
           IconButton(
             tooltip: 'Share statement',
-            onPressed: repository == null
-                ? null
-                : () => _share(repository),
+            onPressed: repository == null ? null : () => _share(repository),
             icon: const Icon(Icons.share_rounded),
           ),
         ],
@@ -57,11 +54,12 @@ class _PartyStatementScreenState extends ConsumerState<PartyStatementScreen> {
             return Center(
               child: ConstrainedBox(
                 constraints: BoxConstraints(
-                  maxWidth: constraints.isCompact ? double.infinity : 900,
+                  // Same cap as the Statement of Account — the two screens are
+                  // the same four-column table reached one tap apart, so a
+                  // ledger row has to stop at the same place on both.
+                  maxWidth: constraints.isCompact ? double.infinity : 980,
                 ),
-                child: repository == null
-                    ? _disabledState
-                    : _body(repository),
+                child: repository == null ? _disabledState : _body(repository),
               ),
             );
           },
@@ -71,10 +69,10 @@ class _PartyStatementScreenState extends ConsumerState<PartyStatementScreen> {
   }
 
   Widget get _disabledState => const EmptyState(
-        icon: Icons.storefront_outlined,
-        title: 'No business open',
-        message: 'Set up a firm in Settings to view statements.',
-      );
+    icon: Icons.storefront_outlined,
+    title: 'No business open',
+    message: 'Set up a firm in Settings to view statements.',
+  );
 
   DateTime? get _from {
     final now = DateTime.now();
@@ -82,7 +80,9 @@ class _PartyStatementScreenState extends ConsumerState<PartyStatementScreen> {
       case _DateRange.thisMonth:
         return DateTime(now.year, now.month, 1);
       case _DateRange.thisFY:
-        return now.month >= 4 ? DateTime(now.year, 4, 1) : DateTime(now.year - 1, 4, 1);
+        return now.month >= 4
+            ? DateTime(now.year, 4, 1)
+            : DateTime(now.year - 1, 4, 1);
       case _DateRange.allTime:
         return null;
     }
@@ -111,7 +111,7 @@ class _PartyStatementScreenState extends ConsumerState<PartyStatementScreen> {
                 return EmptyState(
                   icon: Icons.error_outline_rounded,
                   title: 'Could not load statement',
-                  message: '${snapshot.error}',
+                  message: atriaErrorMessage(snapshot.error, retry: 'Try again.'),
                 );
               }
               final statement = snapshot.data;
@@ -129,54 +129,43 @@ class _PartyStatementScreenState extends ConsumerState<PartyStatementScreen> {
     );
   }
 
+  /// The period strip, as a real [SegmentedButton].
+  ///
+  /// This was a hand-rolled `GestureDetector` pill: ~35dp tall (under the
+  /// 44/48dp minimum) and with NO focus node, so on Windows it could not be
+  /// reached by Tab nor toggled with Space/Enter. `SegmentedButton` gives each
+  /// option a real button — focusable and keyboard-operable — and matches the
+  /// control the party and item editors already use. The 48dp minimum is
+  /// explicit because the app's theme sets `materialTapTargetSize: shrinkWrap`,
+  /// which opts out of Material's 48dp tap target and leaves a segment at 40dp.
   Widget get _rangePills => Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Container(
-          padding: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(AppRadius.md),
-          ),
-          child: Row(
-            children: [
+        child: SizedBox(
+          width: double.infinity,
+          child: SegmentedButton<_DateRange>(
+            segments: [
               for (final range in _DateRange.values)
-                Expanded(
-                  child: _pill(range),
+                ButtonSegment<_DateRange>(
+                  value: range,
+                  label: Text(
+                    switch (range) {
+                      _DateRange.thisMonth => 'This Month',
+                      _DateRange.thisFY => 'This FY',
+                      _DateRange.allTime => 'All Time',
+                    },
+                  ),
                 ),
             ],
+            selected: {_range},
+            showSelectedIcon: false,
+            style: const ButtonStyle(
+              minimumSize: WidgetStatePropertyAll(Size(0, 48)),
+            ),
+            onSelectionChanged: (selection) =>
+                setState(() => _range = selection.first),
           ),
         ),
       );
-
-  Widget _pill(_DateRange range) {
-    final selected = _range == range;
-    final scheme = Theme.of(context).colorScheme;
-    return GestureDetector(
-      onTap: () => setState(() => _range = range),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(vertical: 9),
-        decoration: BoxDecoration(
-          color: selected ? scheme.surface : Colors.transparent,
-          borderRadius: BorderRadius.circular(AppRadius.md - 4),
-          border: selected ? Border.all(color: scheme.outline, width: 0.9) : null,
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          switch (range) {
-            _DateRange.thisMonth => 'This Month',
-            _DateRange.thisFY => 'This FY',
-            _DateRange.allTime => 'All Time',
-          },
-          style: TextStyle(
-            fontWeight: FontWeight.w700,
-            fontSize: 13,
-            color: selected ? scheme.primary : scheme.onSurfaceVariant,
-          ),
-        ),
-      ),
-    );
-  }
 
   Widget _ledger(PartyStatement statement) {
     return CustomScrollView(
@@ -191,7 +180,7 @@ class _PartyStatementScreenState extends ConsumerState<PartyStatementScreen> {
               message: _range == _DateRange.allTime
                   ? 'There are no entries in ${statement.partyName}’s ledger yet.'
                   : 'No transactions in this period. Try “All Time” to see the '
-                      'full ledger.',
+                        'full ledger.',
             ),
           )
         else ...[
@@ -224,10 +213,30 @@ class _PartyStatementScreenState extends ConsumerState<PartyStatementScreen> {
       padding: const EdgeInsets.fromLTRB(20, 12, 16, 8),
       child: Row(
         children: [
-          Expanded(flex: 4, child: Text('DATE & PARTICULARS', style: style)),
-          Expanded(flex: 3, child: Text('DEBIT', style: style, textAlign: TextAlign.right)),
-          Expanded(flex: 3, child: Text('CREDIT', style: style, textAlign: TextAlign.right)),
-          Expanded(flex: 4, child: Text('BALANCE', style: style, textAlign: TextAlign.right)),
+          // "DATE & PARTICULARS" at labelSmall + 0.4 letter-spacing is ~120dp,
+          // wider than the ~92dp a 4/14 share of a 360dp row gives it. The
+          // label gives way rather than the row overflowing.
+          Expanded(
+            flex: 4,
+            child: Text(
+              'DATE & PARTICULARS',
+              style: style,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          Expanded(
+            flex: 3,
+            child: Text('DEBIT', style: style, textAlign: TextAlign.right),
+          ),
+          Expanded(
+            flex: 3,
+            child: Text('CREDIT', style: style, textAlign: TextAlign.right),
+          ),
+          Expanded(
+            flex: 4,
+            child: Text('BALANCE', style: style, textAlign: TextAlign.right),
+          ),
         ],
       ),
     );
@@ -289,16 +298,14 @@ class _PartyStatementScreenState extends ConsumerState<PartyStatementScreen> {
                 ),
                 IconButton(
                   tooltip: 'Share statement',
-                  onPressed: () => _share(
-                    ref.read(reportRepositoryProvider)!,
-                    statement,
-                  ),
+                  onPressed: () =>
+                      _share(ref.read(reportRepositoryProvider)!, statement),
                   icon: const Icon(Icons.share_rounded),
                 ),
                 IconButton(
                   tooltip: 'Open Statement of Account (PDF / Excel downloads)',
-                  onPressed: () => context
-                      .push('/statements?party=${widget.partyId}'),
+                  onPressed: () =>
+                      context.push('/statements?party=${widget.partyId}'),
                   icon: const Icon(Icons.picture_as_pdf_outlined),
                 ),
               ],
@@ -336,14 +343,14 @@ class _PartyStatementScreenState extends ConsumerState<PartyStatementScreen> {
                   statement.closing > Decimal.zero
                       ? Icons.trending_up_rounded
                       : statement.closing < Decimal.zero
-                          ? Icons.trending_down_rounded
-                          : Icons.trending_flat_rounded,
+                      ? Icons.trending_down_rounded
+                      : Icons.trending_flat_rounded,
                   size: 16,
                   color: statement.closing > Decimal.zero
                       ? colors.positive
                       : statement.closing < Decimal.zero
-                          ? colors.negative
-                          : scheme.onSurfaceVariant,
+                      ? colors.negative
+                      : scheme.onSurfaceVariant,
                 ),
                 const SizedBox(width: 6),
                 Expanded(
@@ -351,8 +358,8 @@ class _PartyStatementScreenState extends ConsumerState<PartyStatementScreen> {
                     statement.closing > Decimal.zero
                         ? '${statement.partyName} owes you'
                         : statement.closing < Decimal.zero
-                            ? 'You owe ${statement.partyName}'
-                            : 'Account settled',
+                        ? 'You owe ${statement.partyName}'
+                        : 'Account settled',
                     style: text.bodySmall?.copyWith(
                       color: scheme.onSurfaceVariant,
                       fontWeight: FontWeight.w600,
@@ -389,8 +396,8 @@ class _PartyStatementScreenState extends ConsumerState<PartyStatementScreen> {
           amount,
           signMode: MoneySignMode.auto,
           style: (emphasize ? text.titleLarge : text.titleMedium)?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ],
     );
@@ -412,7 +419,8 @@ class _PartyStatementScreenState extends ConsumerState<PartyStatementScreen> {
     ReportRepository repository, [
     PartyStatement? cached,
   ]) async {
-    final statement = cached ??
+    final statement =
+        cached ??
         await repository.partyStatement(
           partyId: widget.partyId,
           from: _from,
@@ -505,14 +513,6 @@ class _LedgerRow extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
                 ),
-                if (line.reference.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  StatusChip(
-                    label: line.reference,
-                    kind: ChipKind.neutral,
-                    size: ChipSize.small,
-                  ),
-                ],
               ],
             ),
           ),
@@ -530,9 +530,14 @@ class _LedgerRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               mainAxisSize: MainAxisSize.min,
               children: [
+                // Compact, like the debit and credit cells beside it: a
+                // running balance crosses a crore routinely, and the full
+                // "₹1,00,00,000.00" is ~99dp against this column's ~91dp,
+                // so it would paint across the Credit column.
                 MoneyText(
                   line.balance,
                   signMode: MoneySignMode.auto,
+                  compact: true,
                   style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 2),
@@ -551,25 +556,15 @@ class _LedgerRow extends StatelessWidget {
     );
   }
 
-  Widget _amountCell(
-    BuildContext context,
-    Decimal value,
-    Color color,
-  ) {
+  Widget _amountCell(BuildContext context, Decimal value, Color color) {
     if (value == Decimal.zero) {
       return const SizedBox();
     }
-    final style = Theme.of(context).textTheme.bodyMedium?.copyWith(
-          color: color,
-          fontWeight: FontWeight.w700,
-        );
+    final style = Theme.of(context).textTheme.bodyMedium
+        ?.copyWith(color: color, fontWeight: FontWeight.w700);
     return Align(
       alignment: Alignment.centerRight,
-      child: MoneyText(
-        value,
-        compact: true,
-        style: style,
-      ),
+      child: MoneyText(value, compact: true, style: style),
     );
   }
 }

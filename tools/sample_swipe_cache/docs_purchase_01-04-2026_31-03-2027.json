@@ -1,0 +1,4 @@
+[
+  {"hash_id": "BILLHASH1", "serial_number": "SUP-001", "payment_status": "pending", "amount_paid": 5000, "amount_pending": 4440, "total_amount": 9440, "tax_amount": 1440, "document_date": "16-04-2026", "due_date": "16-05-2026",
+   "customer": {"id": "VEND1", "name": "I-HEAP ELECTRONICS PVT LTD", "gstin": "36AAHCI7898C2Z3"}}
+]

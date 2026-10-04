@@ -76,7 +76,12 @@ class NumberToWords {
 
     final parts = <String>[];
     if (crore > 0) {
-      parts.add('${_twoDigit(crore)} Crore');
+      // Crore is the only unbounded head: lakh and thousand are a remainder
+      // modulo 10^5 / 10^3 and can therefore never exceed 99, but a crore count
+      // runs as high as the amount does (₹100 crore is an ordinary turnover).
+      // It is read through [_words] rather than the two-digit table, whose ten
+      // entries only covered a single digit of tens.
+      parts.add('${_words(crore)} Crore');
     }
     if (lakh > 0) {
       parts.add('${_twoDigit(lakh)} Lakh');
@@ -93,10 +98,38 @@ class NumberToWords {
     return parts.join(' ').trim();
   }
 
+  /// Reads 0–99: "Seven", "Forty Two", "Ninety Nine".
+  ///
+  /// Every caller decomposes a value that is provably below 100, so this is the
+  /// two-digit form and nothing more.
   static String _twoDigit(int value) {
     if (value < 20) return _ones[value];
     final t = value ~/ 10;
     final o = value % 10;
     return o == 0 ? _tens[t] : '${_tens[t]} ${_ones[o]}';
+  }
+
+  /// Reads 0–999, hundreds included: "Two Hundred Thirty Four".
+  ///
+  /// Segments are joined with a plain space, as [_convertIndian] joins them —
+  /// "and" only ever appears in front of paise. This is the hundred boundary at
+  /// which [_twoDigit] stops being able to answer.
+  static String _words(int value) {
+    if (value < 1000) {
+      final hundred = value ~/ 100;
+      final rest = value % 100;
+      final parts = <String>[];
+      if (hundred > 0) {
+        parts.add('${_ones[hundred]} Hundred');
+      }
+      if (rest > 0) {
+        parts.add(_twoDigit(rest));
+      }
+      return parts.join(' ');
+    }
+    // A thousand crores and up ("One Thousand Crore"). Recursing here is safe
+    // and terminates: the value handed back is the crore count, always far
+    // smaller than the amount that produced it.
+    return _convertIndian(value);
   }
 }

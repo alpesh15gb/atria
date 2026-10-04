@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Atria — QuickBooks parity check</title>
+    <style>
+      body { margin: 0; background: #f4f5f7; color: #393a3d; font: 12px system-ui; }
+      h2 { margin: 16px 12px 6px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #6b6c72; }
+      img { display: block; width: calc(100% - 24px); margin: 0 12px 18px; border: 1px solid #d4d7dc; border-radius: 8px; background: #fff; }
+      .swatches { display: flex; gap: 6px; margin: 0 12px 18px; }
+      .sw { width: 74px; height: 46px; border-radius: 4px; border: 1px solid #d4d7dc; display: flex; align-items: flex-end; justify-content: center; font: 9px/1.6 system-ui; color: #fff; }
+    </style>
+  </head>
+  <body>
+    <h2>Palette</h2>
+    <div class="swatches">
+      <div class="sw" style="background:#2ca01c">2CA01C</div>
+      <div class="sw" style="background:#0077c5">0077C5</div>
+      <div class="sw" style="background:#393a3d">393A3D</div>
+      <div class="sw" style="background:#f4f5f7;color:#393a3d">F4F5F7</div>
+      <div class="sw" style="background:#d4d7dc;color:#393a3d">D4D7DC</div>
+      <div class="sw" style="background:#e43834">E43834</div>
+    </div>
+    <h2>Dashboard</h2>
+    <img src="test/goldens/light_dashboard.png" />
+    <h2>Sales list</h2>
+    <img src="test/goldens/light_sales.png" />
+    <h2>Items</h2>
+    <img src="test/goldens/light_items.png" />
+    <h2>Parties</h2>
+    <img src="test/goldens/light_parties.png" />
+    <h2>Reports</h2>
+    <img src="test/goldens/light_reports.png" />
+    <h2>Settings</h2>
+    <img src="test/goldens/light_settings.png" />
+  </body>
+</html>

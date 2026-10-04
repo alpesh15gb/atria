@@ -58,6 +58,14 @@ class UpiQr {
               }
             }
           }
+          // `drawRect` only *appends* to the current path — it does not paint.
+          // Without this fill the module rectangles stayed pending and were
+          // flushed by whichever unrelated widget next called `fillPath()`,
+          // which happens under that widget's transform: the QR came out as a
+          // grey block on top of the terms and "Receiver's Signature" instead
+          // of beside the "Scan to pay" caption. `_BarcodeWidget` in `pdf`
+          // fills its own path for exactly this reason.
+          canvas.fillPath();
         },
       );
     } on Exception {

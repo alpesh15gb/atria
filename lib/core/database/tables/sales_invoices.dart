@@ -52,6 +52,10 @@ class SalesInvoices extends Table {
   RealColumn get igst => real().withDefault(const Constant(0))();
   RealColumn get cess => real().withDefault(const Constant(0))();
   RealColumn get tcs => real().withDefault(const Constant(0))();
+  /// The TCS percentage the amount was worked out from, so the invoice and the
+  /// return can print "TCS @ 0.1%" rather than an unattributed number. Null (or
+  /// zero) means no tax was collected at source on this document.
+  RealColumn get tcsRate => real().withDefault(const Constant(0))();
   RealColumn get roundOff => real().withDefault(const Constant(0))();
   RealColumn get grandTotal => real().withDefault(const Constant(0))();
 

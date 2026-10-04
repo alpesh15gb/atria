@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 
 import '../../engine/document_numbering.dart';
+import '../../utils/id_utils.dart';
 import '../app_database.dart';
 import 'repository_extensions.dart';
 import 'sync_mixin.dart';
@@ -115,22 +116,38 @@ class FirmRepository with SyncQueueMixin {
     });
   }
 
-  Future<void> delete(String id) async {
-    // Cascades the entire firm's books (FK ON DELETE CASCADE) with no
-    // recycle bin — dangerous enough that it must stay unreachable from the
-    // UI. Deliberately kept private; use the recycle bin for documents.
-    await db.transaction(() async {
-      await (db.delete(db.firms)..where((t) => t.id.equals(id))).go();
-      await enqueue(
-          firmId: id, entity: 'firms', entityId: id, operation: 'delete');
-      await db.auditRepository.log(
-        action: 'purge',
-        entity: 'firms',
-        firmId: id,
-        entityId: id,
-        summary: 'Firm and all its books permanently deleted',
-      );
-    });
+  /// Permanently removes [id] and every row that belongs to it.
+  ///
+  /// There is no recycle bin behind this: a business is not a document, and
+  /// "deleted businesses" sitting indefinitely in a list is not a thing anyone
+  /// wants. Settings asks for it twice — once for the scope, once by name — and
+  /// the same action is what propagates an erasure request to the server.
+  ///
+  /// **Nothing is written to the sync outbox.** A `firms`/`delete` entry would
+  /// be wrong in both modes the UI offers: "on this device only" must tell the
+  /// server nothing, and "here and on the server" is an immediate authenticated
+  /// call the caller makes *before* getting here. It would also be a trap — the
+  /// outbox row carries this firm's id, and [eraseFirmRows] deletes exactly
+  /// those rows, so the entry would erase itself.
+  ///
+  /// The audit row written afterwards is deliberately global (`firmId` null):
+  /// the firm's own trail has just gone, and this row is the record that it
+  /// did. A firm-scoped row would point at a business that no longer exists.
+  Future<void> purge(String id) async {
+    // Read the name first; after the delete there is nothing left to name it
+    // by, and "Business 018f2a3b… was deleted" is a worse audit line than the
+    // name the person recognises.
+    final firm = await getById(id);
+
+    await eraseFirmRows(db, id);
+
+    await db.auditRepository.log(
+      action: 'purge',
+      entity: 'firms',
+      entityId: id,
+      summary: 'Business "${firm?.name ?? id}" and all its data were deleted '
+          'from this device',
+    );
   }
 
   /// The next document number for [docType], and it reserves the sequence.
@@ -177,6 +194,7 @@ class FirmRepository with SyncQueueMixin {
             creditNoteSequence: 0,
             debitNoteSequence: 0,
             deliveryNoteSequence: 0,
+            purchaseOrderSequence: 0,
           );
           seq = 0;
         }
@@ -226,6 +244,7 @@ class FirmRepository with SyncQueueMixin {
         DocSequence.creditNote => t.creditNoteSequence.equals(value),
         DocSequence.debitNote => t.debitNoteSequence.equals(value),
         DocSequence.deliveryNote => t.deliveryNoteSequence.equals(value),
+        DocSequence.purchaseOrder => t.purchaseOrderSequence.equals(value),
       };
 
   String _prefixFor(FirmEntity firm, DocSequence docType) {
@@ -250,6 +269,8 @@ class FirmRepository with SyncQueueMixin {
         return firm.debitNotePrefix;
       case DocSequence.deliveryNote:
         return firm.deliveryNotePrefix;
+      case DocSequence.purchaseOrder:
+        return firm.purchaseOrderPrefix;
     }
   }
 
@@ -275,6 +296,8 @@ class FirmRepository with SyncQueueMixin {
         return firm.debitNoteSequence;
       case DocSequence.deliveryNote:
         return firm.deliveryNoteSequence;
+      case DocSequence.purchaseOrder:
+        return firm.purchaseOrderSequence;
     }
   }
 
@@ -300,12 +323,96 @@ class FirmRepository with SyncQueueMixin {
         return firm.copyWith(debitNoteSequence: value);
       case DocSequence.deliveryNote:
         return firm.copyWith(deliveryNoteSequence: value);
+      case DocSequence.purchaseOrder:
+        return firm.copyWith(purchaseOrderSequence: value);
     }
   }
 
-  String get _uuid =>
-      DateTime.now().millisecondsSinceEpoch.toRadixString(36).toUpperCase() +
-      DateTime.now().microsecond.toString();
+  String get _uuid => IdUtils.newId();
+}
+
+/// Deletes every row that belongs to [firmId], children before parents.
+///
+/// Explicit rather than leaning on `ON DELETE CASCADE`, which is the rule
+/// `VyaparImportService` already follows for its rollback and for a good
+/// reason: several of these tables carry a `firm_id` with **no** foreign key to
+/// `firms` at all — `stock_movements`, `app_settings`, `sync_queue` and
+/// `audit_logs` — so nothing would ever cascade them, and a connection opened
+/// without `PRAGMA foreign_keys=ON` (the in-memory test database, for one)
+/// would silently leave orphans in the rest.
+///
+/// This is the single place that knows what "a business's data" means. The
+/// Vyapar importer's failed-import rollback and Settings' "remove this
+/// business" both go through it, so a table added later cannot be erased on one
+/// of those paths and forgotten on the other.
+///
+/// Callers are responsible for the audit trail: this removes the firm's audit
+/// rows along with everything else, so anything that wants a record of the
+/// deletion must write it afterwards.
+Future<void> eraseFirmRows(AppDatabase db, String firmId) async {
+  await db.transaction(() async {
+    // Line items first. They reference their document rather than the firm, so
+    // leaving them to a cascade is the one place the chain has two links.
+    final invoiceIds = (await (db.select(db.salesInvoices)
+              ..where((t) => t.firmId.equals(firmId)))
+            .get())
+        .map((row) => row.id)
+        .toList();
+    final billIds = (await (db.select(db.purchaseBills)
+              ..where((t) => t.firmId.equals(firmId)))
+            .get())
+        .map((row) => row.id)
+        .toList();
+    // Journal lines hang off their voucher the same way an invoice line hangs
+    // off its invoice — neither carries a firm id of its own.
+    final journalIds = (await (db.select(db.journalEntries)
+              ..where((t) => t.firmId.equals(firmId)))
+            .get())
+        .map((row) => row.id)
+        .toList();
+
+    if (journalIds.isNotEmpty) {
+      await (db.delete(db.journalLines)
+            ..where((t) => t.entryId.isIn(journalIds)))
+          .go();
+    }
+
+    if (invoiceIds.isNotEmpty) {
+      await (db.delete(db.salesInvoiceItems)
+            ..where((t) => t.invoiceId.isIn(invoiceIds)))
+          .go();
+    }
+    if (billIds.isNotEmpty) {
+      await (db.delete(db.purchaseBillItems)
+            ..where((t) => t.billId.isIn(billIds)))
+          .go();
+    }
+
+    await (db.delete(db.salesInvoices)..where((t) => t.firmId.equals(firmId)))
+        .go();
+    await (db.delete(db.purchaseBills)..where((t) => t.firmId.equals(firmId)))
+        .go();
+    await (db.delete(db.payments)..where((t) => t.firmId.equals(firmId))).go();
+    await (db.delete(db.expenses)..where((t) => t.firmId.equals(firmId))).go();
+    await (db.delete(db.stockMovements)..where((t) => t.firmId.equals(firmId)))
+        .go();
+    await (db.delete(db.items)..where((t) => t.firmId.equals(firmId))).go();
+    await (db.delete(db.parties)..where((t) => t.firmId.equals(firmId))).go();
+    await (db.delete(db.categories)..where((t) => t.firmId.equals(firmId)))
+        .go();
+    await (db.delete(db.units)..where((t) => t.firmId.equals(firmId))).go();
+    await (db.delete(db.firmMembers)..where((t) => t.firmId.equals(firmId)))
+        .go();
+    await (db.delete(db.appSettings)..where((t) => t.firmId.equals(firmId)))
+        .go();
+    await (db.delete(db.journalEntries)
+          ..where((t) => t.firmId.equals(firmId)))
+        .go();
+    await (db.delete(db.accounts)..where((t) => t.firmId.equals(firmId))).go();
+    await (db.delete(db.syncQueue)..where((t) => t.firmId.equals(firmId))).go();
+    await (db.delete(db.auditLogs)..where((t) => t.firmId.equals(firmId))).go();
+    await (db.delete(db.firms)..where((t) => t.id.equals(firmId))).go();
+  });
 }
 
 /// Document series whose numbering is owned by the firm.
@@ -320,4 +427,5 @@ enum DocSequence {
   creditNote,
   debitNote,
   deliveryNote,
+  purchaseOrder,
 }

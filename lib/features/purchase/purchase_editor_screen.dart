@@ -9,6 +9,8 @@ import '../../core/constants/indian_states.dart';
 import '../../core/database/app_database.dart';
 import '../../core/database/repositories/firm_repository.dart';
 import '../../core/database/repositories/purchase_repository.dart';
+import '../../core/database/repositories/sales_repository.dart'
+    show DocumentSettlement;
 import '../../core/engine/gst_engine.dart';
 import '../../core/sync/scan_seed.dart';
 import '../../core/state/providers.dart';
@@ -30,6 +32,9 @@ import '../../shared/widgets/money_text.dart';
 import '../../shared/widgets/save_shortcut.dart';
 import '../../shared/widgets/tax_mode_toggle.dart';
 import '../../shared/widgets/unsaved_guard.dart';
+// The scan review screen's seed types: a scanned bill has to arrive carrying
+// which catalogue row the reviewer linked each line to, or nothing moves stock.
+import 'bill_scan_screen.dart' show CataloguedBillSeed, matchScannedItem;
 
 /// Sentinel dropdown value that opens the party editor instead of selecting a
 /// supplier.
@@ -83,6 +88,9 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
   final List<_LineState> _lines = <_LineState>[];
   List<PartyEntity> _suppliers = const [];
   List<ItemEntity> _items = const [];
+
+  /// Firm-defined units, for the line-grid unit picker.
+  List<UnitEntity> _customUnits = const [];
 
   /// Live item feed so the line picker sees items saved after this editor
   /// opened. Nulled on dispose; [_load] owns the subscription.
@@ -225,7 +233,8 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
           GstSplit.interState;
     }
 
-    for (final scanned in seed.lines) {
+    for (var i = 0; i < seed.lines.length; i++) {
+      final scanned = seed.lines[i];
       final line = _LineState(id: IdUtils.newId());
       line.nameController.text = scanned.name;
       if (scanned.hsn != null && scanned.hsn!.isNotEmpty) {
@@ -240,6 +249,30 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
       }
       line.gstRate = scanned.gstRate;
       line.cessRate = scanned.cessRate;
+      // Link the line to a catalogue item, or its quantity never moves stock:
+      // the save path skips null-item lines outright, and a scanned bill
+      // arrives as free text, so without this the bill looked complete and the
+      // stock ledger never saw it.
+      //
+      // The reviewer's own pick wins; otherwise resolve the description
+      // against the catalogue (see matchScannedItem, which refuses anything
+      // ambiguous). Everything else stays as the BILL said — the supplier's
+      // rate and GST slab are the document, and the catalogue's defaults would
+      // silently restate them. Only the HSN is filled in when the scan could
+      // not read it, because a classification the item already carries is not a
+      // judgement call.
+      final picked = seed is CataloguedBillSeed && i < seed.lineItemIds.length
+          ? seed.lineItemIds[i]
+          : null;
+      final matched = picked != null
+          ? _items.where((item) => item.id == picked).firstOrNull
+          : matchScannedItem(_items, scanned);
+      if (matched != null) {
+        line.itemId = matched.id;
+        if (line.hsn.isEmpty && (matched.hsn ?? '').isNotEmpty) {
+          line.hsnController.text = matched.hsn!;
+        }
+      }
       _lines.add(line);
     }
     if (seed.lines.isEmpty) {
@@ -281,9 +314,16 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
     }
 
     if (!mounted) return;
+    // Firm-defined units, so a unit created in the item editor stays selectable
+    // on a line — see the note on the sale editor's copy. Fetched before the
+    // setState because it is async.
+    final customUnits =
+        itemRepo == null ? const <UnitEntity>[] : await itemRepo.units();
+    if (!mounted) return;
     setState(() {
       _suppliers = suppliers;
       _items = items;
+      _customUnits = customUnits;
       _existing = bill;
       if (bill != null) {
         _prefill(bill, billItems);
@@ -339,7 +379,8 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
     // was saved with — hardcoding true here silently re-rounded bills that
     // were saved with round-off off (the sale editor already recovers it
     // this way).
-    _applyRoundOff = bill.roundOff.abs() > 0.000001;
+    _applyRoundOff = bill.roundOff.abs() > 0.000001 ||
+        (bill.grandTotal - bill.grandTotal.round()).abs() < 0.001;
 
     for (final item in items) {
       _lines.add(_LineState(id: item.id)..applyEntity(item));
@@ -396,6 +437,16 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
 
   GstSplit get _split =>
       _isInterState ? GstSplit.interState : GstSplit.intraState;
+
+  /// [GstSplit] with the Union-Territory case resolved, for LABELS only: the
+  /// engine computes with [_split] (the stored inter-state flag decides IGST),
+  /// while a firm in or supplying a UT prints CGST + UTGST rather than SGST.
+  GstSplit get _documentSplit => _isInterState
+      ? GstSplit.interState
+      : resolveGstSplit(
+          supplierState: _supplierWithId(_selectedSupplierId)?.stateCode,
+          buyerState: ref.read(activeFirmProvider).valueOrNull?.stateCode,
+        );
 
   GstResult get _totals {
     final lines = _lines.where((line) => line.isValid).toList();
@@ -547,12 +598,34 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
         sequence: _isEditing ? _existing!.sequence : 0,
       );
 
-      await repo.save(
+      final saved = await repo.save(
         draft,
         // An order is a promise, not goods received — the bill raised
         // against it does the stock work (mirrors the sales-side rule).
         affectStock: widget.docType != 'purchase_order',
       );
+      // Editing a bill DOWN is legal, but if what was already paid now exceeds
+      // what the bill is worth there is no honest balance left to show: the
+      // repository clamps it to ₹0 and keeps the payments ledger exactly as it
+      // stands. Say so, rather than letting the user find a "Paid" chip beside
+      // a bill that shrank under it.
+      final settlement = DocumentSettlement.of(
+        grandTotal: saved.grandTotal,
+        paidAmount: saved.paidAmount,
+      );
+      if (settlement.overpaid) {
+        messenger?.showSnackBar(
+          SnackBar(
+            content: Text(
+              'Saved, but ${Formatters.money(Decimal.parse(saved.paidAmount.toStringAsFixed(2)))} '
+              'was already paid against this bill and it is now worth only '
+              '${Formatters.money(Decimal.parse(saved.grandTotal.toStringAsFixed(2)))}. '
+              'The balance shows as zero — check the payments recorded for it.',
+            ),
+            duration: const Duration(seconds: 8),
+          ),
+        );
+      }
       // A converted purchase order is flagged so it shows its badge in the
       // list and cannot be converted a second time.
       final sourceId = _convertSourceId;
@@ -706,17 +779,71 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
   ];
 
   Widget _lineGrid() {
-    return AtriaLineGrid(
-      columns: _lineColumns,
-      addLabel: 'Add lines',
-      onAddRow: () => _addLine(focus: true),
-      rows: [
-        for (var i = 0; i < _lines.length; i++)
-          AtriaLineGridRow(
-            cells: _lineCells(i),
-            onRemove: _lines.length == 1 ? null : () => _deleteLine(_lines[i]),
-          ),
+    final unlinked = _unlinkedStockLines;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AtriaLineGrid(
+          columns: _lineColumns,
+          addLabel: 'Add lines',
+          onAddRow: () => _addLine(focus: true),
+          rows: [
+            for (var i = 0; i < _lines.length; i++)
+              AtriaLineGridRow(
+                cells: _lineCells(i),
+                onRemove:
+                    _lines.length == 1 ? null : () => _deleteLine(_lines[i]),
+              ),
+          ],
+        ),
+        if (unlinked.isNotEmpty) _unlinkedHint(unlinked),
       ],
+    );
+  }
+
+  /// The lines that will save without moving stock.
+  ///
+  /// A line with no `itemId` is skipped by the save path
+  /// (`if (line.itemId == null …) continue;`), which is legitimate — a shop
+  /// buys things it does not stock — but it used to be invisible, so a bill
+  /// could be entered, saved and listed while a third of its quantity never
+  /// reached the stock ledger. A purchase order is the one document type that
+  /// never moves stock by design, so it says nothing here.
+  List<_LineState> get _unlinkedStockLines => widget.docType == 'purchase_order'
+      ? const <_LineState>[]
+      : _lines.where((l) => l.isValid && l.itemId == null).toList();
+
+  Widget _unlinkedHint(List<_LineState> unlinked) {
+    final scheme = Theme.of(context).colorScheme;
+    final names =
+        unlinked.take(3).map((l) => l.nameController.text.trim()).join(', ');
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: scheme.tertiaryContainer.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.inventory_2_outlined, size: 16, color: scheme.tertiary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '${unlinked.length} line${unlinked.length == 1 ? '' : 's'} '
+              '($names${unlinked.length > 3 ? '…' : ''}) '
+              '${unlinked.length == 1 ? 'is' : 'are'} not linked to an item. '
+              'They will be saved on this bill, but they will not change stock '
+              '— pick the item from the Item cell to link one.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurface,
+                    height: 1.4,
+                  ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -733,7 +860,12 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
       }
     }
 
-    final lineTotals = GstEngine.computeLine(line.toTaxLine(), _split);
+    // The row's own figure must describe what the save will write: an
+    // incomplete line (blank name, or no quantity) is excluded from the
+    // document totals, so printing an amount beside it made the rows add up to
+    // more than the bill is worth.
+    final lineTotals =
+        line.isValid ? GstEngine.computeLine(line.toTaxLine(), _split) : null;
 
     return [
       ItemTypeAheadField(
@@ -746,21 +878,14 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
             (value == null || value.trim().isEmpty) ? 'Required' : null,
         decoration: (context) =>
             AtriaGridCell.decorationFor(context, hint: 'Item or service'),
-        items: [
-          for (final item in _items)
-            ItemSuggestion(
-              name: item.name,
-              salePrice: item.purchasePrice,
-              unit: item.unit,
-            ),
-        ],
+        items: [for (final item in _items) _CatalogueSuggestion(item)],
         onPickItem: (s) {
-          final match = _items
-              .where((i) => i.name == s.name)
-              .cast<ItemEntity?>()
-              .firstWhere((i) => i != null, orElse: () => null);
-          if (match != null) {
-            line.applyItem(match, _formatAmount);
+          // The suggestion carries the catalogue row it was built from, so two
+          // items differing only by case resolve to the one the user actually
+          // clicked; matching on `name == s.name` always took the first.
+          final picked = s is _CatalogueSuggestion ? s.item : null;
+          if (picked != null) {
+            line.applyItem(picked, _formatAmount);
             _changed();
           }
         },
@@ -772,6 +897,9 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
         hint: 'HSN',
         textCapitalization: TextCapitalization.characters,
         onChanged: (_) => _changed(),
+        // Enter moves on like it does from every other cell — the HSN cell used
+        // to swallow it, so tabbing down a line stopped dead at HSN.
+        onSubmitted: advance,
       ),
       Row(
         key: ValueKey('${line.id}-qty'),
@@ -800,6 +928,7 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
             ),
             child: AtriaUnitPicker(
               value: line.unit,
+              customUnits: _customUnits,
               onChanged: (unit) => _changed(() => line.unit = unit),
             ),
           ),
@@ -853,7 +982,7 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
               ? Alignment.centerRight
               : null,
           child: MoneyText(
-            lineTotals.total,
+            lineTotals?.total ?? Decimal.zero,
             colorize: false,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               fontWeight: FontWeight.w700,
@@ -892,6 +1021,7 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
           ),
       ],
       isInterState: _split == GstSplit.interState,
+      split: _documentSplit,
       footer: SwitchListTile(
         contentPadding: EdgeInsets.zero,
         dense: true,
@@ -1207,6 +1337,24 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
       ),
     );
   }
+}
+
+/// A type-ahead row that remembers which catalogue row it came from.
+///
+/// [ItemSuggestion] carries only what the dropdown renders (name, price,
+/// unit), so `onPickItem` had to find the item again by `name == s.name`: two
+/// items differing only by case rendered as identical rows and the first always
+/// won. Carrying the row itself makes the selection unambiguous without a
+/// change to the shared type-ahead widget.
+class _CatalogueSuggestion extends ItemSuggestion {
+  _CatalogueSuggestion(this.item)
+      : super(
+          name: item.name,
+          salePrice: item.purchasePrice,
+          unit: item.unit,
+        );
+
+  final ItemEntity item;
 }
 
 /// Mutable state for one line of the bill.

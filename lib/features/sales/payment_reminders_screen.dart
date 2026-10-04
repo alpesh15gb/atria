@@ -9,6 +9,8 @@ import '../../core/database/app_database.dart';
 import '../../core/state/providers.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/whatsapp_links.dart';
+import '../../shared/widgets/atria_page_header.dart';
+import '../../shared/widgets/atria_content_width.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/money_text.dart';
 
@@ -24,7 +26,12 @@ class PaymentRemindersScreen extends ConsumerWidget {
     final sales = ref.watch(salesRepositoryProvider);
     if (sales == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Payment Reminders')),
+        appBar: AppBar(
+          title: const Text('Payment Reminders'),
+          // Outside the shell, and the rail arrived by `go`, so there is nothing
+          // to pop and `AppBar` drew no back button. See [AtriaExitButton].
+          leading: const AtriaExitButton(),
+        ),
         body: const EmptyState(
           icon: Icons.notifications_active_outlined,
           title: 'No business open',
@@ -36,7 +43,10 @@ class PaymentRemindersScreen extends ConsumerWidget {
     final overdue = sales.watchOverdue();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Payment Reminders')),
+      appBar: AppBar(
+        title: const Text('Payment Reminders'),
+        leading: const AtriaExitButton(),
+      ),
       body: StreamBuilder<List<SalesInvoiceEntity>>(
         stream: overdue,
         builder: (context, snapshot) {
@@ -57,48 +67,55 @@ class PaymentRemindersScreen extends ConsumerWidget {
             (sum, r) => sum + Decimal.parse(r.balanceDue.toStringAsFixed(2)),
           );
           final scheme = Theme.of(context).colorScheme;
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                child: AtriaCard(
-                  background: scheme.errorContainer.withValues(alpha: 0.35),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('${rows.length} overdue invoice${rows.length == 1 ? '' : 's'}',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleMedium
-                                    ?.copyWith(fontWeight: FontWeight.w700)),
-                            const SizedBox(height: 2),
-                            MoneyText(total,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleLarge
-                                    ?.copyWith(fontWeight: FontWeight.w700)),
-                          ],
+          return AtriaContentWidth(
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: AtriaCard(
+                    background: scheme.errorContainer.withValues(alpha: 0.35),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                Formatters.count(
+                                  rows.length,
+                                  'overdue invoice',
+                                ),
+                                style: Theme.of(context).textTheme.titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.w700),
+                              ),
+                              const SizedBox(height: 2),
+                              MoneyText(
+                                total,
+                                style: Theme.of(context).textTheme.titleLarge
+                                    ?.copyWith(fontWeight: FontWeight.w700),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              Expanded(
-                child: ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
-                  itemCount: rows.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 8),
-                  itemBuilder: (context, index) =>
-                      _OverdueRow(invoice: rows[index]),
+                Expanded(
+                  child: ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+                    itemCount: rows.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) =>
+                        _OverdueRow(invoice: rows[index]),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           );
         },
       ),
@@ -122,16 +139,17 @@ class _OverdueRow extends StatelessWidget {
 
   Future<void> _nudge(BuildContext context) async {
     final days = _daysLate;
-    final text = 'Hello $_party, a gentle reminder that invoice '
-        '${invoice.number} for ${Formatters.money(
-            Decimal.parse(invoice.balanceDue.toStringAsFixed(2)))} '
+    final text =
+        'Hello $_party, a gentle reminder that invoice '
+        '${invoice.number} for ${Formatters.money(Decimal.parse(invoice.balanceDue.toStringAsFixed(2)))} '
         'was due ${invoice.dueDate == null ? 'earlier' : DateFormat('d MMM').format(invoice.dueDate!)}'
-        '${days > 0 ? ' ($days day${days == 1 ? '' : 's'} ago)' : ''}. '
+        '${days > 0 ? ' (${Formatters.count(days, 'day')} ago)' : ''}. '
         'Please arrange the payment at your earliest convenience. Thank you!';
     final messenger = ScaffoldMessenger.maybeOf(context);
     if (_digits.isEmpty) {
-      messenger?.showSnackBar(const SnackBar(
-          content: Text('This party has no phone number saved.')));
+      messenger?.showSnackBar(
+        const SnackBar(content: Text('This party has no phone number saved.')),
+      );
       return;
     }
     final uri = WhatsAppLinks.chat(_digits, message: text);
@@ -139,7 +157,8 @@ class _OverdueRow extends StatelessWidget {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (_) {
       messenger?.showSnackBar(
-          const SnackBar(content: Text('Could not open WhatsApp.')));
+        const SnackBar(content: Text('Could not open WhatsApp.')),
+      );
     }
   }
 
@@ -157,10 +176,12 @@ class _OverdueRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(_party,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: text.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+                Text(
+                  _party,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                ),
                 const SizedBox(height: 2),
                 Text(
                   '${invoice.number} · due ${invoice.dueDate == null ? '-' : DateFormat('d MMM yyyy').format(invoice.dueDate!)} · ${_daysLate}d late',

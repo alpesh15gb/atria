@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,6 +16,7 @@ import '../../core/database/repositories/repository_extensions.dart';
 import '../../core/database/repositories/settings_repository.dart';
 import '../../core/responsive/breakpoints.dart';
 import '../../core/services/csv_export.dart';
+import '../../core/state/auth_controller.dart';
 import '../../core/state/providers.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_shadows.dart';
@@ -47,6 +50,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   /// this only affects the caption — but the caption should not claim the user
   /// set something they did not.
   bool _apiUrlIsCustom = false;
+  /// The address actually in force, as of the last successful write or load.
+  /// Everything typed that differs from this is *not* what the app will talk to,
+  /// and the field says so rather than pretending otherwise.
+  String _apiUrlSaved = '';
+  /// Pending write for the address field, if any.
+  ///
+  /// Each write is a SQLite transaction that DELETEs and re-INSERTs the setting,
+  /// so saving per keystroke turned a 30-character address into 30 transactions
+  /// on the UI-triggered path. Same debounce shape as the search fields.
+  Timer? _apiUrlDebounce;
+  /// Captured so a pending address can still be written while the screen is
+  /// being disposed — reading `ref` after dispose is not allowed.
+  SettingsRepository? _settingsRepo;
   String _deviceLabel = 'This device: —';
   bool _backingUp = false;
   bool _exporting = false;
@@ -67,12 +83,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   void dispose() {
+    // A typed-but-unsaved address must not be lost because the user backed out.
+    // There is no screen left to report a failure on, so the write is
+    // fire-and-forget and any error is simply not written.
+    _apiUrlDebounce?.cancel();
+    _apiUrlDebounce = null;
+    final pending = _apiUrlController.text.trim();
+    if (pending.isNotEmpty &&
+        pending != _apiUrlSaved &&
+        ApiConfig.validateBaseUrl(pending) == null) {
+      unawaited(_persistApiUrl(ApiConfig.normaliseBaseUrl(pending)));
+    }
     _apiUrlController.dispose();
     super.dispose();
   }
 
   Future<void> _loadSettings() async {
     final db = ref.read(appDatabaseProvider);
+    _settingsRepo = db.settingsRepository;
     final syncEnabled =
         await db.settingsRepository.getBool(SettingsRepository.kSyncEnabled);
     final storedUrl =
@@ -102,6 +130,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     setState(() {
       _syncEnabled = syncEnabled;
       _apiUrlController.text = effectiveUrl;
+      _apiUrlSaved = effectiveUrl;
       _apiUrlIsCustom = (storedUrl ?? '').trim().isNotEmpty;
       // The short id is what a support request can quote to revoke one device
       // without signing every other one out.
@@ -131,7 +160,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           content: Text('Backup saved to ${Formatters.ellipsis(path, 48)}'),
           action: SnackBarAction(
             label: 'Manage',
-            onPressed: () => context.push('/settings/backup'),
+            // The snack bar outlives this screen: it can still be on screen after
+            // the user has navigated away, and pushing from a dead context throws.
+            onPressed: () {
+              if (!context.mounted) return;
+              context.push('/settings/backup');
+            },
           ),
         ),
       );
@@ -170,8 +204,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         content: Text('Exported to ${Formatters.ellipsis(
             files.first.parent.path, 52)}'),
         action: SnackBarAction(
-          label: 'Open folder file',
-          onPressed: () => OpenFilex.open(files.first.parent.path),
+          // Says "Open folder" because that is what it does: it hands the
+          // *directory* to the platform, which shows it. "Open folder file" read
+          // like a typo and promised a file that was never named.
+          label: 'Open folder',
+          onPressed: () {
+            if (!context.mounted) return;
+            OpenFilex.open(files.first.parent.path);
+          },
         ),
       ));
     } catch (error) {
@@ -188,6 +228,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   /// counted and reported, not silently skipped), and audited once.
   Future<void> _confirmEmptyRecycleBin() async {
     final db = ref.read(appDatabaseProvider);
+    // Read BEFORE the dialog, not after it: the dialog is modal and long-lived,
+    // and the business it belonged to can be deleted underneath it (from the
+    // business switcher on this very screen, or by a restore). Force-unwrapping
+    // the id after the dialog therefore threw a null-check error and left the
+    // bin exactly as full as it was, with no message at all.
     final firmId = ref.read(activeFirmIdProvider);
     if (firmId == null) {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(
@@ -195,41 +240,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       return;
     }
 
-    // A read-only peek at what would go, so the dialog names its cost.
-    Future<int> countAll() async {
-      final docs = await (db.select(db.salesInvoices)
-            ..where((t) =>
-                t.firmId.equals(firmId) & t.isDeleted.equals(true)))
-          .get();
-      final bills = await (db.select(db.purchaseBills)
-            ..where((t) =>
-                t.firmId.equals(firmId) & t.isDeleted.equals(true)))
-          .get();
-      final pays = await (db.select(db.payments)
-            ..where((t) =>
-                t.firmId.equals(firmId) & t.isDeleted.equals(true)))
-          .get();
-      final exps = await (db.select(db.expenses)
-            ..where((t) =>
-                t.firmId.equals(firmId) & t.isDeleted.equals(true)))
-          .get();
-      final prts = await (db.select(db.parties)
-            ..where((t) =>
-                t.firmId.equals(firmId) & t.isDeleted.equals(true)))
-          .get();
-      final itms = await (db.select(db.items)
-            ..where((t) =>
-                t.firmId.equals(firmId) & t.isDeleted.equals(true)))
-          .get();
-      return docs.length +
-          bills.length +
-          pays.length +
-          exps.length +
-          prts.length +
-          itms.length;
-    }
-
-    final total = await countAll();
+    // A read-only peek at what would go, so the dialog names its cost. Counted
+    // in SQL: the old version pulled every deleted row of six tables into memory
+    // purely to call `.length` on the results, then did it all again for the
+    // purge itself.
+    final total = await _recycleBinCount(db, firmId);
     if (!mounted) return;
     if (total == 0) {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(
@@ -286,28 +301,106 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       },
     );
     if (confirmed != true || !mounted) return;
-    await _purgeAll();
+    await _purgeAll(firmId);
   }
 
-  Future<void> _purgeAll() async {
+  /// How many soft-deleted rows the bin holds, counted by SQLite.
+  ///
+  /// Only the number is needed to warn the operator, so only the number comes
+  /// back: `count()` aggregates inside the database and no row objects are
+  /// built. The old version pulled every deleted row of six tables into memory
+  /// purely to call `.length` on the lists, then did it all again to purge.
+  Future<int> _recycleBinCount(AppDatabase db, String firmId) async {
+    final sales = await (db.selectOnly(db.salesInvoices)
+          ..addColumns([db.salesInvoices.id.count()])
+          ..where(db.salesInvoices.firmId.equals(firmId) &
+              db.salesInvoices.isDeleted.equals(true)))
+        .getSingle();
+    final bills = await (db.selectOnly(db.purchaseBills)
+          ..addColumns([db.purchaseBills.id.count()])
+          ..where(db.purchaseBills.firmId.equals(firmId) &
+              db.purchaseBills.isDeleted.equals(true)))
+        .getSingle();
+    final payments = await (db.selectOnly(db.payments)
+          ..addColumns([db.payments.id.count()])
+          ..where(db.payments.firmId.equals(firmId) &
+              db.payments.isDeleted.equals(true)))
+        .getSingle();
+    final expenses = await (db.selectOnly(db.expenses)
+          ..addColumns([db.expenses.id.count()])
+          ..where(db.expenses.firmId.equals(firmId) &
+              db.expenses.isDeleted.equals(true)))
+        .getSingle();
+    final parties = await (db.selectOnly(db.parties)
+          ..addColumns([db.parties.id.count()])
+          ..where(db.parties.firmId.equals(firmId) &
+              db.parties.isDeleted.equals(true)))
+        .getSingle();
+    final items = await (db.selectOnly(db.items)
+          ..addColumns([db.items.id.count()])
+          ..where(db.items.firmId.equals(firmId) &
+              db.items.isDeleted.equals(true)))
+        .getSingle();
+
+    return sales.read<int>(db.salesInvoices.id.count())! +
+        bills.read<int>(db.purchaseBills.id.count())! +
+        payments.read<int>(db.payments.id.count())! +
+        expenses.read<int>(db.expenses.id.count())! +
+        parties.read<int>(db.parties.id.count())! +
+        items.read<int>(db.items.id.count())!;
+  }
+
+  Future<void> _purgeAll(String firmId) async {
+    if (_purging) return;
     setState(() => _purging = true);
     final messenger = ScaffoldMessenger.maybeOf(context);
+    var purged = 0;
+    var locked = 0;
+    var refused = 0;
+    var failed = 0;
+    Object? firstError;
     try {
       final db = ref.read(appDatabaseProvider);
-      final firmId = ref.read(activeFirmIdProvider)!;
-      var purged = 0;
-      var locked = 0;
+      final lockedUpto = await db.booksLockedUpto(firmId);
 
+      /// One table's rows, isolated one at a time.
+      ///
+      /// Every failure is caught per row, not per table: a party that cannot be
+      /// purged (still referenced by a live document) used to abandon the other
+      /// 400 rows and the five tables behind it, and the snackbar then reported
+      /// a partial "Purged N" as if it were the whole job.
       Future<void> purgeEach(
-        List rows,
+        List<_RecycleRow> rows,
         Future<void> Function(String) purge,
       ) async {
         for (final row in rows) {
+          final date = row.date;
+          if (lockedUpto != null && date != null && !date.isAfter(lockedUpto)) {
+            // Counted rather than attempted. `assertDateEditable` would throw
+            // a bare Exception for exactly this row, and an exception here used
+            // to be the thing that ended the whole table.
+            locked++;
+            continue;
+          }
           try {
-            await purge(row.id as String);
+            await purge(row.id);
             purged++;
           } on StateError {
-            locked++; // date inside a locked period
+            // A refusal, not a fault: the repository is saying "this row still
+            // has live references" (or was never soft-deleted). The row stays in
+            // the bin, which is the correct outcome.
+            refused++;
+          } on Object catch (error) {
+            // `assertDateEditable` throws an untyped Exception, so a lock that
+            // landed between the read above and this write arrives as an opaque
+            // failure. Re-read the lock rather than string-matching the message.
+            final lockedNow = await db.booksLockedUpto(firmId);
+            if (lockedNow != null && date != null && !date.isAfter(lockedNow)) {
+              locked++;
+            } else {
+              failed++;
+              firstError ??= error;
+            }
           }
         }
       }
@@ -319,30 +412,64 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final partiesRepo = db.partyRepositoryFor(firmId);
       final itemsRepo = db.itemRepositoryFor(firmId);
 
-      final docRows = await (db.select(db.salesInvoices)
-            ..where((t) =>
-                t.firmId.equals(firmId) & t.isDeleted.equals(true)))
-          .get();
-      final billRows = await (db.select(db.purchaseBills)
-            ..where((t) =>
-                t.firmId.equals(firmId) & t.isDeleted.equals(true)))
-          .get();
-      final payRows = await (db.select(db.payments)
-            ..where((t) =>
-                t.firmId.equals(firmId) & t.isDeleted.equals(true)))
-          .get();
-      final expRows = await (db.select(db.expenses)
-            ..where((t) =>
-                t.firmId.equals(firmId) & t.isDeleted.equals(true)))
-          .get();
-      final partyRows = await (db.select(db.parties)
-            ..where((t) =>
-                t.firmId.equals(firmId) & t.isDeleted.equals(true)))
-          .get();
-      final itemRows = await (db.select(db.items)
-            ..where((t) =>
-                t.firmId.equals(firmId) & t.isDeleted.equals(true)))
-          .get();
+      // Only the id and the date are loaded: the purge needs nothing else, and a
+      // full row of a wide document table is mostly columns nobody will read.
+      // Parties and items carry no date of their own — their repositories check
+      // references, not dates — so only the id is read for those two.
+      final docRows = [
+        for (final row in await (db.selectOnly(db.salesInvoices)
+              ..addColumns([db.salesInvoices.id, db.salesInvoices.invoiceDate])
+              ..where(db.salesInvoices.firmId.equals(firmId) &
+                  db.salesInvoices.isDeleted.equals(true)))
+            .get())
+          _RecycleRow(
+            row.read(db.salesInvoices.id)!,
+            row.read(db.salesInvoices.invoiceDate),
+          )
+      ];
+      final billRows = [
+        for (final row in await (db.selectOnly(db.purchaseBills)
+              ..addColumns([db.purchaseBills.id, db.purchaseBills.billDate])
+              ..where(db.purchaseBills.firmId.equals(firmId) &
+                  db.purchaseBills.isDeleted.equals(true)))
+            .get())
+          _RecycleRow(
+            row.read(db.purchaseBills.id)!,
+            row.read(db.purchaseBills.billDate),
+          )
+      ];
+      final payRows = [
+        for (final row in await (db.selectOnly(db.payments)
+              ..addColumns([db.payments.id, db.payments.date])
+              ..where(db.payments.firmId.equals(firmId) &
+                  db.payments.isDeleted.equals(true)))
+            .get())
+          _RecycleRow(row.read(db.payments.id)!, row.read(db.payments.date))
+      ];
+      final expRows = [
+        for (final row in await (db.selectOnly(db.expenses)
+              ..addColumns([db.expenses.id, db.expenses.date])
+              ..where(db.expenses.firmId.equals(firmId) &
+                  db.expenses.isDeleted.equals(true)))
+            .get())
+          _RecycleRow(row.read(db.expenses.id)!, row.read(db.expenses.date))
+      ];
+      final partyRows = [
+        for (final row in await (db.selectOnly(db.parties)
+              ..addColumns([db.parties.id])
+              ..where(db.parties.firmId.equals(firmId) &
+                  db.parties.isDeleted.equals(true)))
+            .get())
+          _RecycleRow(row.read(db.parties.id)!, null)
+      ];
+      final itemRows = [
+        for (final row in await (db.selectOnly(db.items)
+              ..addColumns([db.items.id])
+              ..where(db.items.firmId.equals(firmId) &
+                  db.items.isDeleted.equals(true)))
+            .get())
+          _RecycleRow(row.read(db.items.id)!, null)
+      ];
 
       await purgeEach(docRows, (id) => sales.purge(id));
       await purgeEach(billRows, (id) => purchases.purge(id));
@@ -351,21 +478,35 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await purgeEach(partyRows, (id) => partiesRepo.deleteForever(id));
       await purgeEach(itemRows, (id) => itemsRepo.deleteForever(id));
 
+      final leftovers = <String>[
+        if (locked > 0) '$locked dated in a locked period',
+        if (refused > 0) '$refused still referenced by live records',
+        if (failed > 0) '$failed that could not be deleted',
+      ];
       await db.auditRepository.log(
         action: 'purge',
         entity: 'recycle_bin',
         firmId: firmId,
-        summary:
-            'Emptied the recycle bin: $purged purged, $locked refused '
-            '(locked period)',
+        summary: [
+          'Emptied the recycle bin: $purged purged',
+          if (locked > 0) '$locked refused (locked period)',
+          if (refused > 0) '$refused refused (still referenced)',
+          if (failed > 0) '$failed failed',
+        ].join(', '),
       );
       if (!mounted) return;
+      // Say what happened, in both directions. The old message could read
+      // "Purged 12" for a run where five tables had not been reached.
       messenger?.showSnackBar(SnackBar(
-        content: Text(locked == 0
-            ? 'Recycle bin emptied ($purged deleted forever)'
-            : 'Purged $purged; $locked skipped (dates in a locked period)'),
+        content: Text(
+          leftovers.isEmpty
+              ? 'Recycle bin emptied ($purged deleted forever)'
+              : 'Deleted $purged for ever. Still in the bin: '
+                  '${leftovers.join('; ')}.'
+                  '${firstError == null ? '' : ' $firstError'}',
+        ),
       ));
-    } catch (error) {
+    } on Object catch (error) {
       messenger?.showSnackBar(
         SnackBar(content: Text('Could not empty the bin: $error')),
       );
@@ -1093,16 +1234,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
+  /// Why the sync actions below are dead, or null when they are live.
+  ///
+  /// Both "Sync now" and "Re-send all books" disable themselves unless sync is
+  /// switched on and this device is signed in — and both of those live in a
+  /// different card, far up this screen. Two disabled buttons with no stated
+  /// reason read as a fault in the app rather than a setting the user chose, so
+  /// the reason is spelled out where the buttons are.
+  String? _syncBlockedReason(AuthState account) {
+    if (!account.signedIn) {
+      return 'Sign in above to sync this device.';
+    }
+    if (!_syncEnabled) {
+      return 'Turn on "Sync my books to the server" above to use these.';
+    }
+    return null;
+  }
+
   /// The outbox: how much is waiting, when it last drained, and a way to make
   /// it happen now.
   ///
   /// The outbox is written on every save whether or not sync is on, so the
-  /// pending count is real even with the toggle off — which is exactly why it
-  /// is worth showing.
+  /// pending count is real even while the toggle is off — which is exactly why
+  /// it is worth showing.
   Widget _syncWorkerRow() {
     final scheme = Theme.of(context).colorScheme;
     final status = ref.watch(syncStatusProvider);
     final account = ref.watch(authControllerProvider);
+    final blocked = _syncBlockedReason(account);
 
     final Widget body;
     if (status.isLoading) {
@@ -1129,49 +1288,65 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final pending = value?.pending ?? 0;
       final lastSynced = value?.lastSyncedAt;
       final lastPushed = value?.lastPushedAt;
-      body = Row(
+      body = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  pending == 0
-                      ? 'Nothing is waiting to be sent.'
-                      : '$pending change(s) waiting to be sent.',
-                  style: Theme.of(context).textTheme.bodySmall,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      pending == 0
+                          ? 'Nothing is waiting to be sent.'
+                          : '$pending change(s) waiting to be sent.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      lastSynced != null
+                          ? 'Last synced ${Formatters.dateTime(lastSynced)}.'
+                          : lastPushed != null
+                              ? 'Last sent ${Formatters.dateTime(lastPushed)}; '
+                                  'nothing received yet.'
+                              : 'This device has never completed a sync.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  lastSynced != null
-                      ? 'Last synced ${Formatters.dateTime(lastSynced)}.'
-                      : lastPushed != null
-                          ? 'Last sent ${Formatters.dateTime(lastPushed)}; '
-                              'nothing received yet.'
-                          : 'This device has never completed a sync.',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 8),
+              _syncing
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2.2),
+                    )
+                  : TextButton(
+                      // Only offered where it can work: with sync off, this button
+                      // would be a way to send the books out anyway, which is not
+                      // what the toggle promises.
+                      onPressed: blocked == null ? _syncNow : null,
+                      child: const Text('Sync now'),
+                    ),
+            ],
           ),
-          const SizedBox(width: 8),
-          _syncing
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2.2),
-                )
-              : TextButton(
-                  // Only offered where it can work: with sync off, this button
-                  // would be a way to send the books out anyway, which is not
-                  // what the toggle promises.
-                  onPressed: _syncEnabled && account.signedIn ? _syncNow : null,
-                  child: const Text('Sync now'),
-                ),
+          if (blocked != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                blocked,
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            ),
         ],
       );
     }
@@ -1196,6 +1371,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget _repairRow() {
     final scheme = Theme.of(context).colorScheme;
     final account = ref.watch(authControllerProvider);
+    final blocked = _syncBlockedReason(account);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1222,12 +1398,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton(
-                  onPressed: _syncEnabled && account.signedIn
-                      ? _rejournalEverything
-                      : null,
+                  onPressed: blocked == null ? _rejournalEverything : null,
                   child: const Text('Re-send all books'),
                 ),
               ),
+              if (blocked != null)
+                Text(
+                  blocked,
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: scheme.onSurfaceVariant),
+                ),
             ],
           ),
         ),
@@ -1330,6 +1512,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final scheme = Theme.of(context).colorScheme;
     final colors = atriaColors(context);
     final text = Theme.of(context).textTheme;
+    final typed = _apiUrlController.text.trim();
+    // Does the box hold what the app will actually talk to? Anything else is
+    // either mid-write or unusable, and the caption below says which — the field
+    // must never appear to be showing an address that is not in force.
+    final valid = ApiConfig.validateBaseUrl(typed) == null;
+    final inForce =
+        (valid && ApiConfig.normaliseBaseUrl(typed) == _apiUrlSaved) ||
+        (typed.isEmpty && !_apiUrlIsCustom);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1345,15 +1535,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             hintText: ApiConfig.productionBaseUrl,
             prefixIcon: const AtriaFieldIcon(Icons.link_rounded),
             errorText: _apiUrlError,
-            helperText: _apiUrlIsCustom
-                ? 'Saved on this device'
-                : 'Built-in address — type your own to change it',
+            helperText: _apiUrlError != null
+                ? 'Not saved — the app is still using '
+                    '${Formatters.ellipsis(_apiUrlSaved, 32)}'
+                : inForce
+                    ? (_apiUrlIsCustom
+                        ? 'Saved on this device'
+                        : 'Built-in address — type your own to change it')
+                    : 'Saving…',
           ),
-          // Saved on every change AND on done — saving only on
-          // onEditingComplete meant tapping away (or switching apps) silently
-          // discarded what was typed.
-          onChanged: (value) => _saveApiUrl(value, quiet: true),
-          onEditingComplete: () => _saveApiUrl(_apiUrlController.text),
+          // Debounced, not per keystroke: every write is a SQLite transaction
+          // that DELETEs and re-INSERTs the setting, so typing an address used
+          // to cost one transaction per character. Tapping away, finishing, or
+          // testing the connection all flush immediately, so nothing is lost.
+          onChanged: (value) => _queueApiUrl(value),
+          onEditingComplete: _flushApiUrl,
+          onTapOutside: (_) {
+            FocusManager.instance.primaryFocus?.unfocus();
+            _flushApiUrl();
+          },
         ),
         const SizedBox(height: 12),
         OutlinedButton.icon(
@@ -1394,64 +1594,130 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
+  /// Schedules the write for the address currently in the box.
+  ///
+  /// Debounced rather than per keystroke: `SettingsRepository.set` opens a
+  /// transaction that DELETEs and re-INSERTs the row, so a 30-character
+  /// address used to mean 30 transactions on the path a keystroke triggers.
+  /// Validation runs on every keystroke (cheap, no I/O) so the field reports a
+  /// bad address immediately; only the write waits for the typing to pause.
+  void _queueApiUrl(String raw) {
+    final trimmed = raw.trim();
+    _apiUrlDebounce?.cancel();
+    // Shown straight away: the field must not claim to be showing an address
+    // that is not stored yet.
+    setState(() {
+      _apiUrlError =
+          trimmed.isEmpty ? null : ApiConfig.validateBaseUrl(trimmed);
+      if (_apiUrlError == null) {
+        // A different address invalidates whatever the last test proved.
+        if (_savedFormOf(trimmed) != _apiUrlSaved) {
+          _probeMessage = null;
+          _probeOk = null;
+        }
+      }
+    });
+    _apiUrlDebounce = Timer(const Duration(milliseconds: 600), () {
+      _apiUrlDebounce = null;
+      _saveApiUrl(raw);
+    });
+  }
+
+  /// Writes any pending address now. Used by every explicit "I am done with
+  /// this field" gesture, so the debounce can only ever be invisible.
+  Future<void> _flushApiUrl() => _saveApiUrl(_apiUrlController.text);
+
+  /// The stored form of [raw], or '' when it cannot be used at all. Never
+  /// throws, so it can be asked about half-typed text.
+  String _savedFormOf(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return '';
+    if (ApiConfig.validateBaseUrl(trimmed) != null) return '';
+    return ApiConfig.normaliseBaseUrl(trimmed);
+  }
+
   /// Validates and stores the server address.
   ///
   /// An empty field clears the override, which is why it removes the setting
   /// rather than storing "" — the built-in address takes over again.
-  Future<void> _saveApiUrl(String raw, {bool quiet = false}) async {
+  Future<void> _saveApiUrl(String raw, {bool announce = false}) async {
+    // Any queued write for older text is now stale.
+    _apiUrlDebounce?.cancel();
+    _apiUrlDebounce = null;
     final trimmed = raw.trim();
-
-    if (trimmed.isEmpty) {
-      setState(() {
-        _apiUrlError = null;
-        _apiUrlIsCustom = false;
-        _probeMessage = null;
-        _probeOk = null;
-      });
-      await _saveSetting(SettingsRepository.kApiBaseUrl, '', quiet: true);
-      if (!quiet && mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(
-              content: Text('Using ${ApiConfig.productionBaseUrl}')),
-        );
-      }
-      return;
-    }
+    final clearing = trimmed.isEmpty;
 
     // Refuse to store an address the client cannot use: every request would
-    // throw later, far from the screen that caused it.
-    final error = ApiConfig.validateBaseUrl(trimmed);
-    if (error != null) {
-      setState(() => _apiUrlError = error);
-      return;
+    // throw later, far from the screen that caused it. The field says so under
+    // the box, and keeps the previous address as the one in force — so the
+    // screen can no longer display an address the app will not use.
+    if (!clearing) {
+      final error = ApiConfig.validateBaseUrl(trimmed);
+      if (error != null) {
+        if (mounted) setState(() => _apiUrlError = error);
+        return;
+      }
     }
 
-    final normalised = ApiConfig.normaliseBaseUrl(trimmed);
+    await _persistApiUrl(clearing ? '' : ApiConfig.normaliseBaseUrl(trimmed),
+        announce: announce);
+    if (!mounted) return;
+
+    // Ask the config what is now in force, rather than assuming: with a
+    // --dart-define in play, clearing the override lands on the build-time
+    // address, not on production.
+    String effective;
+    try {
+      effective = await ref.read(apiConfigProvider).baseUrl();
+    } on Object {
+      effective = clearing ? ApiConfig.productionBaseUrl : trimmed;
+    }
+    if (!mounted) return;
     setState(() {
       _apiUrlError = null;
-      _apiUrlIsCustom = true;
-      // A previous test result describes a different address now.
+      _apiUrlSaved = effective;
+      _apiUrlIsCustom = !clearing;
       _probeMessage = null;
       _probeOk = null;
     });
-    await _saveSetting(SettingsRepository.kApiBaseUrl, normalised,
-        quiet: true);
-    if (!quiet && mounted) {
+    if (announce) {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text('Saving to $normalised')),
+        SnackBar(content: Text('This device will use $effective')),
       );
     }
   }
 
+  /// The raw write, with no context needed — so a pending address can still be
+  /// stored from `dispose`.
+  Future<void> _persistApiUrl(String value, {bool announce = false}) async {
+    final repository = _settingsRepo;
+    if (repository == null) return;
+    try {
+      if (value.isEmpty) {
+        await repository.remove(SettingsRepository.kApiBaseUrl);
+      } else {
+        await repository.set(SettingsRepository.kApiBaseUrl, value);
+      }
+    } on Object catch (error) {
+      if (!announce || !mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text('Could not save the server address: $error')),
+      );
+    }
+  }
+
+  /// Proves the address works.
+  ///
+  /// Anything half-typed is written first, so the probe always runs against the
+  /// address the app is actually about to use — the alternative was a green
+  /// tick for an address nothing else in the app would ever talk to.
   Future<void> _testServer() async {
+    await _flushApiUrl();
+    if (!mounted) return;
+
     final typed = _apiUrlController.text.trim();
-    final error = ApiConfig.validateBaseUrl(typed);
-    if (error != null) {
-      setState(() {
-        _apiUrlError = error;
-        _probeMessage = null;
-        _probeOk = null;
-      });
+    if (ApiConfig.validateBaseUrl(typed) != null) {
+      // _saveApiUrl has already put the reason under the box.
       return;
     }
 
@@ -1461,36 +1727,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _probeOk = null;
     });
 
-    final result = await ServerProbe.check(ApiConfig.normaliseBaseUrl(typed));
+    final result = await ServerProbe.check(_apiUrlSaved);
     if (!mounted) return;
     setState(() {
       _probing = false;
       _probeOk = result.ok;
-      _probeMessage = result.message;
+      _probeMessage = '$_apiUrlSaved — ${result.message}';
     });
-  }
-
-  Future<void> _saveSetting(String key, String value,
-      {bool quiet = false}) async {
-    final repository = ref.read(appDatabaseProvider).settingsRepository;
-    try {
-      if (value.isEmpty) {
-        await repository.remove(key);
-      } else {
-        await repository.set(key, value);
-      }
-    } catch (e) {
-      // Always reported "Sync setting saved", even when the write failed.
-      if (!mounted) return;
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text('Could not save sync setting: $e')),
-      );
-      return;
-    }
-    if (quiet || !mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      const SnackBar(content: Text('Sync setting saved')),
-    );
   }
 
   // ---- About -------------------------------------------------------------
@@ -1554,4 +1797,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ],
     );
   }
+}
+
+/// One soft-deleted row, reduced to what the purge needs: the id to delete and
+/// the date the period lock is checked against (null where the table has none).
+class _RecycleRow {
+  const _RecycleRow(this.id, this.date);
+
+  final String id;
+  final DateTime? date;
 }

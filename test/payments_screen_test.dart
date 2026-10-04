@@ -16,6 +16,12 @@ import 'package:flutter_test/flutter_test.dart';
 ///   subtype of type 'num'" error box. The cards must render real money text.
 /// - The row kebab menu must soft-delete into the recycle bin, never
 ///   hard-delete (payments are audit-locked documents).
+///
+/// The fixture payments are dated **now** rather than a fixed day. The screen's
+/// summary and list default to the current month, so hard-coded dates made this
+/// file pass all month and then fail at midnight on the 1st, when the data slid
+/// into "last month" — a test that breaks with the calendar is worse than no
+/// test, because the failure looks like a regression in the screen.
 void main() {
   const timeout = Timeout(Duration(minutes: 2));
 
@@ -35,7 +41,7 @@ void main() {
       number: 'PIN-001',
       partyName: 'Keystone Infra Pvt Ltd',
       amount: 1330,
-      date: DateTime(2026, 9, 20),
+      date: DateTime.now(),
       mode: 'cash',
     );
     await payments.create(
@@ -43,7 +49,7 @@ void main() {
       number: 'POUT-001',
       partyName: 'Sharma Electric Works',
       amount: 4500,
-      date: DateTime(2026, 9, 21),
+      date: DateTime.now(),
       mode: 'bank',
     );
 
@@ -97,7 +103,7 @@ void main() {
       number: 'PIN-001',
       partyName: 'Keystone Infra Pvt Ltd',
       amount: 1330,
-      date: DateTime(2026, 9, 20),
+      date: DateTime.now(),
     );
 
     await tester.pumpWidget(

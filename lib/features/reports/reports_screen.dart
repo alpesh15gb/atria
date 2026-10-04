@@ -13,6 +13,7 @@ import '../../core/state/providers.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
+import '../../shared/widgets/atria_nav_row.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/money_text.dart';
 
@@ -49,8 +50,8 @@ double _niceInterval(double maxValue) {
   final step = normalized >= 5
       ? 5.0
       : normalized >= 2
-          ? 2.0
-          : 1.0;
+      ? 2.0
+      : 1.0;
   return step * magnitude;
 }
 
@@ -87,6 +88,16 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             (now.year - fy.start.year) * 12 + now.month - fy.start.month;
         final quarter = elapsed.clamp(0, 11) ~/ 3;
         final start = DateTime(fy.start.year, fy.start.month + quarter * 3, 1);
+        // The end is the quarter's ACTUAL last day at 23:59:59, never
+        // `DateTime.now()`. For the ~three quarters of the year that are
+        // still in progress, `now` advanced a few milliseconds on every
+        // rebuild, so `_DateRange` — which has value equality on from/to —
+        // compared unequal each time and every card's `didUpdateWidget`
+        // re-issued its queries: changing the day-book date, resizing the
+        // window or any ancestor rebuild re-ran the whole books from scratch.
+        // A quarter that has not ended yet cannot contain rows dated after its
+        // last day, so querying to the quarter end returns exactly the same
+        // rows while comparing equal every time.
         final end = DateTime(
           fy.start.year,
           fy.start.month + quarter * 3 + 3,
@@ -95,7 +106,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           59,
           59,
         );
-        return _DateRange(start, end.isAfter(now) ? now : end);
+        return _DateRange(start, end);
       case _Period.thisFY:
         final fy = FinancialYear.current();
         return _DateRange(fy.start, fy.end);
@@ -114,22 +125,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final repo = ref.watch(reportRepositoryProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Reports'),
-        actions: [
-          IconButton(
-            tooltip: 'GST returns (GSTR-1 / 3B / 2A)',
-            onPressed:
-                repo == null ? null : () => context.push('/gst-reports'),
-            icon: const Icon(Icons.fact_check_outlined),
-          ),
-          IconButton(
-            tooltip: 'Stock summary',
-            onPressed: repo == null ? null : () => context.push('/stock'),
-            icon: const Icon(Icons.inventory_2_outlined),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Reports')),
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -137,7 +133,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               return const EmptyState(
                 icon: Icons.storefront_outlined,
                 title: 'No business open',
-                message: 'Set up a firm in Settings to generate GST, '
+                message:
+                    'Set up a firm in Settings to generate GST, '
                     'profit-and-loss and day-book reports.',
               );
             }
@@ -145,12 +142,14 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             final range = _range;
             return CustomScrollView(
               slivers: [
+                SliverToBoxAdapter(child: _reportLibrary()),
                 SliverToBoxAdapter(child: _periodSelector(range)),
                 SliverToBoxAdapter(
                   child: _pad(
                     SectionHeader(
                       title: 'Goods & Services Tax',
-                      subtitle: 'Output tax, input credit and rate-wise '
+                      subtitle:
+                          'Output tax, input credit and rate-wise '
                           'outward supplies · ${range.label}',
                       padding: const EdgeInsets.fromLTRB(4, 14, 4, 10),
                     ),
@@ -158,6 +157,20 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                 ),
                 SliverToBoxAdapter(
                   child: _pad(_GstCard(repo: repo, range: range)),
+                ),
+                SliverToBoxAdapter(
+                  child: _pad(
+                    SectionHeader(
+                      title: 'Tax at source',
+                      subtitle:
+                          'Deducted on purchases and collected on sales '
+                          '· ${range.label}',
+                      padding: const EdgeInsets.fromLTRB(4, 14, 4, 10),
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: _pad(_TaxAtSourceCard(repo: repo, range: range)),
                 ),
                 SliverToBoxAdapter(
                   child: _pad(
@@ -189,9 +202,62 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   }
 
   Widget _pad(Widget child) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: child,
-      );
+    padding: const EdgeInsets.symmetric(horizontal: 16),
+    child: child,
+  );
+
+  // ---- Report library ----------------------------------------------------
+
+  /// The destinations that used to hide behind app-bar icons. Every reference
+  /// app leads its reports screen with a labelled list of report families
+  /// rather than icon-only actions, so the same rows sit above the filters
+  /// here.
+  Widget _reportLibrary() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _pad(
+          const SectionHeader(
+            title: 'Report library',
+            subtitle: 'Returns, stock and party statements',
+            padding: EdgeInsets.fromLTRB(4, 14, 4, 10),
+          ),
+        ),
+        _pad(
+          AtriaNavRowList(
+            children: [
+              AtriaNavRow(
+                icon: Icons.fact_check_outlined,
+                title: 'GST returns',
+                subtitle:
+                    'GSTR-1, GSTR-3B and 2A reconciliation, month by '
+                    'month',
+                onTap: () => context.push('/gst-reports'),
+              ),
+              AtriaNavRow(
+                icon: Icons.inventory_2_outlined,
+                title: 'Stock summary',
+                subtitle: 'Quantity and value lying in stock, item wise',
+                onTap: () => context.go('/stock'),
+              ),
+              AtriaNavRow(
+                icon: Icons.receipt_long_outlined,
+                title: 'Statement of account',
+                subtitle: 'Party ledger with PDF and Excel download',
+                // `/stock` and `/statements` are branch ROOTS, and this screen
+                // lives in the reports branch. `push`ing a branch root makes
+                // go_router append an ImperativeRouteMatch beside the shell
+                // match, which hosts the page on the ROOT navigator — no rail,
+                // no bottom bar, and Back unwinding to the previous page rather
+                // than behaving like a tab. `go` switches the branch properly.
+                onTap: () => context.go('/statements'),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 
   // ---- Period selector ---------------------------------------------------
 
@@ -226,8 +292,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                     _periodLabels[period]!,
                     style: text.labelMedium?.copyWith(
                       fontWeight: FontWeight.w700,
-                      color:
-                          selected ? scheme.primary : scheme.onSurfaceVariant,
+                      color: selected
+                          ? scheme.primary
+                          : scheme.onSurfaceVariant,
                     ),
                   ),
                   selected: selected,
@@ -235,8 +302,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                   onSelected: (_) => setState(() {
                     _period = period;
                     if (period == _Period.custom) {
-                      _customFrom =
-                          DateTime(DateTime.now().year, DateTime.now().month, 1);
+                      _customFrom = DateTime(
+                        DateTime.now().year,
+                        DateTime.now().month,
+                        1,
+                      );
                       _customTo = DateTime.now();
                     }
                   }),
@@ -249,7 +319,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             children: [
               Icon(
                 Icons.event_available_rounded,
-                size: 15,
+                size: 16,
                 color: scheme.onSurfaceVariant,
               ),
               const SizedBox(width: 6),
@@ -290,43 +360,46 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
 
-    return GestureDetector(
-      onTap: () async {
-        final picked = await showDatePicker(
-          context: context,
-          initialDate: value,
-          firstDate: DateTime(2020),
-          lastDate: DateTime.now(),
-          helpText: label == 'From' ? 'Report starts on' : 'Report ends on',
-        );
-        if (picked != null) onPicked(picked);
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-          border: Border.all(color: scheme.outline, width: 0.9),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              label,
-              style: text.labelSmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-                fontWeight: FontWeight.w700,
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () async {
+          final picked = await showDatePicker(
+            context: context,
+            initialDate: value,
+            firstDate: DateTime(2020),
+            lastDate: DateTime.now(),
+            helpText: label == 'From' ? 'Report starts on' : 'Report ends on',
+          );
+          if (picked != null) onPicked(picked);
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            border: Border.all(color: scheme.outline, width: 0.9),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: text.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              Formatters.date(value),
-              style: text.labelSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-                fontFeatures: const [FontFeature.tabularFigures()],
+              const SizedBox(width: 6),
+              Text(
+                Formatters.date(value),
+                style: text.labelSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -342,8 +415,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final perRow = constraints.isLarge
         ? 4
         : constraints.isExpanded
-            ? 3
-            : 2;
+        ? 3
+        : 2;
 
     final cards = <_GridCard>[
       _GridCard(
@@ -358,7 +431,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         ),
         wideOnCompact: true,
       ),
-      _GridCard(child: _ReceivablesCard(repo: repo, range: range)),
+      _GridCard(
+        child: _ReceivablesCard(repo: repo, range: range),
+      ),
       _GridCard(child: _StockCard(repo: repo)),
     ];
 
@@ -423,11 +498,17 @@ class _SectionBuilder<T> extends StatelessWidget {
     required this.future,
     required this.builder,
     this.loadingHeight = 120,
+    this.onRetry,
   });
 
   final Future<T> future;
   final Widget Function(T value) builder;
   final double loadingHeight;
+
+  /// Re-runs the card's query. Every report here is a read of the local
+  /// SQLite file, so a failure is always worth retrying — there is no
+  /// partial-write state to be careful about.
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -438,10 +519,21 @@ class _SectionBuilder<T> extends StatelessWidget {
           return _ShimmerBlock(height: loadingHeight);
         }
         if (snapshot.hasError) {
+          // The exception itself used to be rendered verbatim, which put a
+          // `SqliteException(...)` — a class name and a stack-frame-shaped
+          // string — into a user-facing card. Keep it in debugPrint (no token
+          // or secret is involved in a local report query) and give the user
+          // a sentence plus a way out.
+          debugPrint('reports: report card failed: ${snapshot.error}');
           return _CardEmpty(
             icon: Icons.error_outline_rounded,
             title: 'Could not load this report',
-            message: '${snapshot.error}',
+            message: onRetry == null
+                ? 'Close and reopen the app, or try the report again.'
+                : 'This report could not be read from your books. '
+                    'Nothing has been changed — try again.',
+            actionLabel: onRetry == null ? null : 'Try again',
+            onAction: onRetry,
           );
         }
         final value = snapshot.data;
@@ -457,12 +549,162 @@ class _SectionBuilder<T> extends StatelessWidget {
   }
 }
 
+/// TDS and TCS for the selected period.
+///
+/// A card rather than a full report screen because there is exactly one number
+/// an Indian small business needs from each: how much was deducted on its
+/// purchases, how much it collected on its sales, and therefore how much goes
+/// to the department on a challan by the 7th.
+class _TaxAtSourceCard extends StatefulWidget {
+  const _TaxAtSourceCard({required this.repo, required this.range});
+
+  final ReportRepository repo;
+  final _DateRange range;
+
+  @override
+  State<_TaxAtSourceCard> createState() => _TaxAtSourceCardState();
+}
+
+class _TaxAtSourceCardState extends State<_TaxAtSourceCard> {
+  late Future<TaxAtSourceSummary> _future = widget.repo.taxAtSource(
+    from: widget.range.from,
+    to: widget.range.to,
+  );
+
+  void _reload() {
+    _future = widget.repo.taxAtSource(
+      from: widget.range.from,
+      to: widget.range.to,
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _TaxAtSourceCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.range != widget.range || oldWidget.repo != widget.repo) {
+      _reload();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _SectionBuilder<TaxAtSourceSummary>(
+      future: _future,
+      loadingHeight: 96,
+      onRetry: () => setState(_reload),
+      builder: (summary) {
+        if (summary.isEmpty) {
+          return const _CardEmpty(
+            icon: Icons.percent_rounded,
+            title: 'No tax at source in this period',
+            message:
+                'TDS on a purchase bill or TCS on an invoice will show '
+                'here, with the total to deposit.',
+          );
+        }
+
+        final scheme = Theme.of(context).colorScheme;
+        final text = Theme.of(context).textTheme;
+        Widget row(String label, String note, Decimal amount) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label, style: text.bodyMedium),
+                    Text(
+                      note,
+                      style: text.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                Formatters.money(amount),
+                style: text.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
+          ),
+        );
+
+        return AtriaCard(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (summary.tdsDeducted > Decimal.zero)
+                row(
+                  'TDS deducted on purchases',
+                  '${summary.billsWithTds} bill(s) — paid to the government, '
+                      'not to the supplier',
+                  summary.tdsDeducted,
+                ),
+              if (summary.tcsCollected > Decimal.zero)
+                row(
+                  'TCS collected on sales',
+                  '${summary.invoicesWithTcs} invoice(s) — held on the '
+                      'customer\'s behalf',
+                  summary.tcsCollected,
+                ),
+              const Divider(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'To deposit',
+                      style: text.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    Formatters.money(summary.total),
+                    style: text.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Challan ITNS-281, by the 7th of the month after the one '
+                'the tax was deducted or collected in.',
+                style: text.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _CardEmpty extends StatelessWidget {
-  const _CardEmpty({required this.icon, required this.title, this.message});
+  const _CardEmpty({
+    required this.icon,
+    required this.title,
+    this.message,
+    this.actionLabel,
+    this.onAction,
+  });
 
   final IconData icon;
   final String title;
   final String? message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -470,6 +712,8 @@ class _CardEmpty extends StatelessWidget {
       icon: icon,
       title: title,
       message: message,
+      actionLabel: actionLabel,
+      onAction: onAction,
       compact: true,
     );
   }
@@ -487,7 +731,8 @@ class _Shimmer extends StatefulWidget {
   State<_Shimmer> createState() => _ShimmerState();
 }
 
-class _ShimmerState extends State<_Shimmer> with SingleTickerProviderStateMixin {
+class _ShimmerState extends State<_Shimmer>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 1100),
@@ -580,10 +825,10 @@ Widget _subLabel(BuildContext context, String label) {
   return Text(
     label,
     style: Theme.of(context).textTheme.labelMedium?.copyWith(
-          color: scheme.onSurfaceVariant,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.4,
-        ),
+      color: scheme.onSurfaceVariant,
+      fontWeight: FontWeight.w700,
+      letterSpacing: 0.4,
+    ),
   );
 }
 
@@ -595,9 +840,9 @@ Widget _moreLine(BuildContext context, int extra) {
     child: Text(
       '+ $extra more ${extra == 1 ? 'entry' : 'entries'}',
       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-            color: scheme.onSurfaceVariant,
-            fontWeight: FontWeight.w700,
-          ),
+        color: scheme.onSurfaceVariant,
+        fontWeight: FontWeight.w700,
+      ),
     ),
   );
 }
@@ -668,7 +913,7 @@ class _GstCardState extends State<_GstCard> {
                   height: 38,
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.18),
-                    borderRadius: BorderRadius.circular(11),
+                    borderRadius: AppRadius.smAll,
                   ),
                   alignment: Alignment.center,
                   child: const Icon(
@@ -723,7 +968,7 @@ class _GstCardState extends State<_GstCard> {
                             '…',
                             style: text.titleLarge?.copyWith(
                               color: Colors.white,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w700,
                             ),
                           );
                         }
@@ -733,7 +978,7 @@ class _GstCardState extends State<_GstCard> {
                           colorize: false,
                           style: text.titleLarge?.copyWith(
                             color: Colors.white,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w700,
                             fontFeatures: const [FontFeature.tabularFigures()],
                           ),
                         );
@@ -749,6 +994,7 @@ class _GstCardState extends State<_GstCard> {
             child: _SectionBuilder<GstSummary>(
               future: _future,
               loadingHeight: 170,
+              onRetry: () => setState(_reload),
               builder: (gst) => _gstBody(gst),
             ),
           ),
@@ -768,7 +1014,8 @@ class _GstCardState extends State<_GstCard> {
       return const _CardEmpty(
         icon: Icons.receipt_outlined,
         title: 'No taxable sales in this period',
-        message: 'Create a sales invoice to see output tax and the '
+        message:
+            'Create a sales invoice to see output tax and the '
             'rate-wise GSTR breakdown here.',
       );
     }
@@ -777,8 +1024,8 @@ class _GstCardState extends State<_GstCard> {
     final netColor = netPayable > Decimal.zero
         ? colors.negative
         : netPayable < Decimal.zero
-            ? colors.positive
-            : scheme.onSurface;
+        ? colors.positive
+        : scheme.onSurface;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -788,10 +1035,23 @@ class _GstCardState extends State<_GstCard> {
             _statTile('Output tax', gst.outputTax),
             _divider(),
             _statTile('Input tax (ITC)', gst.inputTax),
+            if (gst.inputFromExpenses > Decimal.zero) ...[
+              _divider(),
+              _statTile('ITC on expenses', gst.inputFromExpenses),
+            ],
             _divider(),
             _statTile('Net payable', netPayable, color: netColor),
           ],
         ),
+        if (gst.inputFromExpenses > Decimal.zero) ...[
+          const SizedBox(height: 10),
+          Text(
+            'ITC on expenses is the GST inside bills recorded as expenses, not '
+            'as purchases. It counts as credit, and only the taxable part of '
+            'the expense is a cost.',
+            style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ],
         const SizedBox(height: 18),
         _subLabel(context, 'Outward supplies — rate wise'),
         const SizedBox(height: 8),
@@ -842,7 +1102,7 @@ class _GstCardState extends State<_GstCard> {
             amount,
             compact: true,
             style: text.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w700,
               color: color,
             ),
           ),
@@ -891,8 +1151,11 @@ class _GstCardState extends State<_GstCard> {
           amount,
           compact: true,
           colorize: false,
+          // The headers above are right-aligned; the figures have to sit under
+          // them or the column reads as skewed even when every number is right.
+          textAlign: TextAlign.right,
           style: emphasize
-              ? cellStyle?.copyWith(fontWeight: FontWeight.w800)
+              ? cellStyle?.copyWith(fontWeight: FontWeight.w700)
               : cellStyle,
         ),
       );
@@ -949,16 +1212,16 @@ class _GstCardState extends State<_GstCard> {
               ],
             ),
           TableRow(
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                'Total',
-                style: (headerStyle ?? TextStyle()).copyWith(
-                  color: scheme.onSurface,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'Total',
+                  style: (headerStyle ?? TextStyle()).copyWith(
+                    color: scheme.onSurface,
+                  ),
                 ),
               ),
-            ),
               Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: amountCell(taxable, emphasize: true),
@@ -1003,8 +1266,28 @@ class _TrendCard extends StatefulWidget {
 class _TrendCardState extends State<_TrendCard> {
   static const _months = 6;
 
-  late final Future<List<MonthlyPoint>> _future =
-      widget.repo.monthlyTrend(months: _months);
+  /// NOT `late final`: Flutter reuses this State across a firm switch (the
+  /// widget type and position never change), so a `late final` future was
+  /// pinned to the *previous* firm's repository and the six-month trend kept
+  /// showing the old business's numbers. Every sibling card
+  /// (`_GstCard`, `_PnlCard`, `_DayBookCard`, `_ReceivablesCard`,
+  /// `_TaxAtSourceCard`) already re-issued on `repo`; these two were the
+  /// outliers.
+  late Future<List<MonthlyPoint>> _future = widget.repo.monthlyTrend(
+    months: _months,
+  );
+
+  void _reload() {
+    _future = widget.repo.monthlyTrend(months: _months);
+  }
+
+  @override
+  void didUpdateWidget(covariant _TrendCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.repo != widget.repo) {
+      _reload();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1026,13 +1309,15 @@ class _TrendCardState extends State<_TrendCard> {
                   children: [
                     Text(
                       'Sales vs Purchases',
-                      style: text.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w700),
+                      style: text.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                     Text(
                       'Last $_months months',
-                      style: text.bodySmall
-                          ?.copyWith(color: scheme.onSurfaceVariant),
+                      style: text.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
                     ),
                   ],
                 ),
@@ -1051,6 +1336,7 @@ class _TrendCardState extends State<_TrendCard> {
           _SectionBuilder<List<MonthlyPoint>>(
             future: _future,
             loadingHeight: 220,
+            onRetry: () => setState(_reload),
             builder: (points) {
               final hasData = points.any(
                 (p) => p.sales > Decimal.zero || p.purchases > Decimal.zero,
@@ -1085,7 +1371,7 @@ class _TrendCardState extends State<_TrendCard> {
           height: 10,
           decoration: BoxDecoration(
             color: color,
-            borderRadius: BorderRadius.circular(3),
+            borderRadius: const BorderRadius.all(Radius.circular(AppRadius.xs)),
           ),
         ),
         const SizedBox(width: 6),
@@ -1105,14 +1391,11 @@ class _TrendCardState extends State<_TrendCard> {
     final colors = atriaColors(context);
     final text = Theme.of(context).textTheme;
 
-    final peak = points.fold<double>(
-      0,
-      (max, p) {
-        final s = p.sales.toDouble();
-        final b = p.purchases.toDouble();
-        return (max > s && max > b) ? max : (s > b ? s : b);
-      },
-    );
+    final peak = points.fold<double>(0, (max, p) {
+      final s = p.sales.toDouble();
+      final b = p.purchases.toDouble();
+      return (max > s && max > b) ? max : (s > b ? s : b);
+    });
     final maxY = peak <= 0 ? 1.0 : peak * 1.18;
     final interval = _niceInterval(maxY);
     final rodWidth = points.length > 4 ? 8.0 : 12.0;
@@ -1136,8 +1419,8 @@ class _TrendCardState extends State<_TrendCard> {
             final isSales = rodIndex == 0;
             return BarTooltipItem(
               '${isSales ? 'Sales' : 'Purchases'}\n'
-                  '${Formatters.monthYear(points[groupIndex].month)}\n'
-                  '${Formatters.money(Decimal.parse(rod.toY.toStringAsFixed(2)))}',
+              '${Formatters.monthYear(points[groupIndex].month)}\n'
+              '${Formatters.money(Decimal.parse(rod.toY.toStringAsFixed(2)))}',
               (text.bodySmall ?? const TextStyle()).copyWith(
                 color: scheme.onInverseSurface,
                 fontWeight: FontWeight.w700,
@@ -1151,8 +1434,9 @@ class _TrendCardState extends State<_TrendCard> {
       ),
       titlesData: FlTitlesData(
         topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        rightTitles:
-            const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        rightTitles: const AxisTitles(
+          sideTitles: SideTitles(showTitles: false),
+        ),
         leftTitles: AxisTitles(
           axisNameSize: 0,
           sideTitles: SideTitles(
@@ -1291,6 +1575,7 @@ class _PnlCardState extends State<_PnlCard> {
           _SectionBuilder<ProfitAndLoss>(
             future: _future,
             loadingHeight: 190,
+            onRetry: () => setState(_reload),
             builder: (pnl) => _pnlBody(pnl),
           ),
         ],
@@ -1305,7 +1590,8 @@ class _PnlCardState extends State<_PnlCard> {
       return const _CardEmpty(
         icon: Icons.account_balance_outlined,
         title: 'No books for this period',
-        message: 'Sales, purchases or expenses recorded in this window '
+        message:
+            'Sales, purchases or expenses recorded in this window '
             'appear here as a statement.',
       );
     }
@@ -1333,6 +1619,26 @@ class _PnlCardState extends State<_PnlCard> {
         for (final row in shownExpenses) _pnlRow(row),
         if (pnl.expenseRows.length > _maxRows)
           _moreLine(context, pnl.expenseRows.length - _maxRows),
+        // The stock adjustment only appears when the firm actually tracks
+        // stock, so a services business still reads as a plain list.
+        if (pnl.hasStockAdjustment) ...[
+          const SizedBox(height: 6),
+          _pnlRow(PnLRow('Opening stock', pnl.openingStock)),
+          _pnlRow(PnLRow('Closing stock', -pnl.closingStock)),
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: _totalRow('Cost of goods sold', pnl.costOfGoodsSold),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Purchases are shown as “Cost of goods purchased” above; opening '
+            'stock is added and closing stock deducted, so only what was sold '
+            'is charged to this period.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
         Padding(
           padding: const EdgeInsets.only(top: 6),
           child: _totalRow('Total expenses', pnl.totalExpenses),
@@ -1391,7 +1697,7 @@ class _PnlCardState extends State<_PnlCard> {
           compact: true,
           colorize: false,
           style: text.bodyMedium?.copyWith(
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w700,
             fontFeatures: const [FontFeature.tabularFigures()],
           ),
         ),
@@ -1403,8 +1709,9 @@ class _PnlCardState extends State<_PnlCard> {
     final text = Theme.of(context).textTheme;
     final profitable = netProfit >= Decimal.zero;
     final surface = profitable ? colors.successSurface : colors.dangerSurface;
-    final onSurface =
-        profitable ? colors.onSuccessSurface : colors.onDangerSurface;
+    final onSurface = profitable
+        ? colors.onSuccessSurface
+        : colors.onDangerSurface;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -1415,7 +1722,9 @@ class _PnlCardState extends State<_PnlCard> {
       child: Row(
         children: [
           Icon(
-            profitable ? Icons.trending_up_rounded : Icons.trending_down_rounded,
+            profitable
+                ? Icons.trending_up_rounded
+                : Icons.trending_down_rounded,
             color: onSurface,
             size: 20,
           ),
@@ -1425,7 +1734,7 @@ class _PnlCardState extends State<_PnlCard> {
               profitable ? 'Net profit' : 'Net loss',
               style: text.titleSmall?.copyWith(
                 color: onSurface,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),
@@ -1435,7 +1744,7 @@ class _PnlCardState extends State<_PnlCard> {
             colorize: false,
             style: text.titleMedium?.copyWith(
               color: onSurface,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w700,
               fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
@@ -1491,6 +1800,7 @@ class _ReceivablesCardState extends State<_ReceivablesCard> {
           _SectionBuilder<DashboardSummary>(
             future: _future,
             loadingHeight: 150,
+            onRetry: () => setState(_reload),
             builder: (summary) => _body(summary),
           ),
         ],
@@ -1534,7 +1844,9 @@ class _ReceivablesCardState extends State<_ReceivablesCard> {
                   net,
                   compact: true,
                   signMode: MoneySignMode.always,
-                  style: text.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                  style: text.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ],
             ),
@@ -1571,7 +1883,7 @@ class _ReceivablesCardState extends State<_ReceivablesCard> {
           colorize: false,
           style: text.titleMedium?.copyWith(
             color: color,
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w700,
             fontFeatures: const [FontFeature.tabularFigures()],
           ),
         ),
@@ -1594,7 +1906,7 @@ class _ReceivablesCardState extends State<_ReceivablesCard> {
         children: [
           Icon(
             Icons.warning_amber_rounded,
-            size: 15,
+            size: 16,
             color: colors.onWarningSurface,
           ),
           const SizedBox(width: 6),
@@ -1602,7 +1914,7 @@ class _ReceivablesCardState extends State<_ReceivablesCard> {
             label,
             style: text.labelSmall?.copyWith(
               color: colors.onWarningSurface,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],
@@ -1669,35 +1981,46 @@ class _DayBookCardState extends State<_DayBookCard> {
         children: [
           Row(
             children: [
-              Expanded(child: _cardTitle(context, 'Day Book', 'Every entry '
-                  'on one day')),
-              GestureDetector(
-                onTap: _pickDay,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: scheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(AppRadius.pill),
-                    border: Border.all(color: scheme.outline, width: 0.9),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.calendar_today_rounded,
-                        size: 14,
-                        color: scheme.onSurfaceVariant,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        Formatters.date(widget.day),
-                        style: text.labelSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          fontFeatures: const [FontFeature.tabularFigures()],
+              Expanded(
+                child: _cardTitle(
+                  context,
+                  'Day Book',
+                  'Every entry '
+                      'on one day',
+                ),
+              ),
+              MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: _pickDay,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
+                      border: Border.all(color: scheme.outline, width: 0.9),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.calendar_today_rounded,
+                          size: 14,
+                          color: scheme.onSurfaceVariant,
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 6),
+                        Text(
+                          Formatters.date(widget.day),
+                          style: text.labelSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1707,6 +2030,7 @@ class _DayBookCardState extends State<_DayBookCard> {
           _SectionBuilder<List<DayBookLine>>(
             future: _future,
             loadingHeight: 190,
+            onRetry: () => setState(_reload),
             builder: (lines) => _body(lines),
           ),
         ],
@@ -1719,7 +2043,8 @@ class _DayBookCardState extends State<_DayBookCard> {
       return _CardEmpty(
         icon: Icons.menu_book_rounded,
         title: 'Nothing on this day',
-        message: 'No sales, purchases, payments or expenses were recorded '
+        message:
+            'No sales, purchases, payments or expenses were recorded '
             'on ${Formatters.date(widget.day)}.',
       );
     }
@@ -1750,10 +2075,9 @@ class _DayBookCardState extends State<_DayBookCard> {
                 child: Text(
                   'Total movement',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color:
-                            Theme.of(context).colorScheme.onSurfaceVariant,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
               MoneyText(
@@ -1761,9 +2085,9 @@ class _DayBookCardState extends State<_DayBookCard> {
                 compact: true,
                 colorize: false,
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
+                  fontWeight: FontWeight.w700,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
               ),
             ],
           ),
@@ -1790,7 +2114,7 @@ class _DayBookCardState extends State<_DayBookCard> {
             style.label,
             style: text.labelSmall?.copyWith(
               color: style.color,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ),
@@ -1841,10 +2165,7 @@ class _DayBookCardState extends State<_DayBookCard> {
     'Expense' => (color: const Color(0xFF7C3AED), label: 'Expense'),
     'Receipt' => (color: colors.positive, label: 'Receipt'),
     'Payment' => (color: colors.negative, label: 'Payment'),
-    _ => (
-        color: Theme.of(context).colorScheme.onSurfaceVariant,
-        label: type,
-      ),
+    _ => (color: Theme.of(context).colorScheme.onSurfaceVariant, label: type),
   };
 }
 
@@ -1862,7 +2183,22 @@ class _StockCard extends StatefulWidget {
 }
 
 class _StockCardState extends State<_StockCard> {
-  late final Future<List<StockSummaryRow>> _future = widget.repo.stockSummary();
+  /// NOT `late final`: the State is reused across a firm switch, so the
+  /// stock valuation kept reading the previous firm's items and quantities.
+  /// Matches `_TrendCardState` and the other five cards.
+  late Future<List<StockSummaryRow>> _future = widget.repo.stockSummary();
+
+  void _reload() {
+    _future = widget.repo.stockSummary();
+  }
+
+  @override
+  void didUpdateWidget(covariant _StockCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.repo != widget.repo) {
+      _reload();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1879,6 +2215,7 @@ class _StockCardState extends State<_StockCard> {
           _SectionBuilder<List<StockSummaryRow>>(
             future: _future,
             loadingHeight: 150,
+            onRetry: () => setState(_reload),
             builder: (rows) {
               var saleValue = Decimal.zero;
               var lowCount = 0;
@@ -1891,7 +2228,8 @@ class _StockCardState extends State<_StockCard> {
                 return const _CardEmpty(
                   icon: Icons.inventory_2_outlined,
                   title: 'No tracked items',
-                  message: 'Add inventory with stock tracking to value '
+                  message:
+                      'Add inventory with stock tracking to value '
                       'your stock.',
                 );
               }
@@ -1912,7 +2250,7 @@ class _StockCardState extends State<_StockCard> {
                     compact: true,
                     colorize: false,
                     style: text.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                       fontFeatures: const [FontFeature.tabularFigures()],
                     ),
                   ),
@@ -1924,16 +2262,14 @@ class _StockCardState extends State<_StockCard> {
                             ? Icons.warning_amber_rounded
                             : Icons.check_circle_rounded,
                         size: 16,
-                        color: lowCount > 0
-                            ? colors.warning
-                            : colors.positive,
+                        color: lowCount > 0 ? colors.warning : colors.positive,
                       ),
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
                           lowCount > 0
                               ? '$lowCount ${lowCount == 1 ? 'item' : 'items'} '
-                                  'need restocking'
+                                    'need restocking'
                               : 'All items above their alert level',
                           style: text.bodySmall?.copyWith(
                             color: scheme.onSurfaceVariant,
@@ -1947,7 +2283,8 @@ class _StockCardState extends State<_StockCard> {
                   ),
                   const SizedBox(height: 14),
                   FilledButton.tonalIcon(
-                    onPressed: () => context.push('/stock'),
+                    // Branch root — see the note on the Stock summary row above.
+                    onPressed: () => context.go('/stock'),
                     icon: const Icon(Icons.inventory_2_rounded, size: 18),
                     label: const Text('Open stock'),
                   ),

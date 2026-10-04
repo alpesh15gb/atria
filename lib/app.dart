@@ -17,13 +17,23 @@ class AtriaApp extends ConsumerStatefulWidget {
   ConsumerState<AtriaApp> createState() => _AtriaAppState();
 }
 
-class _AtriaAppState extends ConsumerState<AtriaApp> {
+class _AtriaAppState extends ConsumerState<AtriaApp>
+    with WidgetsBindingObserver {
   Timer? _autoSyncTimer;
   bool _autoSyncRunning = false;
+
+  /// False between a backgrounding notification and the next `resumed`. Read by
+  /// [_startAutoSync] so a first frame that lands while the app is already in
+  /// the background does not quietly arm the timer again.
+  bool _foreground = true;
 
   @override
   void initState() {
     super.initState();
+    // The auto-sync timer has to stop when the app is not on screen, so this
+    // state has to hear about lifecycle changes. Same mixin the dashboard uses
+    // for its own refresh-on-resume.
+    WidgetsBinding.instance.addObserver(this);
     // Deferred to after the first frame so the drain can never sit between the
     // user and their first screen, however slow the network is.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -42,7 +52,12 @@ class _AtriaAppState extends ConsumerState<AtriaApp> {
   /// sync off simply costs one settings read a minute and nothing else.
   /// Runs never overlap: a sync still in flight when the next tick fires is
   /// skipped, not queued.
+  ///
+  /// Idempotent, because `resumed` and the first-frame callback above race:
+  /// whichever arrives second must find a timer already running rather than
+  /// start a second one.
   void _startAutoSync() {
+    if (!_foreground || _autoSyncTimer != null) return;
     _autoSyncTimer = Timer.periodic(_autoSyncInterval, (_) async {
       if (_autoSyncRunning) return;
       _autoSyncRunning = true;
@@ -57,9 +72,52 @@ class _AtriaAppState extends ConsumerState<AtriaApp> {
     });
   }
 
+  /// Stops the periodic sync entirely — see [didChangeAppLifecycleState].
+  void _stopAutoSync() {
+    _autoSyncTimer?.cancel();
+    _autoSyncTimer = null;
+  }
+
+  /// Pauses sync while the app is not in front of the user, and restarts it
+  /// when they come back.
+  ///
+  /// Without this the 60-second timer ran for the life of the process. On
+  /// Android a backgrounded app is throttled but not stopped, and on Windows
+  /// nothing stops the process at all when the window is minimised — so a shop
+  /// whose counter PC sits open all day made ~1440 pointless round trips a day
+  /// against the sync server while nobody was looking at the books.
+  ///
+  /// Resuming deliberately does **not** sync immediately. `Timer.periodic`
+  /// restarts its countdown when it is created, so the first tick after a
+  /// return comes a full interval later; firing one on resume would stack a
+  /// catch-up run on top of the one already in flight and, on a device that was
+  /// away for hours, on top of whatever the app-switcher's own first frame
+  /// kicks off.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    switch (state) {
+      case AppLifecycleState.resumed:
+        _foreground = true;
+        _startAutoSync();
+        break;
+      case AppLifecycleState.inactive:
+      // `inactive` comes first on Android and also covers the desktop case of
+      // another window being dragged over ours: still not visible, so stop.
+      // `hidden` is the pre-`paused` Android state, `detached` is teardown.
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+        _foreground = false;
+        _stopAutoSync();
+        break;
+    }
+  }
+
   @override
   void dispose() {
-    _autoSyncTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _stopAutoSync();
     super.dispose();
   }
 
@@ -120,17 +178,22 @@ class _AtriaAppState extends ConsumerState<AtriaApp> {
       // go_router's default "The route /onboarding/firm-setup does not exist"
       // page appeared before the real router ever mounted.
       routerConfig: ref.watch(appRouterProvider),
-      builder: (context, child) {
-        return MediaQuery(
-          data: MediaQuery.of(context).copyWith(
-            // Cap text scaling so accounting tables stay legible and aligned.
-            textScaler: MediaQuery.textScalerOf(context).clamp(
-              maxScaleFactor: 1.15,
-            ),
-          ),
-          child: child!,
-        );
-      },
+      // NOTE: there is deliberately no `builder` here any more.
+      //
+      // The app used to re-wrap every route in
+      // `MediaQuery(textScaler: …clamp(maxScaleFactor: 1.15))`. That cap was
+      // wrong and it was silent: Android's Settings ▸ Display ▸ Font size goes
+      // to 2.0×, so a user who had asked for the largest text the platform
+      // offers got 115 % of it and no indication that the rest was discarded
+      // (a WCAG 1.4.4 failure), and Windows — which has no other text-scale
+      // knob in the app at all — had nothing to give. Several layouts were
+      // tuned against 1.15×, so the strip that genuinely cannot take 2.0× is
+      // fixed to say so at the layout (see `atria_list_toolbar.dart`,
+      // `atria_page_header.dart`, `tax_mode_toggle.dart` and the dashboard)
+      // rather than by silently shrinking everyone's type.
+      //
+      // Any ceiling added here in future must be the platform maximum, never a
+      // round number smaller than it.
     );
   }
 }

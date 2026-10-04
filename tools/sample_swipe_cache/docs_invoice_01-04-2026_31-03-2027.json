@@ -1,0 +1,8 @@
+[
+  {"hash_id": "INVHASH1", "serial_number": "INV-2026-001", "payment_status": "pending", "amount_paid": 0, "amount_pending": 2360, "total_amount": 2360, "tax_amount": 360, "document_date": "04-04-2026", "due_date": "19-04-2026",
+   "customer": {"id": "CUST1", "name": "M/s Keystone Infra Pvt Ltd", "gstin": "36AACCK6531F1ZP", "phone_number": "9393645644", "email": "accounts@keystoneinfra.com"}},
+  {"hash_id": "INVHASH2", "serial_number": "INV-2026-002", "payment_status": "paid", "amount_paid": 1180, "amount_pending": 0, "total_amount": 1180, "tax_amount": 180, "document_date": "10-04-2026", "due_date": "10-04-2026",
+   "customer": {"id": "CUST2", "name": "Walk-in Customer", "gstin": "", "phone_number": "", "email": ""}},
+  {"hash_id": "INVHASH3", "serial_number": "INV-2026-003", "payment_status": "cancelled", "amount_paid": 0, "amount_pending": 0, "total_amount": 1180, "document_date": "11-04-2026",
+   "customer": {"id": "CUST2", "name": "Walk-in Customer", "gstin": ""}}
+]

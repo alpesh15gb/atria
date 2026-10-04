@@ -1,0 +1,52 @@
+{
+  "success": true,
+  "has_data": true,
+  "total_records": 2,
+  "transactions_total": 16180,
+  "amount_paid": 16180,
+  "amount_pending": 0,
+  "columns": [],
+  "users": [],
+  "categories": [],
+  "transactions": [
+    {
+      "id": 770001,
+      "serial_number": "EXP-1",
+      "document_type": "expense",
+      "document_date": "05 Apr 2026",
+      "expense_date": "05 Apr 2026",
+      "status": "success",
+      "payment_status": "paid",
+      "category": "Rent",
+      "category_name": "Rent",
+      "total_amount": 15000,
+      "amount": 15000,
+      "amount_paid": 15000,
+      "amount_pending": 0,
+      "tax_amount": 0,
+      "payment_mode": "Cash",
+      "party_id": 0,
+      "party_type": "vendor",
+      "party_details": {"name": "Srinivas Rao (Landlord)"},
+      "notes": "April shop rent"
+    },
+    {
+      "id": 770002,
+      "serial_number": "EXP-2",
+      "document_type": "expense",
+      "document_date": "06 Apr 2026",
+      "expense_date": "06 Apr 2026",
+      "status": "success",
+      "payment_status": "paid",
+      "total_amount": 1180,
+      "amount_paid": 1180,
+      "amount_pending": 0,
+      "payment_mode": "Net Banking",
+      "party_id": 0,
+      "party_type": "vendor",
+      "party_details": {"name": "Airtel Business"},
+      "bank_name": "DCB BANK",
+      "notes": "Office broadband"
+    }
+  ]
+}

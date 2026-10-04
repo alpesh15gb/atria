@@ -1,0 +1,60 @@
+{
+  "success": true,
+  "total": 3,
+  "products": [
+    {
+      "product_id": 20,
+      "variant_id": 0,
+      "variant_name": "",
+      "name": "Canon NPG90 Toner",
+      "product_name": "Canon NPG90 Toner",
+      "product_type": "Product",
+      "hsn_code": "84439959",
+      "tax": 18,
+      "unit": "pcs",
+      "qty": 10,
+      "price": 1000,
+      "price_with_tax": 1180,
+      "is_price_with_tax": 0,
+      "purchase_price": 800,
+      "category_id": 1,
+      "product_category": "Consumables"
+    },
+    {
+      "product_id": 21,
+      "variant_id": 0,
+      "variant_name": "",
+      "name": "Installation Service",
+      "product_name": "Installation Service",
+      "product_type": "Service",
+      "hsn_code": "998721",
+      "tax": 18,
+      "unit": "nos",
+      "qty": 0,
+      "price": 1000,
+      "price_with_tax": 1180,
+      "is_price_with_tax": 0,
+      "purchase_price": 0,
+      "category_id": 2,
+      "product_category": "Services"
+    },
+    {
+      "product_id": 22,
+      "variant_id": 0,
+      "variant_name": "",
+      "name": "DELL 18.5 INCH MONITOR",
+      "product_name": "DELL 18.5 INCH MONITOR",
+      "product_type": "Product",
+      "hsn_code": "85287310",
+      "tax": 18,
+      "unit": "UNT",
+      "qty": -3,
+      "price": 5805.084745762712,
+      "price_with_tax": 6850,
+      "is_price_with_tax": 1,
+      "purchase_price": 0,
+      "category_id": 1,
+      "product_category": "Consumables"
+    }
+  ]
+}

@@ -39,11 +39,28 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
   String _search = '';
   Timer? _debounce;
 
-  /// The document type this list shows — the rail's Purchase dropdown
-  /// deep-links here with the type.
-  late String _docType = switch (widget.initialType) {
-    'debit_note' => 'debit_note',
-    'purchase_order' => 'purchase_order',
+  /// The document type this list shows, read from the route on **every**
+  /// build rather than latched into a field.
+  ///
+  /// `StatefulShellRoute.indexedStack` keeps each branch's navigator alive, so
+  /// `/purchase?type=debit_note` → `/purchase?type=bill` resolves to this same
+  /// State. Seeding a `late` field from `initialType` wrote it once per
+  /// session, which pinned the heading, the pills and the action button to
+  /// whichever type the rail was first opened on — the same "everything says
+  /// one type until restart" bug the Sales list had.
+  String get _activeDocType => switch (widget.initialType) {
+        'debit_note' => 'debit_note',
+        'purchase_order' => 'purchase_order',
+        _ => 'bill',
+      };
+
+  bool get _isOrderTab => _activeDocType == 'purchase_order';
+
+  /// Singular name of what this screen lists, for the search placeholder.
+  /// It used to say "bill" on every one of the three.
+  String get _activeDocNoun => switch (_activeDocType) {
+    'debit_note' => 'debit note',
+    'purchase_order' => 'purchase order',
     _ => 'bill',
   };
 
@@ -54,9 +71,6 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
     _searchFocus.dispose();
     super.dispose();
   }
-
-  String get _activeDocType => _docType;
-  bool get _isOrderTab => _docType == 'purchase_order';
 
   void _onSearchChanged(String value) {
     _debounce?.cancel();
@@ -95,13 +109,12 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
               'purchase_order' => 'New purchase order',
               _ => 'Add bill',
             },
-            onPressed: () =>
-                context.push('/purchase/new?type=$_activeDocType'),
+            onPressed: () => context.push('/purchase/new?type=$_activeDocType'),
           ),
       ],
       search: TransactionSearchField(
         controller: _searchController,
-        hintText: 'Search supplier, bill or invoice no.',
+        hintText: 'Search supplier, $_activeDocNoun or number…',
         onChanged: _onSearchChanged,
         onClear: () {
           _searchController.clear();
@@ -117,8 +130,11 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
             AtriaSegment(value: 'purchase_order', label: 'Purchase orders'),
             AtriaSegment(value: 'debit_note', label: 'Debit notes'),
           ],
-          value: _docType,
-          onChanged: (value) => setState(() => _docType = value),
+          value: _activeDocType,
+          // `go`, not `setState` — the type lives in the URL, so changing it
+          // here has to write it back, or the next router-driven rebuild
+          // restores the type the rail is pointing at.
+          onChanged: (value) => context.go('/purchase?type=$value'),
         ),
         AtriaAdaptiveFilter<Period>(
           label: 'Date',
@@ -139,7 +155,8 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
           ? const EmptyState(
               icon: Icons.storefront_outlined,
               title: 'No business open',
-              message: 'Set up a firm in Settings to start '
+              message:
+                  'Set up a firm in Settings to start '
                   'recording purchase bills.',
             )
           : _area(repo),
@@ -193,7 +210,7 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
           return EmptyState(
             icon: Icons.error_outline_rounded,
             title: 'Could not load bills',
-            message: '${snapshot.error}',
+            message: atriaErrorMessage(snapshot.error, retry: 'Try again.'),
           );
         }
 
@@ -231,8 +248,8 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
                       ? 'Nothing matches “$_search”. Try a different supplier '
                             'or bill number.'
                       : range.isAllTime
-                          ? _emptyMessage
-                          : range.emptyWindowMessage(_emptyNoun),
+                      ? _emptyMessage
+                      : range.emptyWindowMessage(_emptyNoun),
                   actionLabel: _search.isEmpty ? _emptyAction : null,
                   onAction: _search.isEmpty
                       ? () => context.push('/purchase/new?type=$_activeDocType')
@@ -295,7 +312,10 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
             amount: 'Amount',
             balance: 'Balance',
           ),
-          trailing: const SizedBox(width: 36),
+          // The kebab button a row shows is a full 48px tap target, so the
+          // header reserves the same width — a 36px slot left the Amount and
+          // Balance figures 12px left of their own headings.
+          trailing: const SizedBox(width: 48),
         ),
         for (final bill in bills)
           _PurchaseTableRow(bill: bill, docType: _activeDocType),
@@ -338,13 +358,12 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
   };
 
   /// Orders never touch payables — the bill raised against them does.
-  List<TotalsEntry> _totalsEntries(_BillStats stats) =>
-      _isOrderTab
-          ? [TotalsEntry(label: 'Total', amount: stats.purchases)]
-          : [
-              TotalsEntry(label: 'Total', amount: stats.purchases),
-              TotalsEntry(label: 'Payable', amount: stats.payable),
-            ];
+  List<TotalsEntry> _totalsEntries(_BillStats stats) => _isOrderTab
+      ? [TotalsEntry(label: 'Total', amount: stats.purchases)]
+      : [
+          TotalsEntry(label: 'Total', amount: stats.purchases),
+          TotalsEntry(label: 'Payable', amount: stats.payable),
+        ];
 
   _BillStats _statsOf(List<PurchaseBillEntity> bills) {
     var purchases = Decimal.zero;
@@ -371,11 +390,48 @@ IconData _docIcon(String docType) => switch (docType) {
   _ => Icons.local_shipping_rounded,
 };
 
-String? _statusText(PurchaseBillEntity bill) {
+/// The lifecycle word for a row — or null when the payment state is what the
+/// Status column should carry.
+///
+/// Only a bill is payable, so only a bill shows Paid / Partial / Unpaid: an
+/// order and a purchase return store a ₹0 balance (nothing received, nothing
+/// owed), and printing a payment word beside it put "Unpaid" next to a zero on
+/// every purchase order for ever. The repository now derives those documents'
+/// status from their stored zero as well, so the row and the column agree.
+String? _purchaseStatusText(PurchaseBillEntity bill, String docType) {
   if (bill.status == 'cancelled') return 'Cancelled';
-  return null;
+  switch (docType) {
+    case 'bill':
+      return null; // null -> payment status
+    case 'purchase_order':
+      return bill.status == 'converted' ? 'Converted' : 'Open';
+    default:
+      return 'Issued';
+  }
 }
 
+String _purchasePaymentLabel(PurchaseBillEntity bill) =>
+    switch (bill.paymentStatus) {
+      'paid' => 'Paid',
+      'partial' => 'Partial',
+      _ => 'Unpaid',
+    };
+
+/// The Status cell: the lifecycle word when there is one, the payment word
+/// otherwise. Both row layouts go through here so they cannot disagree.
+String _purchaseStatusLabel(PurchaseBillEntity bill, String docType) =>
+    _purchaseStatusText(bill, docType) ?? _purchasePaymentLabel(bill);
+
+ChipKind _purchaseStatusKind(PurchaseBillEntity bill, String docType) {
+  if (bill.status == 'cancelled') return ChipKind.danger;
+  if (_purchaseStatusText(bill, docType) != null) return ChipKind.info;
+  if (docType != 'bill') return ChipKind.info;
+  return switch (bill.paymentStatus) {
+    'paid' => ChipKind.success,
+    'partial' => ChipKind.warning,
+    _ => ChipKind.neutral,
+  };
+}
 
 class _PurchaseRow extends ConsumerWidget {
   const _PurchaseRow({required this.bill, required this.docType});
@@ -391,8 +447,8 @@ class _PurchaseRow extends ConsumerWidget {
       subtitle: _subtitle,
       amount: Money.of(bill.grandTotal),
       amountColorize: false,
-      statusLabel: _statusText(bill) ?? _statusLabel,
-      statusKind: bill.status == 'cancelled' ? ChipKind.danger : _statusKind,
+      statusLabel: _purchaseStatusLabel(bill, docType),
+      statusKind: _purchaseStatusKind(bill, docType),
       dimmed: bill.status == 'cancelled',
       onTap: () => context.push('/purchase/edit/${bill.id}?type=$docType'),
       trailing: DocumentRowMenu(
@@ -403,25 +459,6 @@ class _PurchaseRow extends ConsumerWidget {
         paymentStatus: bill.paymentStatus,
       ),
     );
-  }
-
-  String get _statusLabel => switch (bill.status) {
-    'converted' => 'Converted',
-    _ => switch (bill.paymentStatus) {
-      'paid' => 'Paid',
-      'partial' => 'Partial',
-      _ => 'Unpaid',
-    },
-  };
-
-  ChipKind get _statusKind {
-    if (bill.status == 'cancelled') return ChipKind.danger;
-    if (bill.status == 'converted') return ChipKind.info;
-    return switch (bill.paymentStatus) {
-      'paid' => ChipKind.success,
-      'partial' => ChipKind.warning,
-      _ => ChipKind.neutral,
-    };
   }
 
   String get _subtitle {
@@ -453,8 +490,8 @@ class _PurchaseTableRow extends ConsumerWidget {
       amount: Money.of(bill.grandTotal),
       amountColorize: false,
       balance: Money.of(bill.balanceDue),
-      statusLabel: _statusText(bill) ?? _statusLabel,
-      statusKind: _statusKind,
+      statusLabel: _purchaseStatusLabel(bill, docType),
+      statusKind: _purchaseStatusKind(bill, docType),
       // The Status column already carries this; the pill beside the balance
       // duplicated it and pushed the figure left of its header.
       showStatusChip: false,
@@ -468,24 +505,4 @@ class _PurchaseTableRow extends ConsumerWidget {
       dimmed: bill.status == 'cancelled',
     );
   }
-
-  String get _statusLabel => switch (bill.status) {
-    'converted' => 'Converted',
-    _ => switch (bill.paymentStatus) {
-      'paid' => 'Paid',
-      'partial' => 'Partial',
-      _ => 'Unpaid',
-    },
-  };
-
-  ChipKind get _statusKind {
-    if (bill.status == 'cancelled') return ChipKind.danger;
-    if (bill.status == 'converted') return ChipKind.info;
-    return switch (bill.paymentStatus) {
-      'paid' => ChipKind.success,
-      'partial' => ChipKind.warning,
-      _ => ChipKind.neutral,
-    };
-  }
 }
-

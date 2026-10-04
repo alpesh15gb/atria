@@ -14,6 +14,10 @@ class DashboardSummary {
   final Decimal totalIncome;
   final Decimal totalReceived;
   final Decimal totalPaid;
+  /// Lifetime money in / money out. "Cash in hand" is a balance, not a
+  /// period figure, so it must not be derived from the windowed totals.
+  final Decimal cashIn;
+  final Decimal cashOut;
   final Decimal receivable; // customers owe us
   final Decimal payable; // we owe suppliers
   final Decimal stockValue;
@@ -30,6 +34,8 @@ class DashboardSummary {
     required this.totalIncome,
     required this.totalReceived,
     required this.totalPaid,
+    required this.cashIn,
+    required this.cashOut,
     required this.receivable,
     required this.payable,
     required this.stockValue,
@@ -48,6 +54,8 @@ class DashboardSummary {
         totalIncome: Decimal.zero,
         totalReceived: Decimal.zero,
         totalPaid: Decimal.zero,
+        cashIn: Decimal.zero,
+        cashOut: Decimal.zero,
         receivable: Decimal.zero,
         payable: Decimal.zero,
         stockValue: Decimal.zero,
@@ -77,6 +85,16 @@ class GstSummary {
   final Decimal inputCgst;
   final Decimal inputSgst;
   final Decimal inputIgst;
+
+  /// Input credit on expenses (rent, software, professional fees) — GST the
+  /// firm paid on its own bills rather than on goods for resale.
+  ///
+  /// Kept as one amount because an expense carries a single GST figure and no
+  /// place of supply, so there is nothing to split it CGST/SGST/IGST by. It is
+  /// still credit: leaving it out of the summary understated net payable, and
+  /// it belongs in 3B Table 4(A)(5) "all other ITC" with the rest.
+  final Decimal inputFromExpenses;
+
   final List<RateWiseTax> outwardByRate;
 
   const GstSummary({
@@ -88,12 +106,34 @@ class GstSummary {
     required this.inputCgst,
     required this.inputSgst,
     required this.inputIgst,
+    // Deliberately not defaulted: `Decimal.zero` is not a compile-time
+    // constant, and every caller has to think about whether it has expense
+    // credit to report.
+    required this.inputFromExpenses,
     required this.outwardByRate,
   });
 
   Decimal get outputTax => outputCgst + outputSgst + outputIgst + cess;
   Decimal get inputTax => inputCgst + inputSgst + inputIgst;
-  Decimal get netPayable => outputTax - inputTax;
+
+  /// Everything creditable: purchase bills plus the GST inside expenses.
+  Decimal get totalInputCredit => inputTax + inputFromExpenses;
+
+  /// GST payable for the period — the same floor-at-zero rule a filed return
+  /// applies (see `Gstr3bReport.netPayable`).
+  ///
+  /// A return never declares a negative liability. When input credit exceeds
+  /// output tax the excess is carried forward and set off against later
+  /// periods; it is not a refund and it is certainly not a negative payable.
+  /// This was a raw `outputTax - totalInputCredit`, so the dashboard could
+  /// print "GST payable −₹1,800" for a month in which the GSTR-3B built from
+  /// these same books said ₹0.00. Clamped rather than carried in a column of
+  /// its own because this struct has nowhere to put a credit-forward balance;
+  /// the return builder remains the authority for the filed figure.
+  Decimal get netPayable {
+    final net = outputTax - totalInputCredit;
+    return net < Decimal.zero ? Decimal.zero : net;
+  }
 
   factory GstSummary.empty() => GstSummary(
         taxableValue: Decimal.zero,
@@ -104,7 +144,43 @@ class GstSummary {
         inputCgst: Decimal.zero,
         inputSgst: Decimal.zero,
         inputIgst: Decimal.zero,
+        inputFromExpenses: Decimal.zero,
         outwardByRate: [],
+      );
+}
+
+/// TDS and TCS for a period.
+///
+/// Kept apart from [GstSummary] because neither is GST: both are income-tax
+/// liabilities a shop deposits with a challan (ITNS-281, by the 7th of the
+/// following month), and mixing them into "GST payable" would make the number
+/// the operator files against wrong.
+class TaxAtSourceSummary {
+  final Decimal tdsDeducted;
+  final Decimal tcsCollected;
+  final int billsWithTds;
+  final int invoicesWithTcs;
+
+  const TaxAtSourceSummary({
+    required this.tdsDeducted,
+    required this.tcsCollected,
+    required this.billsWithTds,
+    required this.invoicesWithTcs,
+  });
+
+  Decimal get total => tdsDeducted + tcsCollected;
+
+  bool get isEmpty =>
+      tdsDeducted == Decimal.zero && tcsCollected == Decimal.zero;
+
+  /// `Decimal.zero` is a `static final`, not a `const`, so this cannot be a
+  /// const constructor call — same reason every other empty value in this file
+  /// is built at runtime.
+  factory TaxAtSourceSummary.empty() => TaxAtSourceSummary(
+        tdsDeducted: Decimal.zero,
+        tcsCollected: Decimal.zero,
+        billsWithTds: 0,
+        invoicesWithTcs: 0,
       );
 }
 
@@ -126,6 +202,21 @@ class ProfitAndLoss {
   final Decimal grossProfit;
   final Decimal netProfit;
 
+  /// Stock on hand at cost when the period opened, and when it closed.
+  ///
+  /// Treating every purchase as a cost of the period it was bought in is only
+  /// right when nothing is left on the shelf: a shop that bought ₹10L of goods
+  /// in March and sold ₹2L of them looks like it lost ₹8L. The opening and
+  /// closing valuation turn purchases into cost of goods *sold*. Zero for a
+  /// firm that does not track stock, so a services business reads exactly as
+  /// it did before.
+  final Decimal openingStock;
+  final Decimal closingStock;
+
+  /// Purchases adjusted for the stock movement: opening stock + purchases −
+  /// closing stock. This is what gross profit is measured against.
+  final Decimal costOfGoodsSold;
+
   const ProfitAndLoss({
     required this.from,
     required this.to,
@@ -135,7 +226,18 @@ class ProfitAndLoss {
     required this.totalExpenses,
     required this.grossProfit,
     required this.netProfit,
+    // Not defaulted: `Decimal.zero` is not a compile-time constant, and a
+    // caller that forgot these would silently report purchases as cost of
+    // sales.
+    required this.openingStock,
+    required this.closingStock,
+    required this.costOfGoodsSold,
   });
+
+  /// True when the period's result was worked out through a stock adjustment
+  /// rather than by treating every purchase as a cost.
+  bool get hasStockAdjustment =>
+      openingStock != Decimal.zero || closingStock != Decimal.zero;
 }
 
 /// One line of a party ledger / statement of account.
@@ -240,6 +342,15 @@ class ReportRepository {
         .list(type: 'payment_in', from: range.start, to: range.end, limit: 1000000);
     final paymentsOut = await db.paymentRepositoryFor(firmId)
         .list(type: 'payment_out', from: range.start, to: range.end, limit: 1000000);
+    // Cash is a balance: the windowed receipts above answer "what came in this
+    // month", not "what is in hand". Netted under the "Cash in hand" label
+    // they read ₹0.00 for anyone who simply had not been paid this month.
+    final allPaymentsIn = await db
+        .paymentRepositoryFor(firmId)
+        .list(type: 'payment_in', limit: 1000000);
+    final allPaymentsOut = await db
+        .paymentRepositoryFor(firmId)
+        .list(type: 'payment_out', limit: 1000000);
     final allSales = await db
         .salesRepositoryFor(firmId)
         .list(docType: 'invoice', limit: 1000000);
@@ -281,6 +392,14 @@ class ReportRepository {
     for (final p in paymentsOut) {
       paid += p.amount;
     }
+    double cashIn = 0;
+    for (final p in allPaymentsIn) {
+      cashIn += p.amount;
+    }
+    double cashOut = 0;
+    for (final p in allPaymentsOut) {
+      cashOut += p.amount;
+    }
     double receivable = 0;
     for (final s in allSales) {
       if (s.status == 'cancelled') continue;
@@ -293,7 +412,8 @@ class ReportRepository {
     }
     double stockValue = 0;
     for (final i in items) {
-      if (i.stockType != 'tracked') continue;
+      // Services aren't counted in stock — see ItemRepository.stockValue.
+      if (i.isService || i.stockType != 'tracked') continue;
       stockValue += i.currentStock * i.salePrice;
     }
 
@@ -316,6 +436,8 @@ class ReportRepository {
       totalIncome: _d(incomeTotal),
       totalReceived: _d(received),
       totalPaid: _d(paid),
+      cashIn: _d(cashIn),
+      cashOut: _d(cashOut),
       receivable: _d(receivable),
       payable: _d(payable),
       stockValue: _d(stockValue),
@@ -362,56 +484,100 @@ class ReportRepository {
     final sales = await db
         .salesRepositoryFor(firmId)
         .list(docType: 'invoice', from: from, to: to, limit: 1000000);
+    // Sales CREDIT NOTES reduce outward supplies in the period they are issued
+    // and purchase DEBIT NOTES reduce inward credit — GSTR-3B subtracts both
+    // (`addOutward(cn, sign:-1)`, `addInward(dn, sign:-1)`). Reading invoices
+    // and bills only is why this summary and the return disagreed about the
+    // same month by the value of every note issued in it.
+    final creditNotes = await db
+        .salesRepositoryFor(firmId)
+        .list(docType: 'credit_note', from: from, to: to, limit: 1000000);
     final purchases = await db
         .purchaseRepositoryFor(firmId)
         .list(docType: 'bill', from: from, to: to, limit: 1000000);
+    final debitNotes = await db
+        .purchaseRepositoryFor(firmId)
+        .list(docType: 'debit_note', from: from, to: to, limit: 1000000);
+
+    // One query for every line of every invoice in the period. This used to
+    // call itemsFor(s.id) inside the loop above — an N+1 that took a visible
+    // pause on a firm with a thousand invoices in the month, for exactly the
+    // same numbers.
+    final invoiceIds = [
+      for (final s in [...sales, ...creditNotes])
+        if (s.status != 'cancelled' && !s.isExport) s.id,
+    ];
+    final linesByInvoice = await db.salesRepositoryFor(firmId)
+        .itemsForMany(invoiceIds);
 
     double taxable = 0, ocgst = 0, osgst = 0, oigst = 0, cess = 0;
     final byRate = <double, RateWiseTax>{};
-    for (final s in sales) {
-      if (s.status == 'cancelled' || s.isExport) continue;
-      taxable += s.taxableValue;
-      ocgst += s.cgst;
-      osgst += s.sgst;
-      oigst += s.igst;
-      cess += s.cess;
-      final items = await db.salesRepositoryFor(firmId).itemsFor(s.id);
+
+    /// Money is accumulated as `double` (the column type) and converted once
+    /// at the edge by [_d], the same way the rest of this file does it.
+    Decimal accumulate(Decimal current, double delta) =>
+        Decimal.parse((current.toDouble() + delta).toStringAsFixed(2));
+
+    /// [sign] is -1 for a credit note, so outward supplies are net of notes.
+    /// Export invoices are excluded on both sides: they are zero-rated and go
+    /// to GSTR-3B 3.1(b), not to the taxable outward figures here.
+    void addOutward(SalesInvoiceEntity s, double sign) {
+      if (s.status == 'cancelled' || s.isExport) return;
+      taxable += sign * s.taxableValue;
+      ocgst += sign * s.cgst;
+      osgst += sign * s.sgst;
+      oigst += sign * s.igst;
+      cess += sign * s.cess;
+      final items = linesByInvoice[s.id] ?? const <SalesInvoiceItemEntity>[];
       for (final l in items) {
         final existing = byRate[l.gstRate];
         byRate[l.gstRate] = RateWiseTax(
           rate: l.gstRate,
-          taxableValue: Decimal.parse(
-                  ((existing?.taxableValue ?? Decimal.zero).toDouble() + l.taxableValue)
-                      .toStringAsFixed(2)) +
-              Decimal.zero,
-          cgst: Decimal.parse(
-                  ((existing?.cgst ?? Decimal.zero).toDouble() + l.cgst)
-                      .toStringAsFixed(2)) +
-              Decimal.zero,
-          sgst: Decimal.parse(
-                  ((existing?.sgst ?? Decimal.zero).toDouble() + l.sgst)
-                      .toStringAsFixed(2)) +
-              Decimal.zero,
-          igst: Decimal.parse(
-                  ((existing?.igst ?? Decimal.zero).toDouble() + l.igst)
-                      .toStringAsFixed(2)) +
-              Decimal.zero,
-          cess: Decimal.parse(
-                  ((existing?.cess ?? Decimal.zero).toDouble() + l.cessAmount)
-                      .toStringAsFixed(2)) +
-              Decimal.zero,
-          lineCount: (existing?.lineCount ?? 0) + 1,
+          taxableValue: accumulate(
+              existing?.taxableValue ?? Decimal.zero, sign * l.taxableValue),
+          cgst: accumulate(existing?.cgst ?? Decimal.zero, sign * l.cgst),
+          sgst: accumulate(existing?.sgst ?? Decimal.zero, sign * l.sgst),
+          igst: accumulate(existing?.igst ?? Decimal.zero, sign * l.igst),
+          cess:
+              accumulate(existing?.cess ?? Decimal.zero, sign * l.cessAmount),
+          // A note reverses a supply rather than adding one, so it is not
+          // counted as a line of outward supply — only its amounts are netted.
+          lineCount: (existing?.lineCount ?? 0) + (sign > 0 ? 1 : 0),
         );
       }
     }
 
-    double icgst = 0, isgst = 0, iigst = 0;
-    for (final p in purchases) {
-      if (p.status == 'cancelled') continue;
-      icgst += p.cgst;
-      isgst += p.sgst;
-      iigst += p.igst;
+    for (final s in sales) {
+      addOutward(s, 1);
     }
+    for (final cn in creditNotes) {
+      addOutward(cn, -1);
+    }
+
+    double icgst = 0, isgst = 0, iigst = 0;
+    for (final p in [...purchases, ...debitNotes]) {
+      if (p.status == 'cancelled') continue;
+      final sign = p.docType == 'debit_note' ? -1.0 : 1.0;
+      icgst += sign * p.cgst;
+      isgst += sign * p.sgst;
+      iigst += sign * p.igst;
+    }
+
+    // GST paid on the firm's own expenses was never claimed as credit: the
+    // summary only ever looked at purchase bills, so the tax inside a rent or
+    // software bill silently increased GST payable. The amount is a component
+    // of the expense total, not an extra cost, which is why the P&L is
+    // unaffected by claiming it.
+    final expenseCredit = await db.ledgerRepositoryFor(firmId)
+        .inputTaxFromExpenses(from: from, to: to);
+
+    // Known, deliberate divergence from GSTR-3B: this summary counts
+    // reverse-charge tax on a bill as creditable, while the return treats it as
+    // a cash liability payable under Section 49(4) and gives no credit for it
+    // (itcForOutward = netItc − itcReverseCharge). Splitting it here would
+    // change the Input CGST/SGST/IGST columns the reports card and dashboard
+    // both display, which is a bigger change than this fix is allowed to make;
+    // the return builder stays the authority for a filed month.
 
     final rateWise = byRate.values.toList()
       ..sort((a, b) => a.rate.compareTo(b.rate));
@@ -425,7 +591,51 @@ class ReportRepository {
       inputCgst: _d(icgst),
       inputSgst: _d(isgst),
       inputIgst: _d(iigst),
+      inputFromExpenses: _d(expenseCredit),
       outwardByRate: rateWise,
+    );
+  }
+
+  /// Tax deducted at source on purchases, and collected at source on sales.
+  ///
+  /// Read from the document totals the editor stored, not recomputed from the
+  /// rates: a document whose rate was changed after it was issued must report
+  /// what was actually deducted at the time, and the total is the figure the
+  /// challan is filled in from.
+  Future<TaxAtSourceSummary> taxAtSource({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final bills = await db
+        .purchaseRepositoryFor(firmId)
+        .list(docType: 'bill', from: from, to: to, limit: 1000000);
+    final invoices = await db
+        .salesRepositoryFor(firmId)
+        .list(docType: 'invoice', from: from, to: to, limit: 1000000);
+
+    var tds = 0.0;
+    var billsWithTds = 0;
+    for (final bill in bills) {
+      if (bill.status == 'cancelled') continue;
+      if (bill.tds.abs() <= 0.0001) continue;
+      tds += bill.tds;
+      billsWithTds++;
+    }
+
+    var tcs = 0.0;
+    var invoicesWithTcs = 0;
+    for (final invoice in invoices) {
+      if (invoice.status == 'cancelled') continue;
+      if (invoice.tcs.abs() <= 0.0001) continue;
+      tcs += invoice.tcs;
+      invoicesWithTcs++;
+    }
+
+    return TaxAtSourceSummary(
+      tdsDeducted: _d(tds),
+      tcsCollected: _d(tcs),
+      billsWithTds: billsWithTds,
+      invoicesWithTcs: invoicesWithTcs,
     );
   }
 
@@ -438,9 +648,20 @@ class ReportRepository {
     final sales = await db
         .salesRepositoryFor(firmId)
         .list(docType: 'invoice', from: from, to: to, limit: 1000000);
+    // A credit note reduces income in the period it is issued and a debit note
+    // reduces expenses — the same direction GSTR-3B gives them. Reading only
+    // invoices and bills overstated income by every credit note and expenses
+    // by every debit note, so the P&L did not agree with the return filed from
+    // the same books for the same month.
+    final creditNotes = await db
+        .salesRepositoryFor(firmId)
+        .list(docType: 'credit_note', from: from, to: to, limit: 1000000);
     final purchases = await db
         .purchaseRepositoryFor(firmId)
         .list(docType: 'bill', from: from, to: to, limit: 1000000);
+    final debitNotes = await db
+        .purchaseRepositoryFor(firmId)
+        .list(docType: 'debit_note', from: from, to: to, limit: 1000000);
     final expenses = await db
         .expenseRepositoryFor(firmId)
         .list(type: 'expense', from: from, to: to, limit: 1000000);
@@ -453,10 +674,18 @@ class ReportRepository {
       if (s.status == 'cancelled') continue;
       salesTaxable += s.taxableValue;
     }
+    for (final cn in creditNotes) {
+      if (cn.status == 'cancelled') continue;
+      salesTaxable -= cn.taxableValue;
+    }
     double purchaseTaxable = 0;
     for (final p in purchases) {
       if (p.status == 'cancelled') continue;
       purchaseTaxable += p.taxableValue;
+    }
+    for (final dn in debitNotes) {
+      if (dn.status == 'cancelled') continue;
+      purchaseTaxable -= dn.taxableValue;
     }
     final expenseByCat = <String, double>{};
     for (final e in expenses) {
@@ -467,7 +696,15 @@ class ReportRepository {
       incomeByCat[i.category] = (incomeByCat[i.category] ?? 0) + i.amount;
     }
 
-    final grossProfit = salesTaxable - purchaseTaxable;
+    // Stock in hand at the two ends of the period, at cost. Closing stock is
+    // an asset, not an expense — without this line a firm that bought for the
+    // season showed a loss until the stock sold.
+    final openingStock = await stockAtCost(
+      asOf: from.subtract(const Duration(days: 1)),
+    );
+    final closingStock = await stockAtCost(asOf: to);
+    final costOfGoodsSold = purchaseTaxable + openingStock - closingStock;
+    final grossProfit = salesTaxable - costOfGoodsSold;
     final expenseRows = expenseByCat.entries
         .map((e) => PnLRow(e.key, _d(e.value)))
         .toList()
@@ -492,15 +729,53 @@ class ReportRepository {
         ...expenseRows,
       ],
       totalIncome: _d(salesTaxable + totalIncome),
-      totalExpenses: _d(purchaseTaxable + totalExpenses),
+      // Purchases are replaced by cost of goods sold, so the stock adjustment
+      // is not counted twice.
+      totalExpenses: _d(costOfGoodsSold + totalExpenses),
       grossProfit: _d(grossProfit),
+      openingStock: _d(openingStock),
+      closingStock: _d(closingStock),
+      costOfGoodsSold: _d(costOfGoodsSold),
       // Net profit = total income − total expenses, where income already
       // includes sales and expenses already include purchases. The old
       // `grossProfit + totalIncome − totalExpenses` expanded to
       // 2·sales − 2·purchases + income − expenses, overstating profit by
       // exactly the gross profit.
-      netProfit: _d(salesTaxable + totalIncome - purchaseTaxable - totalExpenses),
+      netProfit: _d(salesTaxable + totalIncome - costOfGoodsSold - totalExpenses),
     );
+  }
+
+  /// Stock on hand, valued at cost, as of the end of [asOf].
+  ///
+  /// Read from the stock ledger rather than the item's cached balance, because
+  /// a P&L needs the value at a *date* — the closing stock of June is the
+  /// opening stock of July, and the difference is what the period consumed.
+  /// Quantities are signed movements, so summing them to a date is the balance
+  /// at that date.
+  Future<double> stockAtCost({required DateTime asOf}) async {
+    final end = DateTime(asOf.year, asOf.month, asOf.day, 23, 59, 59);
+    final movements = await (db.select(db.stockMovements)
+          ..where((t) =>
+              t.firmId.equals(firmId) &
+              t.date.isSmallerOrEqualValue(end)))
+        .get();
+    if (movements.isEmpty) return 0;
+    final items = await db.itemRepositoryFor(firmId).all();
+    final costById = {for (final i in items) i.id: i.purchasePrice};
+    final quantityById = <String, double>{};
+    for (final movement in movements) {
+      if (!costById.containsKey(movement.itemId)) continue;
+      quantityById[movement.itemId] =
+          (quantityById[movement.itemId] ?? 0) + movement.quantity;
+    }
+    var total = 0.0;
+    quantityById.forEach((itemId, quantity) {
+      // Negative stock (billing ahead of the purchase entry) is not an asset;
+      // valuing it would invent a loss on goods that were never bought.
+      if (quantity <= 0) return;
+      total += quantity * (costById[itemId] ?? 0);
+    });
+    return total;
   }
 
   // ---------------- Party statement ----------------
@@ -517,8 +792,12 @@ class ReportRepository {
 
     final sales = await db.salesRepositoryFor(firmId).list(
         docType: 'invoice', partyId: partyId, from: from, to: to, limit: 1000000);
+    final creditNotes = await db.salesRepositoryFor(firmId).list(
+        docType: 'credit_note', partyId: partyId, from: from, to: to, limit: 1000000);
     final purchases = await db.purchaseRepositoryFor(firmId).list(
         docType: 'bill', partyId: partyId, from: from, to: to, limit: 1000000);
+    final debitNotes = await db.purchaseRepositoryFor(firmId).list(
+        docType: 'debit_note', partyId: partyId, from: from, to: to, limit: 1000000);
     // The payments have to honour the same window as the documents; `forParty`
     // returns the whole history, so a "this month" statement listed payments
     // from every previous month too.
@@ -539,8 +818,18 @@ class ReportRepository {
           partyId: partyId,
           to: from.subtract(const Duration(microseconds: 1)),
           limit: 1000000);
+      final priorCreditNotes = await db.salesRepositoryFor(firmId).list(
+          docType: 'credit_note',
+          partyId: partyId,
+          to: from.subtract(const Duration(microseconds: 1)),
+          limit: 1000000);
       final priorPurchases = await db.purchaseRepositoryFor(firmId).list(
           docType: 'bill',
+          partyId: partyId,
+          to: from.subtract(const Duration(microseconds: 1)),
+          limit: 1000000);
+      final priorDebitNotes = await db.purchaseRepositoryFor(firmId).list(
+          docType: 'debit_note',
           partyId: partyId,
           to: from.subtract(const Duration(microseconds: 1)),
           limit: 1000000);
@@ -552,11 +841,20 @@ class ReportRepository {
         if (s.status == 'cancelled') continue;
         opening += s.grandTotal;
       }
+      for (final cn in priorCreditNotes) {
+        if (cn.status == 'cancelled') continue;
+        opening -= cn.grandTotal;
+      }
       for (final p in priorPurchases) {
         if (p.status == 'cancelled') continue;
         opening -= p.grandTotal;
       }
+      for (final dn in priorDebitNotes) {
+        if (dn.status == 'cancelled') continue;
+        opening += dn.grandTotal;
+      }
       for (final p in priorPayments) {
+        if (p.chequeStatus == 'bounced') continue;
         opening += p.type == 'payment_in' ? -p.amount : p.amount;
       }
     }
@@ -567,12 +865,23 @@ class ReportRepository {
       events.add(_LedgerEvent(s.invoiceDate, 'Sales Invoice ${s.number}',
           s.number, s.grandTotal, 0));
     }
+    for (final cn in creditNotes) {
+      if (cn.status == 'cancelled') continue;
+      events.add(_LedgerEvent(cn.invoiceDate, 'Credit Note ${cn.number}',
+          cn.number, 0, cn.grandTotal));
+    }
     for (final p in purchases) {
       if (p.status == 'cancelled') continue;
       events.add(_LedgerEvent(
           p.billDate, 'Purchase Bill ${p.number}', p.number, 0, p.grandTotal));
     }
+    for (final dn in debitNotes) {
+      if (dn.status == 'cancelled') continue;
+      events.add(_LedgerEvent(
+          dn.billDate, 'Debit Note ${dn.number}', dn.number, dn.grandTotal, 0));
+    }
     for (final p in payments) {
+      if (p.chequeStatus == 'bounced') continue;
       final isIn = p.type == 'payment_in';
       events.add(_LedgerEvent(
           p.date,
@@ -693,7 +1002,8 @@ class ReportRepository {
     final items = await db.itemRepositoryFor(firmId).all();
     final rows = <StockSummaryRow>[];
     for (final i in items) {
-      if (i.stockType != 'tracked') continue;
+      // Services aren't counted in stock — see ItemRepository.stockValue.
+      if (i.isService || i.stockType != 'tracked') continue;
       rows.add(StockSummaryRow(
         itemId: i.id,
         name: i.name,

@@ -5,6 +5,8 @@ import 'package:decimal/decimal.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import 'pdf_fonts.dart';
+
 import '../constants/app_constants.dart';
 import '../database/app_database.dart';
 import '../engine/gst_engine.dart';
@@ -16,12 +18,15 @@ import 'upi_qr.dart';
 class InvoicePdf {
   InvoicePdf._();
 
-  static const PdfColor _brand = PdfColor.fromInt(0xFF1D4ED8);
-  static const PdfColor _brandDeep = PdfColor.fromInt(0xFF1E3A8A);
-  static const PdfColor _ink = PdfColor.fromInt(0xFF161A18);
-  static const PdfColor _inkSoft = PdfColor.fromInt(0xFF5A605C);
-  static const PdfColor _line = PdfColor.fromInt(0xFFD8D5CD);
-  static const PdfColor _tint = PdfColor.fromInt(0xFFF3F6F5);
+  static const PdfColor _brand = PdfColor.fromInt(0xFF6D28D9); // violet-700
+  static const PdfColor _brandDeep = PdfColor.fromInt(0xFF4C1D95); // violet-900
+  // Neutrals follow the app's cool violet-tinted greys (app_colors.dart). The
+  // old green-grey set (0xFF161A18 / 0xFF5A605C / 0xFFD8D5CD / 0xFFF3F6F5)
+  // was left over from the teal palette and read mint next to the violet brand.
+  static const PdfColor _ink = PdfColor.fromInt(0xFF16141F);
+  static const PdfColor _inkSoft = PdfColor.fromInt(0xFF565263);
+  static const PdfColor _line = PdfColor.fromInt(0xFFD4D0E0);
+  static const PdfColor _tint = PdfColor.fromInt(0xFFF6F5FA);
 
   static const _docTitles = {
     'invoice': 'TAX INVOICE',
@@ -36,7 +41,11 @@ class InvoicePdf {
     required List<SalesInvoiceItemEntity> items,
     required FirmEntity firm,
   }) async {
-    final doc = pw.Document(pageMode: PdfPageMode.fullscreen);
+    // Helvetica has no ₹ (see PdfFonts) — Inter rides along as a fallback.
+    final doc = pw.Document(
+      pageMode: PdfPageMode.fullscreen,
+      theme: await PdfFonts.theme(),
+    );
     final isInvoice = invoice.docType == 'invoice' ||
         invoice.docType == 'credit_note' ||
         invoice.docType == 'quotation';
@@ -45,6 +54,11 @@ class InvoicePdf {
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(0),
+        // A bulk invoice legitimately carries 50+ lines. `MultiPage` defaults
+        // to a 20-page ceiling and throws `TooManyPagesException` past it in
+        // debug builds; that ceiling is there to catch a runaway layout, not
+        // to ration a bill.
+        maxPages: 100,
         build: (context) {
           return [
             _header(firm, invoice),
@@ -55,7 +69,7 @@ class InvoicePdf {
             pw.SizedBox(height: 12),
             pw.Padding(
               padding: const pw.EdgeInsets.symmetric(horizontal: 34),
-              child: _itemsTable(items, invoice),
+              child: _itemsTable(items, invoice, _secondTaxHead(firm, invoice)),
             ),
             pw.SizedBox(height: 10),
             pw.Padding(
@@ -329,8 +343,32 @@ class InvoicePdf {
     );
   }
 
-  static pw.Widget _itemsTable(
-      List<SalesInvoiceItemEntity> items, SalesInvoiceEntity invoice) {
+  /// The name of the second intra-state tax column on this document: UTGST for
+  /// a Union Territory, SGST otherwise. Derived from the same state codes the
+  /// engine split the tax by, so the column headings and the amounts under them
+  /// can never disagree.
+  static String _secondTaxHead(FirmEntity firm, SalesInvoiceEntity invoice) {
+    if (invoice.isInterState) return 'IGST';
+    return intraStateSecondHead(
+      resolveGstSplit(
+        supplierState: firm.stateCode,
+        buyerState: invoice.placeOfSupply,
+      ),
+    );
+  }
+
+  /// The line-item table.
+  ///
+  /// One `pw.Table` holding every item, which `pw.MultiPage` *does* paginate:
+  /// `pw.Table` is a `SpanningWidget`, so an over-tall table is re-laid out
+  /// against the space left on the page, its row cursor (`_context.lastLine`)
+  /// is handed to the next page's pass, and it stops once every item is
+  /// placed. What it does not do is repeat the column headings, so a
+  /// continuation sheet carried bare `#`/`HSN`/`Amount` rows under nothing.
+  /// `repeat: true` on the header row is what puts the brand-filled heading
+  /// strip back at the top of every page after the first.
+  static pw.Widget _itemsTable(List<SalesInvoiceItemEntity> items,
+      SalesInvoiceEntity invoice, String secondHead) {
     // IGST vs CGST/SGST must match the ENGINE's decision, which keys purely
     // off isInterState. The old `&& hasGstin` extra condition printed '-'
     // in the CGST/SGST columns of inter-state bills to unregistered buyers
@@ -365,7 +403,11 @@ class InvoicePdf {
               8: pw.FixedColumnWidth(58),
             },
       children: [
+        // `repeat: true` re-emits this heading strip at the top of every
+        // continuation page. It defaults to false, which is why page 2 of a
+        // long invoice was previously an unlabelled list of amounts.
         pw.TableRow(
+          repeat: true,
           decoration: const pw.BoxDecoration(color: _brand),
           children: [
             _headCell('#'),
@@ -378,7 +420,7 @@ class InvoicePdf {
               _headCell('IGST')
             else ...[
               _headCell('CGST'),
-              _headCell('SGST'),
+              _headCell(secondHead),
             ],
             _headCell('Amount'),
           ],
@@ -508,13 +550,26 @@ class InvoicePdf {
       row('CGST', Formatters.money(_dec(invoice.cgst)));
     }
     if (invoice.sgst.abs() > 0.001) {
-      row('SGST', Formatters.money(_dec(invoice.sgst)));
+      // An inter-state invoice has no SGST, so this row only prints for an
+      // intra-state one — where the correct name may be UTGST.
+      row(_secondTaxHead(firm, invoice), Formatters.money(_dec(invoice.sgst)));
     }
     if (invoice.igst.abs() > 0.001) {
       row('IGST', Formatters.money(_dec(invoice.igst)));
     }
     if (invoice.cess.abs() > 0.001) {
       row('Cess', Formatters.money(_dec(invoice.cess)));
+    }
+    // Tax collected at source sits between the tax and the round-off, because
+    // that is the order the invoice value is built in: tax on the goods, then
+    // TCS on the consideration, then a round to the rupee.
+    if (invoice.tcs.abs() > 0.001) {
+      row(
+        invoice.tcsRate > 0
+            ? 'TCS @ ${Formatters.percent(invoice.tcsRate)}'
+            : 'TCS',
+        Formatters.money(_dec(invoice.tcs)),
+      );
     }
     if (invoice.roundOff.abs() > 0.001) {
       row('Round Off',
@@ -530,7 +585,7 @@ class InvoicePdf {
         ...rows,
         pw.TableRow(
           decoration: const pw.BoxDecoration(
-            color: PdfColor.fromInt(0xFFE6F4F1),
+            color: PdfColor.fromInt(0xFFEDE9FE), // primaryContainer
           ),
           children: [
             pw.Padding(
@@ -805,7 +860,7 @@ class InvoicePdf {
   static pw.Widget _footer(
       pw.Context context, FirmEntity firm, SalesInvoiceEntity invoice) {
     return pw.Container(
-      decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFEFF3F2)),
+      decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF5F3FF)),
       padding: const pw.EdgeInsets.symmetric(horizontal: 34, vertical: 9),
       child: pw.Row(
         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,

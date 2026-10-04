@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -7,8 +8,10 @@ import 'package:go_router/go_router.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../core/api/server_client.dart' show ServerRequestException;
+import '../../core/database/app_database.dart';
 import '../../core/sync/scan_seed.dart';
 import '../../core/state/providers.dart';
+import '../../core/utils/id_utils.dart';
 import '../../core/utils/validators.dart';
 import '../../shared/widgets/common_widgets.dart';
 
@@ -33,6 +36,81 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
   String? _error;
 
   ScannedReviewState _review = ScannedReviewState.empty;
+
+  /// The item catalogue the per-line matcher offers. A scanned description is
+  /// fuzzy text from a vision model, so the reviewer picks which catalogue row
+  /// a line IS — without that the line saves with no `itemId` and moves no
+  /// stock at all (see [CataloguedBillSeed]).
+  List<ItemEntity> _catalogue = const [];
+
+  /// One controller per editable field, owned here. They used to be built
+  /// inside `build`, which allocated a fresh set on every keystroke (and
+  /// forced the caret to the end, so editing mid-string jumped); they are also
+  /// never reset by a rebuild, so what the reviewer types sticks.
+  final Map<String, TextEditingController> _headerControllers = {};
+  final Map<String, TextEditingController> _lineControllers = {};
+
+  Future<void> _loadCatalogue() async {
+    final repo = ref.read(itemRepositoryProvider);
+    if (repo == null) return;
+    final items = await repo.all(limit: 1000);
+    if (mounted) setState(() => _catalogue = items);
+  }
+
+  /// A header field's controller, created once with [value] and then left
+  /// alone: the review state is the record of what survived, and a rebuild
+  /// must never rewrite what is being typed (the GSTIN field is upper-cased as
+  /// it is stored, so echoing the state back into the field would fight the
+  /// keyboard).
+  TextEditingController _headerController(String key, String? value) {
+    final existing = _headerControllers[key];
+    if (existing != null) return existing;
+    final created = TextEditingController(text: value ?? '');
+    _headerControllers[key] = created;
+    return created;
+  }
+
+  /// A line field's controller, keyed by the LINE's stable id rather than its
+  /// position — after a deletion the surviving card must keep the numbers the
+  /// reviewer typed into it.
+  TextEditingController _lineNumController(String key, double value) {
+    final existing = _lineControllers[key];
+    if (existing != null) return existing;
+    final created = TextEditingController(
+      text: value == value.roundToDouble()
+          ? value.toStringAsFixed(0)
+          : '$value',
+    );
+    _lineControllers[key] = created;
+    return created;
+  }
+
+  /// Drops every field controller — used when a re-scan replaces the reading,
+  /// so the new values land in fresh fields instead of behind the old text.
+  void _resetFieldControllers() {
+    for (final controller in [
+      ..._headerControllers.values,
+      ..._lineControllers.values,
+    ]) {
+      controller.dispose();
+    }
+    _headerControllers.clear();
+    _lineControllers.clear();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // The matcher's catalogue is loaded up front, so a line the reviewer has
+    // not scrolled to yet already offers its candidates.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadCatalogue());
+  }
+
+  @override
+  void dispose() {
+    _resetFieldControllers();
+    super.dispose();
+  }
 
   /// Bytes + type of the image being scanned, kept so a retry does not force
   /// another pick.
@@ -123,11 +201,23 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
       setState(() => _error = 'No business is open.');
       return;
     }
-    final token = await ref.read(authControllerProvider.notifier).accessToken();
+    // Not `accessToken()`: a null token means two different things, and this
+    // screen used to report the wrong one. Being offline reads as "Sign in to
+    // Atria", which is both untrue and unactionable — the fix is to try again
+    // on a better connection, not to sign in again.
+    final session = await ref
+        .read(authControllerProvider.notifier)
+        .resolveAccessToken();
+    final token = session.accessToken;
     if (token == null) {
+      if (!mounted) return;
       setState(() {
-        _error = 'Sign in to Atria to scan bills - the reading happens on the '
-            'Atria server, not on this device.';
+        _error = session.temporarilyUnavailable
+            ? 'Could not reach Atria to scan this bill. The reading happens on '
+                'the Atria server, not on this device - check your connection '
+                'and try again.'
+            : 'Sign in to Atria to scan bills - the reading happens on the '
+                'Atria server, not on this device.';
       });
       return;
     }
@@ -148,6 +238,7 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
         _uploading = false;
         _review = ScannedReviewState.fromBill(bill);
       });
+      _resetFieldControllers();
     } on ServerRequestException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -397,6 +488,11 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
 
   /// Header fields, each editable in place: what you see is what the editor
   /// will receive, not a rendering of a hidden payload.
+  ///
+  /// Every value the seed carries gets a field here. `dueDate`,
+  /// `shippingCharge` and `otherCharges` used to be seeded with no review field
+  /// at all — they were written straight into the editor's controllers, so
+  /// three of the numbers the bill is worth were unexamined (D23).
   Widget _reviewFields() {
     final r = _review;
     return AtriaCard(
@@ -410,37 +506,74 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
           ),
           const SizedBox(height: 10),
           _reviewField(
+            field: 'supplier',
             label: 'Supplier',
             value: r.supplierName,
             onChanged: (v) => setState(
                 () => _review = _review.copyWith(supplierName: () => v)),
           ),
           _reviewField(
+            field: 'gstin',
             label: 'GSTIN',
             value: r.supplierGstin,
             onChanged: (v) => setState(() =>
                 _review = _review.copyWith(supplierGstin: () => v.toUpperCase())),
-            trailingError: Validators.isValidGstin(r.supplierGstin)
-                ? null
-                : 'Not a valid GSTIN format',
+            // Only a value that IS present can be malformed. `isValidGstin(null)`
+            // is false, so passing a null straight to errorText painted a red
+            // "Not a valid GSTIN format" under a field nobody had touched —
+            // while most suppliers are unregistered and have no GSTIN at all.
+            trailingError:
+                (r.supplierGstin ?? '').trim().isEmpty ||
+                        Validators.isValidGstin(r.supplierGstin)
+                    ? null
+                    : 'Not a valid GSTIN format',
           ),
           _reviewField(
+            field: 'invoiceNumber',
             label: 'Bill number',
             value: r.invoiceNumber,
             onChanged: (v) => setState(
                 () => _review = _review.copyWith(invoiceNumber: () => v)),
           ),
           _reviewField(
+            field: 'billDate',
             label: 'Bill date (YYYY-MM-DD)',
             value: r.billDateRaw,
             onChanged: (v) => setState(
                 () => _review = _review.copyWith(billDateRaw: () => v)),
           ),
           _reviewField(
+            field: 'dueDate',
+            label: 'Due date (YYYY-MM-DD)',
+            value: r.dueDateRaw,
+            hintText: 'Leave empty if it is payable on delivery',
+            onChanged: (v) => setState(
+                () => _review = _review.copyWith(dueDateRaw: () => v)),
+          ),
+          _reviewField(
+            field: 'placeOfSupply',
             label: 'Place of supply (state code)',
             value: r.placeOfSupply,
             onChanged: (v) => setState(
                 () => _review = _review.copyWith(placeOfSupply: () => v)),
+          ),
+          _reviewField(
+            field: 'shippingCharge',
+            label: 'Shipping / freight',
+            value: r.shippingCharge == 0 ? null : '${r.shippingCharge}',
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
+            onChanged: (v) => setState(() => _review = _review.copyWith(
+                shippingCharge: () => double.tryParse(v.trim()) ?? 0)),
+          ),
+          _reviewField(
+            field: 'otherCharges',
+            label: 'Other charges',
+            value: r.otherCharges == 0 ? null : '${r.otherCharges}',
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
+            onChanged: (v) => setState(() => _review = _review.copyWith(
+                otherCharges: () => double.tryParse(v.trim()) ?? 0)),
           ),
         ],
       ),
@@ -448,22 +581,25 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
   }
 
   Widget _reviewField({
+    required String field,
     required String label,
     required String? value,
     required ValueChanged<String> onChanged,
+    String? hintText,
+    TextInputType? keyboardType,
     String? trailingError,
   }) {
-    final controller = TextEditingController(text: value ?? '');
-    controller.selection = TextSelection.collapsed(
-      offset: controller.text.length,
-    );
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: TextField(
-        controller: controller,
+        // State-owned: created once with the model's reading and never rebuilt
+        // from the review state, so the caret stays where the reviewer put it.
+        controller: _headerController(field, value),
         onChanged: onChanged,
+        keyboardType: keyboardType,
         decoration: InputDecoration(
           labelText: label,
+          hintText: hintText,
           isDense: true,
           errorText: trailingError,
         ),
@@ -489,18 +625,49 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
             )
           else
             for (var i = 0; i < _review.lines.length; i++)
+              // Keyed by the line's stable id, so removing line 0 does not make
+              // the survivors show one line's numbers against another's state.
               _lineReview(i),
+          if (_review.lines.isNotEmpty && _review.linkedCount < _review.lines.length)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                '${_review.lines.length - _review.linkedCount} line(s) are '
+                'not linked to an item. They still save — a shop buys things it '
+                'does not stock — but they will not change stock levels.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      height: 1.4,
+                    ),
+              ),
+            ),
         ],
       ),
     );
   }
 
+  void _removeLine(String lineId) {
+    final index = _review.lineIds.indexOf(lineId);
+    if (index < 0 || index >= _review.lines.length) return;
+    // The removed line's fields go with it, controllers included.
+    for (final key in _lineControllers.keys.toList()) {
+      if (key.startsWith('$lineId|')) {
+        _lineControllers.remove(key)!.dispose();
+      }
+    }
+    setState(() => _review = _review.withoutLine(index));
+  }
+
   Widget _lineReview(int index) {
     final line = _review.lines[index];
+    final lineId = _review.lineIds[index];
+    final scheme = Theme.of(context).colorScheme;
     return Card(
+      // Stable per line, not positional: see _removeLine.
+      key: ValueKey('scan-line-$lineId'),
       margin: const EdgeInsets.only(bottom: 8),
       elevation: 0,
-      color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+      color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
       child: Padding(
         padding: const EdgeInsets.all(10),
         child: Column(
@@ -518,8 +685,7 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
                 IconButton(
                   tooltip: 'Remove line',
                   visualDensity: VisualDensity.compact,
-                  onPressed: () =>
-                      setState(() => _review = _review.withoutLine(index)),
+                  onPressed: () => _removeLine(lineId),
                   icon: const PhosphorIcon(PhosphorIconsRegular.trash, size: 17),
                 ),
               ],
@@ -529,28 +695,31 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
               children: [
                 Expanded(
                   child: _lineNumField(
+                    field: '$lineId|qty',
                     label: 'Qty',
                     initial: line.quantity,
-                    onChanged: (v) =>
-                        setState(() => _review = _review.withLineQuantity(index, v)),
+                    onChanged: (v) => setState(() =>
+                        _review = _review.withLineQuantity(lineId, v)),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: _lineNumField(
+                    field: '$lineId|rate',
                     label: 'Rate',
                     initial: line.rate,
-                    onChanged: (v) =>
-                        setState(() => _review = _review.withLineRate(index, v)),
+                    onChanged: (v) => setState(
+                        () => _review = _review.withLineRate(lineId, v)),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: _lineNumField(
+                    field: '$lineId|gst',
                     label: 'GST %',
                     initial: line.gstRate,
                     onChanged: (v) =>
-                        setState(() => _review = _review.withLineGst(index, v)),
+                        setState(() => _review = _review.withLineGst(lineId, v)),
                   ),
                 ),
               ],
@@ -567,20 +736,145 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
                 ),
               ),
             ],
+            const SizedBox(height: 8),
+            _itemMatcher(lineId, line, index),
           ],
         ),
       ),
     );
   }
 
+  /// The catalogue link for one line: what it resolved to, or the candidates a
+  /// reviewer can pick from. A line with no link saves fine but moves no stock,
+  /// so the state of this control is part of reviewing the bill — not a detail.
+  Widget _itemMatcher(String lineId, ScannedLineSeed line, int index) {
+    final scheme = Theme.of(context).colorScheme;
+    final linkedId = _review.lineItemIds[index];
+    final linked = linkedId == null
+        ? null
+        : _catalogue.where((i) => i.id == linkedId).firstOrNull;
+    final candidates = _itemCandidates(line);
+    const noLink = '__no_item__';
+    // The current link is always one of the options, even when the catalogue
+    // has moved on and it is no longer a candidate: the reviewer must be able to
+    // see what the line is linked to (and unlink it), and a value that is not
+    // among the items asserts.
+    final value = linked == null ? noLink : linked.id;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        DropdownButtonFormField<String>(
+          isExpanded: true,
+          isDense: true,
+          // Keyed by the line so the dropdown's own state follows the line it
+          // belongs to when an earlier line is removed.
+          key: ValueKey('scan-line-item-$lineId'),
+          initialValue: value,
+          decoration: const InputDecoration(
+            labelText: 'Match to item (moves stock)',
+            isDense: true,
+          ),
+          items: [
+            const DropdownMenuItem<String>(
+              value: noLink,
+              child: Text('Not linked to an item'),
+            ),
+            if (linked != null)
+              DropdownMenuItem<String>(
+                value: linked.id,
+                child: Text(
+                  linked.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            for (final item in candidates)
+              if (item.id != linkedId)
+                DropdownMenuItem<String>(
+                  value: item.id,
+                  child: Text(
+                    item.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+          ],
+          onChanged: (next) => setState(() => _review = _review.withLineItem(
+              lineId,
+              next == null || next == noLink ? null : next,
+            )),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          linked == null
+              ? (candidates.isEmpty
+                    ? 'No catalogue item looks like this line. It will save '
+                        'without touching stock.'
+                    : 'No item picked. It will save without touching stock.')
+              // Services and untracked goods carry no stock at all, so saying
+              // "moves stock" here would be a promise the save cannot keep.
+              : linked.isService || linked.stockType != 'tracked'
+                  ? 'Linked to ${linked.name} — ${linked.isService ? 'a service' : 'untracked stock'} '
+                      'carries no quantity, so this line does not change stock.'
+                  : 'Linked to ${linked.name} — its stock is updated on save.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: linked != null ? scheme.primary : scheme.onSurfaceVariant,
+              ),
+        ),
+      ],
+    );
+  }
+
+  /// The catalogue rows worth offering for a scanned line, best first.
+  ///
+  /// Loose (substring) matching on purpose — the description came off a photo
+  /// through a vision model, so "SURF EXCEL 1KG" has to find "Surf Excel 1 kg".
+  /// An exact identity match always wins; after that, name prefixes, then any
+  /// name/SKU/HSN/barcode containing the query.
+  List<ItemEntity> _itemCandidates(ScannedLineSeed line) {
+    final query = line.name.trim().toLowerCase();
+    if (query.isEmpty || _catalogue.isEmpty) return const [];
+    final scored = <(int, ItemEntity)>[];
+    for (final item in _catalogue) {
+      final name = item.name.trim().toLowerCase();
+      final sku = (item.sku ?? '').trim().toLowerCase();
+      final hsn = (item.hsn ?? '').trim().toLowerCase();
+      final barcode = (item.barcode ?? '').trim().toLowerCase();
+      int rank;
+      if (name == query || sku == query || hsn == query || barcode == query) {
+        rank = 0;
+      } else if (name.startsWith(query)) {
+        rank = 1;
+      } else if (name.contains(query)) {
+        rank = 2;
+      } else if (query.contains(name) && name.isNotEmpty) {
+        rank = 3;
+      } else if (sku.contains(query) ||
+          hsn.contains(query) ||
+          barcode.contains(query)) {
+        rank = 4;
+      } else {
+        continue;
+      }
+      scored.add((rank, item));
+    }
+    scored.sort((a, b) {
+      final byRank = a.$1.compareTo(b.$1);
+      return byRank != 0 ? byRank : a.$2.name.compareTo(b.$2.name);
+    });
+    return [
+      for (final (_, item) in scored.take(8)) item,
+    ];
+  }
+
   Widget _lineNumField({
+    required String field,
     required String label,
     required double initial,
     required ValueChanged<double> onChanged,
   }) {
     return TextFormField(
-      initialValue:
-          initial == initial.roundToDouble() ? initial.toStringAsFixed(0) : '$initial',
+      controller: _lineNumController(field, initial),
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       decoration: InputDecoration(labelText: label, isDense: true),
       onChanged: (value) {
@@ -594,6 +888,11 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
 /// The editable review state: the model's reading, after the person's
 /// corrections. A plain immutable class with copy helpers, so every edit is a
 /// setState with a new value rather than controllers scattered per field.
+///
+/// [lineIds] and [lineItemIds] are index-aligned with [lines]. The id is what
+/// makes an edit address a LINE rather than a position: deleting line 0 used to
+/// leave every surviving field showing the previous line's numbers while its
+/// `onChanged` wrote into whatever line had slid into that slot.
 class ScannedReviewState {
   const ScannedReviewState({
     required this.supplierName,
@@ -605,6 +904,8 @@ class ScannedReviewState {
     required this.dueDateRaw,
     required this.placeOfSupply,
     required this.lines,
+    required this.lineIds,
+    required this.lineItemIds,
     required this.shippingCharge,
     required this.otherCharges,
     required this.confidence,
@@ -621,6 +922,15 @@ class ScannedReviewState {
   final String? dueDateRaw;
   final String? placeOfSupply;
   final List<ScannedLineSeed> lines;
+
+  /// Stable per line, assigned once when the reading arrives. Never reused, and
+  /// never re-ordered.
+  final List<String> lineIds;
+
+  /// The catalogue item the reviewer linked each line to (null = unlinked).
+  /// Index-aligned with [lines]; this is what lets the saved bill move stock.
+  final List<String?> lineItemIds;
+
   final double shippingCharge;
   final double otherCharges;
   final String confidence;
@@ -637,6 +947,8 @@ class ScannedReviewState {
     dueDateRaw: null,
     placeOfSupply: null,
     lines: const [],
+    lineIds: const [],
+    lineItemIds: const [],
     shippingCharge: 0,
     otherCharges: 0,
     confidence: 'medium',
@@ -648,6 +960,10 @@ class ScannedReviewState {
       lines.isNotEmpty ||
       (invoiceNumber ?? '').isNotEmpty ||
       (supplierName ?? '').isNotEmpty;
+
+  /// How many lines the reviewer linked to a catalogue item. The rest save as
+  /// free-text lines and move no stock.
+  int get linkedCount => lineItemIds.where((id) => id != null).length;
 
   DateTime? get billDate {
     final raw = billDateRaw?.trim() ?? '';
@@ -696,6 +1012,10 @@ class ScannedReviewState {
             cessRate: line.cessRate,
           ),
       ],
+      // One id per line, minted here and never re-minted: everything below
+      // addresses lines by id.
+      lineIds: [for (final _ in bill.lines) IdUtils.newId()],
+      lineItemIds: [for (final _ in bill.lines) null],
       shippingCharge: bill.shippingCharge,
       otherCharges: bill.otherCharges,
       confidence: bill.confidence,
@@ -709,7 +1029,10 @@ class ScannedReviewState {
     String? Function()? supplierGstin,
     String? Function()? invoiceNumber,
     String? Function()? billDateRaw,
+    String? Function()? dueDateRaw,
     String? Function()? placeOfSupply,
+    double Function()? shippingCharge,
+    double Function()? otherCharges,
   }) =>
       ScannedReviewState(
         supplierName: supplierName == null ? this.supplierName : supplierName(),
@@ -720,12 +1043,19 @@ class ScannedReviewState {
         invoiceNumber:
             invoiceNumber == null ? this.invoiceNumber : invoiceNumber(),
         billDateRaw: billDateRaw == null ? this.billDateRaw : billDateRaw(),
-        dueDateRaw: dueDateRaw,
+        // dueDate / shipping / other charges had no field on the review screen
+        // and so could never be corrected, although they were written straight
+        // into the editor.
+        dueDateRaw: dueDateRaw == null ? this.dueDateRaw : dueDateRaw(),
         placeOfSupply:
             placeOfSupply == null ? this.placeOfSupply : placeOfSupply(),
         lines: lines,
-        shippingCharge: shippingCharge,
-        otherCharges: otherCharges,
+        lineIds: lineIds,
+        lineItemIds: lineItemIds,
+        shippingCharge:
+            shippingCharge == null ? this.shippingCharge : shippingCharge(),
+        otherCharges:
+            otherCharges == null ? this.otherCharges : otherCharges(),
         confidence: confidence,
         warnings: warnings,
         model: model,
@@ -743,6 +1073,8 @@ class ScannedReviewState {
       dueDateRaw: dueDateRaw,
       placeOfSupply: placeOfSupply,
       lines: [...lines]..removeAt(index),
+      lineIds: [...lineIds]..removeAt(index),
+      lineItemIds: [...lineItemIds]..removeAt(index),
       shippingCharge: shippingCharge,
       otherCharges: otherCharges,
       confidence: confidence,
@@ -751,31 +1083,59 @@ class ScannedReviewState {
     );
   }
 
-  ScannedReviewState withLineQuantity(int index, double value) =>
-      _mapLine(index, (l) => ScannedLineSeed(
+  ScannedReviewState withLineQuantity(String lineId, double value) =>
+      _mapLine(lineId, (l) => ScannedLineSeed(
             name: l.name, hsn: l.hsn, quantity: value, rate: l.rate,
             unit: l.unit, discountPercent: l.discountPercent,
             gstRate: l.gstRate, cessRate: l.cessRate,
           ));
 
-  ScannedReviewState withLineRate(int index, double value) =>
-      _mapLine(index, (l) => ScannedLineSeed(
+  ScannedReviewState withLineRate(String lineId, double value) =>
+      _mapLine(lineId, (l) => ScannedLineSeed(
             name: l.name, hsn: l.hsn, quantity: l.quantity, rate: value,
             unit: l.unit, discountPercent: l.discountPercent,
             gstRate: l.gstRate, cessRate: l.cessRate,
           ));
 
-  ScannedReviewState withLineGst(int index, double value) =>
-      _mapLine(index, (l) => ScannedLineSeed(
+  ScannedReviewState withLineGst(String lineId, double value) =>
+      _mapLine(lineId, (l) => ScannedLineSeed(
             name: l.name, hsn: l.hsn, quantity: l.quantity, rate: l.rate,
             unit: l.unit, discountPercent: l.discountPercent,
             gstRate: value, cessRate: l.cessRate,
           ));
 
+  /// Records the catalogue row a line is linked to (null clears the link).
+  ScannedReviewState withLineItem(String lineId, String? itemId) {
+    final index = lineIds.indexOf(lineId);
+    if (index < 0 || index >= lineItemIds.length) return this;
+    return ScannedReviewState(
+      supplierName: supplierName,
+      supplierGstin: supplierGstin,
+      supplierPhone: supplierPhone,
+      supplierAddress: supplierAddress,
+      invoiceNumber: invoiceNumber,
+      billDateRaw: billDateRaw,
+      dueDateRaw: dueDateRaw,
+      placeOfSupply: placeOfSupply,
+      lines: lines,
+      lineIds: lineIds,
+      lineItemIds: [
+        for (var i = 0; i < lineItemIds.length; i++)
+          i == index ? itemId : lineItemIds[i],
+      ],
+      shippingCharge: shippingCharge,
+      otherCharges: otherCharges,
+      confidence: confidence,
+      warnings: warnings,
+      model: model,
+    );
+  }
+
   ScannedReviewState _mapLine(
-    int index,
+    String lineId,
     ScannedLineSeed Function(ScannedLineSeed) mapper,
   ) {
+    final index = lineIds.indexOf(lineId);
     if (index < 0 || index >= lines.length) return this;
     return ScannedReviewState(
       supplierName: supplierName,
@@ -790,6 +1150,9 @@ class ScannedReviewState {
         for (var i = 0; i < lines.length; i++)
           i == index ? mapper(lines[i]) : lines[i],
       ],
+      // An edit to a line's numbers never moves it, and never unlinks it.
+      lineIds: lineIds,
+      lineItemIds: lineItemIds,
       shippingCharge: shippingCharge,
       otherCharges: otherCharges,
       confidence: confidence,
@@ -800,11 +1163,14 @@ class ScannedReviewState {
 
   /// What the editor receives. Null when nothing survived - the editor is
   /// not opened at all in that case.
-  ScannedBillSeed? toSeed() {
+  ///
+  /// Always a [CataloguedBillSeed] so the per-line catalogue picks the reviewer
+  /// made here survive into the bill (and its stock movements).
+  CataloguedBillSeed? toSeed() {
     final name = supplierName?.trim();
     final lines = this.lines;
     if ((name == null || name.isEmpty) && lines.isEmpty) return null;
-    return ScannedBillSeed(
+    return CataloguedBillSeed(
       supplierName: (name == null || name.isEmpty) ? null : name,
       supplierGstin: supplierGstin?.trim().toUpperCase(),
       supplierPhone: supplierPhone,
@@ -816,8 +1182,84 @@ class ScannedReviewState {
       dueDate: dueDate,
       placeOfSupply: placeOfSupply,
       lines: lines,
+      lineItemIds: lineItemIds,
       shippingCharge: shippingCharge,
       otherCharges: otherCharges,
     );
   }
+}
+
+/// A [ScannedBillSeed] that also carries, per line, the catalogue item the
+/// reviewer picked on the review screen.
+///
+/// Without it a scanned line arrives in the editor as free text with a null
+/// `itemId`, and the save path skips it (`if (line.itemId == null …) continue;`)
+/// — the bill looks complete, the list shows it, and no stock ever moves. The
+/// seed's own line class has no room for the pick, so the choice travels in
+/// this subclass, index-aligned with [ScannedBillSeed.lines].
+class CataloguedBillSeed extends ScannedBillSeed {
+  const CataloguedBillSeed({
+    required super.lines,
+    required this.lineItemIds,
+    super.supplierName,
+    super.supplierGstin,
+    super.supplierPhone,
+    super.supplierAddress,
+    super.invoiceNumber,
+    super.billDate,
+    super.dueDate,
+    super.placeOfSupply,
+    super.shippingCharge,
+    super.otherCharges,
+  });
+
+  /// Catalogue item id per line, null where the reviewer left it unlinked.
+  final List<String?> lineItemIds;
+}
+
+/// Resolves one scanned line to a catalogue item on exact identity, ignoring
+/// case and surrounding whitespace.
+///
+/// Deliberately strict, and deliberately ambiguous-hostile: this runs without
+/// a human in the loop, and a wrong match moves the WRONG item's stock, which
+/// is worse than moving none. Keys are tried in trust order — barcode, SKU,
+/// name, HSN — and a key only counts when exactly one live item answers it, so
+/// two items sharing a name (or the many items that legitimately share an HSN)
+/// produce no match rather than an arbitrary one. Anything this refuses, the
+/// review screen offers as a choice and the editor says out loud that the line
+/// will not move stock.
+ItemEntity? matchScannedItem(
+  List<ItemEntity> items,
+  ScannedLineSeed line,
+) {
+  final description = line.name.trim().toLowerCase();
+  if (description.isNotEmpty) {
+    // The scanned line carries only a description, so identity is matched
+    // against the three keys a description can legitimately BE on the bill.
+    final match = _uniqueItem(items, (item) {
+      return item.name.trim().toLowerCase() == description ||
+          (item.sku ?? '').trim().toLowerCase() == description ||
+          (item.barcode ?? '').trim().toLowerCase() == description;
+    });
+    if (match != null) return match;
+  }
+  // The scanned HSN is a strong key, but it is read off a photo too, so it is
+  // only ever tried when the description identified nothing.
+  final hsn = (line.hsn ?? '').trim().toLowerCase();
+  if (hsn.isEmpty) return null;
+  return _uniqueItem(
+      items, (item) => (item.hsn ?? '').trim().toLowerCase() == hsn);
+}
+
+ItemEntity? _uniqueItem(
+  List<ItemEntity> items,
+  bool Function(ItemEntity) test,
+) {
+  ItemEntity? found;
+  for (final item in items) {
+    if (!test(item)) continue;
+    if (found != null) return null; // ambiguous: never guess
+    found = item;
+  }
+  return found;
 }

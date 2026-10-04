@@ -49,7 +49,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(tester.takeException(), isNull);
-    expect(find.text('Stock Summary'), findsOneWidget);
+    // The page names itself in the header now (QBO sentence case, and no app
+    // bar repeating the title).
+    expect(find.text('Stock summary'), findsOneWidget);
     expect(find.text('Steel Rod 12mm'), findsOneWidget,
         reason: 'the item row must render in the stock table');
     expect(find.text('Item'), findsOneWidget,

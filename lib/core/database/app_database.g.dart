@@ -296,6 +296,18 @@ class $FirmsTable extends Firms with TableInfo<$FirmsTable, FirmEntity> {
         requiredDuringInsert: false,
         defaultValue: const Constant('CH'),
       );
+  static const VerificationMeta _purchaseOrderPrefixMeta =
+      const VerificationMeta('purchaseOrderPrefix');
+  @override
+  late final GeneratedColumn<String> purchaseOrderPrefix =
+      GeneratedColumn<String>(
+        'purchase_order_prefix',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+        defaultValue: const Constant('PO'),
+      );
   static const VerificationMeta _numberingStyleMeta = const VerificationMeta(
     'numberingStyle',
   );
@@ -440,6 +452,17 @@ class $FirmsTable extends Firms with TableInfo<$FirmsTable, FirmEntity> {
   @override
   late final GeneratedColumn<int> deliveryNoteSequence = GeneratedColumn<int>(
     'delivery_note_sequence',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _purchaseOrderSequenceMeta =
+      const VerificationMeta('purchaseOrderSequence');
+  @override
+  late final GeneratedColumn<int> purchaseOrderSequence = GeneratedColumn<int>(
+    'purchase_order_sequence',
     aliasedName,
     false,
     type: DriftSqlType.int,
@@ -652,6 +675,7 @@ class $FirmsTable extends Firms with TableInfo<$FirmsTable, FirmEntity> {
     creditNotePrefix,
     debitNotePrefix,
     deliveryNotePrefix,
+    purchaseOrderPrefix,
     numberingStyle,
     invoiceSequencePadding,
     sequenceFy,
@@ -665,6 +689,7 @@ class $FirmsTable extends Firms with TableInfo<$FirmsTable, FirmEntity> {
     creditNoteSequence,
     debitNoteSequence,
     deliveryNoteSequence,
+    purchaseOrderSequence,
     invoiceTerms,
     invoiceNotes,
     signatureName,
@@ -892,6 +917,15 @@ class $FirmsTable extends Firms with TableInfo<$FirmsTable, FirmEntity> {
         ),
       );
     }
+    if (data.containsKey('purchase_order_prefix')) {
+      context.handle(
+        _purchaseOrderPrefixMeta,
+        purchaseOrderPrefix.isAcceptableOrUnknown(
+          data['purchase_order_prefix']!,
+          _purchaseOrderPrefixMeta,
+        ),
+      );
+    }
     if (data.containsKey('numbering_style')) {
       context.handle(
         _numberingStyleMeta,
@@ -1003,6 +1037,15 @@ class $FirmsTable extends Firms with TableInfo<$FirmsTable, FirmEntity> {
         deliveryNoteSequence.isAcceptableOrUnknown(
           data['delivery_note_sequence']!,
           _deliveryNoteSequenceMeta,
+        ),
+      );
+    }
+    if (data.containsKey('purchase_order_sequence')) {
+      context.handle(
+        _purchaseOrderSequenceMeta,
+        purchaseOrderSequence.isAcceptableOrUnknown(
+          data['purchase_order_sequence']!,
+          _purchaseOrderSequenceMeta,
         ),
       );
     }
@@ -1233,6 +1276,10 @@ class $FirmsTable extends Firms with TableInfo<$FirmsTable, FirmEntity> {
         DriftSqlType.string,
         data['${effectivePrefix}delivery_note_prefix'],
       )!,
+      purchaseOrderPrefix: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}purchase_order_prefix'],
+      )!,
       numberingStyle: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}numbering_style'],
@@ -1284,6 +1331,10 @@ class $FirmsTable extends Firms with TableInfo<$FirmsTable, FirmEntity> {
       deliveryNoteSequence: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}delivery_note_sequence'],
+      )!,
+      purchaseOrderSequence: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}purchase_order_sequence'],
       )!,
       invoiceTerms: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -1381,6 +1432,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
   final String creditNotePrefix;
   final String debitNotePrefix;
   final String deliveryNotePrefix;
+  final String purchaseOrderPrefix;
   final int numberingStyle;
   final int invoiceSequencePadding;
 
@@ -1399,6 +1451,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
   final int creditNoteSequence;
   final int debitNoteSequence;
   final int deliveryNoteSequence;
+  final int purchaseOrderSequence;
   final String? invoiceTerms;
   final String? invoiceNotes;
   final String? signatureName;
@@ -1441,6 +1494,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
     required this.creditNotePrefix,
     required this.debitNotePrefix,
     required this.deliveryNotePrefix,
+    required this.purchaseOrderPrefix,
     required this.numberingStyle,
     required this.invoiceSequencePadding,
     this.sequenceFy,
@@ -1454,6 +1508,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
     required this.creditNoteSequence,
     required this.debitNoteSequence,
     required this.deliveryNoteSequence,
+    required this.purchaseOrderSequence,
     this.invoiceTerms,
     this.invoiceNotes,
     this.signatureName,
@@ -1523,6 +1578,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
     map['credit_note_prefix'] = Variable<String>(creditNotePrefix);
     map['debit_note_prefix'] = Variable<String>(debitNotePrefix);
     map['delivery_note_prefix'] = Variable<String>(deliveryNotePrefix);
+    map['purchase_order_prefix'] = Variable<String>(purchaseOrderPrefix);
     map['numbering_style'] = Variable<int>(numberingStyle);
     map['invoice_sequence_padding'] = Variable<int>(invoiceSequencePadding);
     if (!nullToAbsent || sequenceFy != null) {
@@ -1538,6 +1594,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
     map['credit_note_sequence'] = Variable<int>(creditNoteSequence);
     map['debit_note_sequence'] = Variable<int>(debitNoteSequence);
     map['delivery_note_sequence'] = Variable<int>(deliveryNoteSequence);
+    map['purchase_order_sequence'] = Variable<int>(purchaseOrderSequence);
     if (!nullToAbsent || invoiceTerms != null) {
       map['invoice_terms'] = Variable<String>(invoiceTerms);
     }
@@ -1624,6 +1681,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
       creditNotePrefix: Value(creditNotePrefix),
       debitNotePrefix: Value(debitNotePrefix),
       deliveryNotePrefix: Value(deliveryNotePrefix),
+      purchaseOrderPrefix: Value(purchaseOrderPrefix),
       numberingStyle: Value(numberingStyle),
       invoiceSequencePadding: Value(invoiceSequencePadding),
       sequenceFy: sequenceFy == null && nullToAbsent
@@ -1639,6 +1697,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
       creditNoteSequence: Value(creditNoteSequence),
       debitNoteSequence: Value(debitNoteSequence),
       deliveryNoteSequence: Value(deliveryNoteSequence),
+      purchaseOrderSequence: Value(purchaseOrderSequence),
       invoiceTerms: invoiceTerms == null && nullToAbsent
           ? const Value.absent()
           : Value(invoiceTerms),
@@ -1711,6 +1770,9 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
       deliveryNotePrefix: serializer.fromJson<String>(
         json['deliveryNotePrefix'],
       ),
+      purchaseOrderPrefix: serializer.fromJson<String>(
+        json['purchaseOrderPrefix'],
+      ),
       numberingStyle: serializer.fromJson<int>(json['numberingStyle']),
       invoiceSequencePadding: serializer.fromJson<int>(
         json['invoiceSequencePadding'],
@@ -1727,6 +1789,9 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
       debitNoteSequence: serializer.fromJson<int>(json['debitNoteSequence']),
       deliveryNoteSequence: serializer.fromJson<int>(
         json['deliveryNoteSequence'],
+      ),
+      purchaseOrderSequence: serializer.fromJson<int>(
+        json['purchaseOrderSequence'],
       ),
       invoiceTerms: serializer.fromJson<String?>(json['invoiceTerms']),
       invoiceNotes: serializer.fromJson<String?>(json['invoiceNotes']),
@@ -1777,6 +1842,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
       'creditNotePrefix': serializer.toJson<String>(creditNotePrefix),
       'debitNotePrefix': serializer.toJson<String>(debitNotePrefix),
       'deliveryNotePrefix': serializer.toJson<String>(deliveryNotePrefix),
+      'purchaseOrderPrefix': serializer.toJson<String>(purchaseOrderPrefix),
       'numberingStyle': serializer.toJson<int>(numberingStyle),
       'invoiceSequencePadding': serializer.toJson<int>(invoiceSequencePadding),
       'sequenceFy': serializer.toJson<int?>(sequenceFy),
@@ -1790,6 +1856,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
       'creditNoteSequence': serializer.toJson<int>(creditNoteSequence),
       'debitNoteSequence': serializer.toJson<int>(debitNoteSequence),
       'deliveryNoteSequence': serializer.toJson<int>(deliveryNoteSequence),
+      'purchaseOrderSequence': serializer.toJson<int>(purchaseOrderSequence),
       'invoiceTerms': serializer.toJson<String?>(invoiceTerms),
       'invoiceNotes': serializer.toJson<String?>(invoiceNotes),
       'signatureName': serializer.toJson<String?>(signatureName),
@@ -1835,6 +1902,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
     String? creditNotePrefix,
     String? debitNotePrefix,
     String? deliveryNotePrefix,
+    String? purchaseOrderPrefix,
     int? numberingStyle,
     int? invoiceSequencePadding,
     Value<int?> sequenceFy = const Value.absent(),
@@ -1848,6 +1916,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
     int? creditNoteSequence,
     int? debitNoteSequence,
     int? deliveryNoteSequence,
+    int? purchaseOrderSequence,
     Value<String?> invoiceTerms = const Value.absent(),
     Value<String?> invoiceNotes = const Value.absent(),
     Value<String?> signatureName = const Value.absent(),
@@ -1890,6 +1959,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
     creditNotePrefix: creditNotePrefix ?? this.creditNotePrefix,
     debitNotePrefix: debitNotePrefix ?? this.debitNotePrefix,
     deliveryNotePrefix: deliveryNotePrefix ?? this.deliveryNotePrefix,
+    purchaseOrderPrefix: purchaseOrderPrefix ?? this.purchaseOrderPrefix,
     numberingStyle: numberingStyle ?? this.numberingStyle,
     invoiceSequencePadding:
         invoiceSequencePadding ?? this.invoiceSequencePadding,
@@ -1904,6 +1974,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
     creditNoteSequence: creditNoteSequence ?? this.creditNoteSequence,
     debitNoteSequence: debitNoteSequence ?? this.debitNoteSequence,
     deliveryNoteSequence: deliveryNoteSequence ?? this.deliveryNoteSequence,
+    purchaseOrderSequence: purchaseOrderSequence ?? this.purchaseOrderSequence,
     invoiceTerms: invoiceTerms.present ? invoiceTerms.value : this.invoiceTerms,
     invoiceNotes: invoiceNotes.present ? invoiceNotes.value : this.invoiceNotes,
     signatureName: signatureName.present
@@ -1984,6 +2055,9 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
       deliveryNotePrefix: data.deliveryNotePrefix.present
           ? data.deliveryNotePrefix.value
           : this.deliveryNotePrefix,
+      purchaseOrderPrefix: data.purchaseOrderPrefix.present
+          ? data.purchaseOrderPrefix.value
+          : this.purchaseOrderPrefix,
       numberingStyle: data.numberingStyle.present
           ? data.numberingStyle.value
           : this.numberingStyle,
@@ -2023,6 +2097,9 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
       deliveryNoteSequence: data.deliveryNoteSequence.present
           ? data.deliveryNoteSequence.value
           : this.deliveryNoteSequence,
+      purchaseOrderSequence: data.purchaseOrderSequence.present
+          ? data.purchaseOrderSequence.value
+          : this.purchaseOrderSequence,
       invoiceTerms: data.invoiceTerms.present
           ? data.invoiceTerms.value
           : this.invoiceTerms,
@@ -2088,6 +2165,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
           ..write('creditNotePrefix: $creditNotePrefix, ')
           ..write('debitNotePrefix: $debitNotePrefix, ')
           ..write('deliveryNotePrefix: $deliveryNotePrefix, ')
+          ..write('purchaseOrderPrefix: $purchaseOrderPrefix, ')
           ..write('numberingStyle: $numberingStyle, ')
           ..write('invoiceSequencePadding: $invoiceSequencePadding, ')
           ..write('sequenceFy: $sequenceFy, ')
@@ -2101,6 +2179,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
           ..write('creditNoteSequence: $creditNoteSequence, ')
           ..write('debitNoteSequence: $debitNoteSequence, ')
           ..write('deliveryNoteSequence: $deliveryNoteSequence, ')
+          ..write('purchaseOrderSequence: $purchaseOrderSequence, ')
           ..write('invoiceTerms: $invoiceTerms, ')
           ..write('invoiceNotes: $invoiceNotes, ')
           ..write('signatureName: $signatureName, ')
@@ -2148,6 +2227,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
     creditNotePrefix,
     debitNotePrefix,
     deliveryNotePrefix,
+    purchaseOrderPrefix,
     numberingStyle,
     invoiceSequencePadding,
     sequenceFy,
@@ -2161,6 +2241,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
     creditNoteSequence,
     debitNoteSequence,
     deliveryNoteSequence,
+    purchaseOrderSequence,
     invoiceTerms,
     invoiceNotes,
     signatureName,
@@ -2207,6 +2288,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
           other.creditNotePrefix == this.creditNotePrefix &&
           other.debitNotePrefix == this.debitNotePrefix &&
           other.deliveryNotePrefix == this.deliveryNotePrefix &&
+          other.purchaseOrderPrefix == this.purchaseOrderPrefix &&
           other.numberingStyle == this.numberingStyle &&
           other.invoiceSequencePadding == this.invoiceSequencePadding &&
           other.sequenceFy == this.sequenceFy &&
@@ -2220,6 +2302,7 @@ class FirmEntity extends DataClass implements Insertable<FirmEntity> {
           other.creditNoteSequence == this.creditNoteSequence &&
           other.debitNoteSequence == this.debitNoteSequence &&
           other.deliveryNoteSequence == this.deliveryNoteSequence &&
+          other.purchaseOrderSequence == this.purchaseOrderSequence &&
           other.invoiceTerms == this.invoiceTerms &&
           other.invoiceNotes == this.invoiceNotes &&
           other.signatureName == this.signatureName &&
@@ -2264,6 +2347,7 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
   final Value<String> creditNotePrefix;
   final Value<String> debitNotePrefix;
   final Value<String> deliveryNotePrefix;
+  final Value<String> purchaseOrderPrefix;
   final Value<int> numberingStyle;
   final Value<int> invoiceSequencePadding;
   final Value<int?> sequenceFy;
@@ -2277,6 +2361,7 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
   final Value<int> creditNoteSequence;
   final Value<int> debitNoteSequence;
   final Value<int> deliveryNoteSequence;
+  final Value<int> purchaseOrderSequence;
   final Value<String?> invoiceTerms;
   final Value<String?> invoiceNotes;
   final Value<String?> signatureName;
@@ -2320,6 +2405,7 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
     this.creditNotePrefix = const Value.absent(),
     this.debitNotePrefix = const Value.absent(),
     this.deliveryNotePrefix = const Value.absent(),
+    this.purchaseOrderPrefix = const Value.absent(),
     this.numberingStyle = const Value.absent(),
     this.invoiceSequencePadding = const Value.absent(),
     this.sequenceFy = const Value.absent(),
@@ -2333,6 +2419,7 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
     this.creditNoteSequence = const Value.absent(),
     this.debitNoteSequence = const Value.absent(),
     this.deliveryNoteSequence = const Value.absent(),
+    this.purchaseOrderSequence = const Value.absent(),
     this.invoiceTerms = const Value.absent(),
     this.invoiceNotes = const Value.absent(),
     this.signatureName = const Value.absent(),
@@ -2377,6 +2464,7 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
     this.creditNotePrefix = const Value.absent(),
     this.debitNotePrefix = const Value.absent(),
     this.deliveryNotePrefix = const Value.absent(),
+    this.purchaseOrderPrefix = const Value.absent(),
     this.numberingStyle = const Value.absent(),
     this.invoiceSequencePadding = const Value.absent(),
     this.sequenceFy = const Value.absent(),
@@ -2390,6 +2478,7 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
     this.creditNoteSequence = const Value.absent(),
     this.debitNoteSequence = const Value.absent(),
     this.deliveryNoteSequence = const Value.absent(),
+    this.purchaseOrderSequence = const Value.absent(),
     this.invoiceTerms = const Value.absent(),
     this.invoiceNotes = const Value.absent(),
     this.signatureName = const Value.absent(),
@@ -2435,6 +2524,7 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
     Expression<String>? creditNotePrefix,
     Expression<String>? debitNotePrefix,
     Expression<String>? deliveryNotePrefix,
+    Expression<String>? purchaseOrderPrefix,
     Expression<int>? numberingStyle,
     Expression<int>? invoiceSequencePadding,
     Expression<int>? sequenceFy,
@@ -2448,6 +2538,7 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
     Expression<int>? creditNoteSequence,
     Expression<int>? debitNoteSequence,
     Expression<int>? deliveryNoteSequence,
+    Expression<int>? purchaseOrderSequence,
     Expression<String>? invoiceTerms,
     Expression<String>? invoiceNotes,
     Expression<String>? signatureName,
@@ -2493,6 +2584,8 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
       if (debitNotePrefix != null) 'debit_note_prefix': debitNotePrefix,
       if (deliveryNotePrefix != null)
         'delivery_note_prefix': deliveryNotePrefix,
+      if (purchaseOrderPrefix != null)
+        'purchase_order_prefix': purchaseOrderPrefix,
       if (numberingStyle != null) 'numbering_style': numberingStyle,
       if (invoiceSequencePadding != null)
         'invoice_sequence_padding': invoiceSequencePadding,
@@ -2511,6 +2604,8 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
       if (debitNoteSequence != null) 'debit_note_sequence': debitNoteSequence,
       if (deliveryNoteSequence != null)
         'delivery_note_sequence': deliveryNoteSequence,
+      if (purchaseOrderSequence != null)
+        'purchase_order_sequence': purchaseOrderSequence,
       if (invoiceTerms != null) 'invoice_terms': invoiceTerms,
       if (invoiceNotes != null) 'invoice_notes': invoiceNotes,
       if (signatureName != null) 'signature_name': signatureName,
@@ -2557,6 +2652,7 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
     Value<String>? creditNotePrefix,
     Value<String>? debitNotePrefix,
     Value<String>? deliveryNotePrefix,
+    Value<String>? purchaseOrderPrefix,
     Value<int>? numberingStyle,
     Value<int>? invoiceSequencePadding,
     Value<int?>? sequenceFy,
@@ -2570,6 +2666,7 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
     Value<int>? creditNoteSequence,
     Value<int>? debitNoteSequence,
     Value<int>? deliveryNoteSequence,
+    Value<int>? purchaseOrderSequence,
     Value<String?>? invoiceTerms,
     Value<String?>? invoiceNotes,
     Value<String?>? signatureName,
@@ -2614,6 +2711,7 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
       creditNotePrefix: creditNotePrefix ?? this.creditNotePrefix,
       debitNotePrefix: debitNotePrefix ?? this.debitNotePrefix,
       deliveryNotePrefix: deliveryNotePrefix ?? this.deliveryNotePrefix,
+      purchaseOrderPrefix: purchaseOrderPrefix ?? this.purchaseOrderPrefix,
       numberingStyle: numberingStyle ?? this.numberingStyle,
       invoiceSequencePadding:
           invoiceSequencePadding ?? this.invoiceSequencePadding,
@@ -2628,6 +2726,8 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
       creditNoteSequence: creditNoteSequence ?? this.creditNoteSequence,
       debitNoteSequence: debitNoteSequence ?? this.debitNoteSequence,
       deliveryNoteSequence: deliveryNoteSequence ?? this.deliveryNoteSequence,
+      purchaseOrderSequence:
+          purchaseOrderSequence ?? this.purchaseOrderSequence,
       invoiceTerms: invoiceTerms ?? this.invoiceTerms,
       invoiceNotes: invoiceNotes ?? this.invoiceNotes,
       signatureName: signatureName ?? this.signatureName,
@@ -2728,6 +2828,11 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
     if (deliveryNotePrefix.present) {
       map['delivery_note_prefix'] = Variable<String>(deliveryNotePrefix.value);
     }
+    if (purchaseOrderPrefix.present) {
+      map['purchase_order_prefix'] = Variable<String>(
+        purchaseOrderPrefix.value,
+      );
+    }
     if (numberingStyle.present) {
       map['numbering_style'] = Variable<int>(numberingStyle.value);
     }
@@ -2768,6 +2873,11 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
     }
     if (deliveryNoteSequence.present) {
       map['delivery_note_sequence'] = Variable<int>(deliveryNoteSequence.value);
+    }
+    if (purchaseOrderSequence.present) {
+      map['purchase_order_sequence'] = Variable<int>(
+        purchaseOrderSequence.value,
+      );
     }
     if (invoiceTerms.present) {
       map['invoice_terms'] = Variable<String>(invoiceTerms.value);
@@ -2849,6 +2959,7 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
           ..write('creditNotePrefix: $creditNotePrefix, ')
           ..write('debitNotePrefix: $debitNotePrefix, ')
           ..write('deliveryNotePrefix: $deliveryNotePrefix, ')
+          ..write('purchaseOrderPrefix: $purchaseOrderPrefix, ')
           ..write('numberingStyle: $numberingStyle, ')
           ..write('invoiceSequencePadding: $invoiceSequencePadding, ')
           ..write('sequenceFy: $sequenceFy, ')
@@ -2862,6 +2973,7 @@ class FirmsCompanion extends UpdateCompanion<FirmEntity> {
           ..write('creditNoteSequence: $creditNoteSequence, ')
           ..write('debitNoteSequence: $debitNoteSequence, ')
           ..write('deliveryNoteSequence: $deliveryNoteSequence, ')
+          ..write('purchaseOrderSequence: $purchaseOrderSequence, ')
           ..write('invoiceTerms: $invoiceTerms, ')
           ..write('invoiceNotes: $invoiceNotes, ')
           ..write('signatureName: $signatureName, ')
@@ -7890,6 +8002,18 @@ class $SalesInvoicesTable extends SalesInvoices
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _tcsRateMeta = const VerificationMeta(
+    'tcsRate',
+  );
+  @override
+  late final GeneratedColumn<double> tcsRate = GeneratedColumn<double>(
+    'tcs_rate',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
   static const VerificationMeta _roundOffMeta = const VerificationMeta(
     'roundOff',
   );
@@ -8040,6 +8164,7 @@ class $SalesInvoicesTable extends SalesInvoices
     igst,
     cess,
     tcs,
+    tcsRate,
     roundOff,
     grandTotal,
     notes,
@@ -8305,6 +8430,12 @@ class $SalesInvoicesTable extends SalesInvoices
         tcs.isAcceptableOrUnknown(data['tcs']!, _tcsMeta),
       );
     }
+    if (data.containsKey('tcs_rate')) {
+      context.handle(
+        _tcsRateMeta,
+        tcsRate.isAcceptableOrUnknown(data['tcs_rate']!, _tcsRateMeta),
+      );
+    }
     if (data.containsKey('round_off')) {
       context.handle(
         _roundOffMeta,
@@ -8506,6 +8637,10 @@ class $SalesInvoicesTable extends SalesInvoices
         DriftSqlType.double,
         data['${effectivePrefix}tcs'],
       )!,
+      tcsRate: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}tcs_rate'],
+      )!,
       roundOff: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}round_off'],
@@ -8596,6 +8731,11 @@ class SalesInvoiceEntity extends DataClass
   final double igst;
   final double cess;
   final double tcs;
+
+  /// The TCS percentage the amount was worked out from, so the invoice and the
+  /// return can print "TCS @ 0.1%" rather than an unattributed number. Null (or
+  /// zero) means no tax was collected at source on this document.
+  final double tcsRate;
   final double roundOff;
   final double grandTotal;
   final String? notes;
@@ -8640,6 +8780,7 @@ class SalesInvoiceEntity extends DataClass
     required this.igst,
     required this.cess,
     required this.tcs,
+    required this.tcsRate,
     required this.roundOff,
     required this.grandTotal,
     this.notes,
@@ -8707,6 +8848,7 @@ class SalesInvoiceEntity extends DataClass
     map['igst'] = Variable<double>(igst);
     map['cess'] = Variable<double>(cess);
     map['tcs'] = Variable<double>(tcs);
+    map['tcs_rate'] = Variable<double>(tcsRate);
     map['round_off'] = Variable<double>(roundOff);
     map['grand_total'] = Variable<double>(grandTotal);
     if (!nullToAbsent || notes != null) {
@@ -8783,6 +8925,7 @@ class SalesInvoiceEntity extends DataClass
       igst: Value(igst),
       cess: Value(cess),
       tcs: Value(tcs),
+      tcsRate: Value(tcsRate),
       roundOff: Value(roundOff),
       grandTotal: Value(grandTotal),
       notes: notes == null && nullToAbsent
@@ -8847,6 +8990,7 @@ class SalesInvoiceEntity extends DataClass
       igst: serializer.fromJson<double>(json['igst']),
       cess: serializer.fromJson<double>(json['cess']),
       tcs: serializer.fromJson<double>(json['tcs']),
+      tcsRate: serializer.fromJson<double>(json['tcsRate']),
       roundOff: serializer.fromJson<double>(json['roundOff']),
       grandTotal: serializer.fromJson<double>(json['grandTotal']),
       notes: serializer.fromJson<String?>(json['notes']),
@@ -8898,6 +9042,7 @@ class SalesInvoiceEntity extends DataClass
       'igst': serializer.toJson<double>(igst),
       'cess': serializer.toJson<double>(cess),
       'tcs': serializer.toJson<double>(tcs),
+      'tcsRate': serializer.toJson<double>(tcsRate),
       'roundOff': serializer.toJson<double>(roundOff),
       'grandTotal': serializer.toJson<double>(grandTotal),
       'notes': serializer.toJson<String?>(notes),
@@ -8945,6 +9090,7 @@ class SalesInvoiceEntity extends DataClass
     double? igst,
     double? cess,
     double? tcs,
+    double? tcsRate,
     double? roundOff,
     double? grandTotal,
     Value<String?> notes = const Value.absent(),
@@ -8996,6 +9142,7 @@ class SalesInvoiceEntity extends DataClass
     igst: igst ?? this.igst,
     cess: cess ?? this.cess,
     tcs: tcs ?? this.tcs,
+    tcsRate: tcsRate ?? this.tcsRate,
     roundOff: roundOff ?? this.roundOff,
     grandTotal: grandTotal ?? this.grandTotal,
     notes: notes.present ? notes.value : this.notes,
@@ -9078,6 +9225,7 @@ class SalesInvoiceEntity extends DataClass
       igst: data.igst.present ? data.igst.value : this.igst,
       cess: data.cess.present ? data.cess.value : this.cess,
       tcs: data.tcs.present ? data.tcs.value : this.tcs,
+      tcsRate: data.tcsRate.present ? data.tcsRate.value : this.tcsRate,
       roundOff: data.roundOff.present ? data.roundOff.value : this.roundOff,
       grandTotal: data.grandTotal.present
           ? data.grandTotal.value
@@ -9129,6 +9277,7 @@ class SalesInvoiceEntity extends DataClass
           ..write('igst: $igst, ')
           ..write('cess: $cess, ')
           ..write('tcs: $tcs, ')
+          ..write('tcsRate: $tcsRate, ')
           ..write('roundOff: $roundOff, ')
           ..write('grandTotal: $grandTotal, ')
           ..write('notes: $notes, ')
@@ -9178,6 +9327,7 @@ class SalesInvoiceEntity extends DataClass
     igst,
     cess,
     tcs,
+    tcsRate,
     roundOff,
     grandTotal,
     notes,
@@ -9226,6 +9376,7 @@ class SalesInvoiceEntity extends DataClass
           other.igst == this.igst &&
           other.cess == this.cess &&
           other.tcs == this.tcs &&
+          other.tcsRate == this.tcsRate &&
           other.roundOff == this.roundOff &&
           other.grandTotal == this.grandTotal &&
           other.notes == this.notes &&
@@ -9272,6 +9423,7 @@ class SalesInvoicesCompanion extends UpdateCompanion<SalesInvoiceEntity> {
   final Value<double> igst;
   final Value<double> cess;
   final Value<double> tcs;
+  final Value<double> tcsRate;
   final Value<double> roundOff;
   final Value<double> grandTotal;
   final Value<String?> notes;
@@ -9317,6 +9469,7 @@ class SalesInvoicesCompanion extends UpdateCompanion<SalesInvoiceEntity> {
     this.igst = const Value.absent(),
     this.cess = const Value.absent(),
     this.tcs = const Value.absent(),
+    this.tcsRate = const Value.absent(),
     this.roundOff = const Value.absent(),
     this.grandTotal = const Value.absent(),
     this.notes = const Value.absent(),
@@ -9363,6 +9516,7 @@ class SalesInvoicesCompanion extends UpdateCompanion<SalesInvoiceEntity> {
     this.igst = const Value.absent(),
     this.cess = const Value.absent(),
     this.tcs = const Value.absent(),
+    this.tcsRate = const Value.absent(),
     this.roundOff = const Value.absent(),
     this.grandTotal = const Value.absent(),
     this.notes = const Value.absent(),
@@ -9412,6 +9566,7 @@ class SalesInvoicesCompanion extends UpdateCompanion<SalesInvoiceEntity> {
     Expression<double>? igst,
     Expression<double>? cess,
     Expression<double>? tcs,
+    Expression<double>? tcsRate,
     Expression<double>? roundOff,
     Expression<double>? grandTotal,
     Expression<String>? notes,
@@ -9460,6 +9615,7 @@ class SalesInvoicesCompanion extends UpdateCompanion<SalesInvoiceEntity> {
       if (igst != null) 'igst': igst,
       if (cess != null) 'cess': cess,
       if (tcs != null) 'tcs': tcs,
+      if (tcsRate != null) 'tcs_rate': tcsRate,
       if (roundOff != null) 'round_off': roundOff,
       if (grandTotal != null) 'grand_total': grandTotal,
       if (notes != null) 'notes': notes,
@@ -9508,6 +9664,7 @@ class SalesInvoicesCompanion extends UpdateCompanion<SalesInvoiceEntity> {
     Value<double>? igst,
     Value<double>? cess,
     Value<double>? tcs,
+    Value<double>? tcsRate,
     Value<double>? roundOff,
     Value<double>? grandTotal,
     Value<String?>? notes,
@@ -9556,6 +9713,7 @@ class SalesInvoicesCompanion extends UpdateCompanion<SalesInvoiceEntity> {
       igst: igst ?? this.igst,
       cess: cess ?? this.cess,
       tcs: tcs ?? this.tcs,
+      tcsRate: tcsRate ?? this.tcsRate,
       roundOff: roundOff ?? this.roundOff,
       grandTotal: grandTotal ?? this.grandTotal,
       notes: notes ?? this.notes,
@@ -9676,6 +9834,9 @@ class SalesInvoicesCompanion extends UpdateCompanion<SalesInvoiceEntity> {
     if (tcs.present) {
       map['tcs'] = Variable<double>(tcs.value);
     }
+    if (tcsRate.present) {
+      map['tcs_rate'] = Variable<double>(tcsRate.value);
+    }
     if (roundOff.present) {
       map['round_off'] = Variable<double>(roundOff.value);
     }
@@ -9748,6 +9909,7 @@ class SalesInvoicesCompanion extends UpdateCompanion<SalesInvoiceEntity> {
           ..write('igst: $igst, ')
           ..write('cess: $cess, ')
           ..write('tcs: $tcs, ')
+          ..write('tcsRate: $tcsRate, ')
           ..write('roundOff: $roundOff, ')
           ..write('grandTotal: $grandTotal, ')
           ..write('notes: $notes, ')
@@ -11265,6 +11427,18 @@ class $PurchaseBillsTable extends PurchaseBills
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _tdsRateMeta = const VerificationMeta(
+    'tdsRate',
+  );
+  @override
+  late final GeneratedColumn<double> tdsRate = GeneratedColumn<double>(
+    'tds_rate',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
   static const VerificationMeta _roundOffMeta = const VerificationMeta(
     'roundOff',
   );
@@ -11406,6 +11580,7 @@ class $PurchaseBillsTable extends PurchaseBills
     igst,
     cess,
     tds,
+    tdsRate,
     roundOff,
     grandTotal,
     notes,
@@ -11673,6 +11848,12 @@ class $PurchaseBillsTable extends PurchaseBills
         tds.isAcceptableOrUnknown(data['tds']!, _tdsMeta),
       );
     }
+    if (data.containsKey('tds_rate')) {
+      context.handle(
+        _tdsRateMeta,
+        tdsRate.isAcceptableOrUnknown(data['tds_rate']!, _tdsRateMeta),
+      );
+    }
     if (data.containsKey('round_off')) {
       context.handle(
         _roundOffMeta,
@@ -11868,6 +12049,10 @@ class $PurchaseBillsTable extends PurchaseBills
         DriftSqlType.double,
         data['${effectivePrefix}tds'],
       )!,
+      tdsRate: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}tds_rate'],
+      )!,
       roundOff: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}round_off'],
@@ -11954,6 +12139,11 @@ class PurchaseBillEntity extends DataClass
   final double igst;
   final double cess;
   final double tds;
+
+  /// The TDS percentage the deduction was worked out from, so the bill can
+  /// print "TDS @ 0.1%" and the deduction can be re-derived rather than
+  /// guessed from the amount.
+  final double tdsRate;
   final double roundOff;
   final double grandTotal;
   final String? notes;
@@ -11997,6 +12187,7 @@ class PurchaseBillEntity extends DataClass
     required this.igst,
     required this.cess,
     required this.tds,
+    required this.tdsRate,
     required this.roundOff,
     required this.grandTotal,
     this.notes,
@@ -12063,6 +12254,7 @@ class PurchaseBillEntity extends DataClass
     map['igst'] = Variable<double>(igst);
     map['cess'] = Variable<double>(cess);
     map['tds'] = Variable<double>(tds);
+    map['tds_rate'] = Variable<double>(tdsRate);
     map['round_off'] = Variable<double>(roundOff);
     map['grand_total'] = Variable<double>(grandTotal);
     if (!nullToAbsent || notes != null) {
@@ -12134,6 +12326,7 @@ class PurchaseBillEntity extends DataClass
       igst: Value(igst),
       cess: Value(cess),
       tds: Value(tds),
+      tdsRate: Value(tdsRate),
       roundOff: Value(roundOff),
       grandTotal: Value(grandTotal),
       notes: notes == null && nullToAbsent
@@ -12199,6 +12392,7 @@ class PurchaseBillEntity extends DataClass
       igst: serializer.fromJson<double>(json['igst']),
       cess: serializer.fromJson<double>(json['cess']),
       tds: serializer.fromJson<double>(json['tds']),
+      tdsRate: serializer.fromJson<double>(json['tdsRate']),
       roundOff: serializer.fromJson<double>(json['roundOff']),
       grandTotal: serializer.fromJson<double>(json['grandTotal']),
       notes: serializer.fromJson<String?>(json['notes']),
@@ -12253,6 +12447,7 @@ class PurchaseBillEntity extends DataClass
       'igst': serializer.toJson<double>(igst),
       'cess': serializer.toJson<double>(cess),
       'tds': serializer.toJson<double>(tds),
+      'tdsRate': serializer.toJson<double>(tdsRate),
       'roundOff': serializer.toJson<double>(roundOff),
       'grandTotal': serializer.toJson<double>(grandTotal),
       'notes': serializer.toJson<String?>(notes),
@@ -12299,6 +12494,7 @@ class PurchaseBillEntity extends DataClass
     double? igst,
     double? cess,
     double? tds,
+    double? tdsRate,
     double? roundOff,
     double? grandTotal,
     Value<String?> notes = const Value.absent(),
@@ -12350,6 +12546,7 @@ class PurchaseBillEntity extends DataClass
     igst: igst ?? this.igst,
     cess: cess ?? this.cess,
     tds: tds ?? this.tds,
+    tdsRate: tdsRate ?? this.tdsRate,
     roundOff: roundOff ?? this.roundOff,
     grandTotal: grandTotal ?? this.grandTotal,
     notes: notes.present ? notes.value : this.notes,
@@ -12432,6 +12629,7 @@ class PurchaseBillEntity extends DataClass
       igst: data.igst.present ? data.igst.value : this.igst,
       cess: data.cess.present ? data.cess.value : this.cess,
       tds: data.tds.present ? data.tds.value : this.tds,
+      tdsRate: data.tdsRate.present ? data.tdsRate.value : this.tdsRate,
       roundOff: data.roundOff.present ? data.roundOff.value : this.roundOff,
       grandTotal: data.grandTotal.present
           ? data.grandTotal.value
@@ -12484,6 +12682,7 @@ class PurchaseBillEntity extends DataClass
           ..write('igst: $igst, ')
           ..write('cess: $cess, ')
           ..write('tds: $tds, ')
+          ..write('tdsRate: $tdsRate, ')
           ..write('roundOff: $roundOff, ')
           ..write('grandTotal: $grandTotal, ')
           ..write('notes: $notes, ')
@@ -12532,6 +12731,7 @@ class PurchaseBillEntity extends DataClass
     igst,
     cess,
     tds,
+    tdsRate,
     roundOff,
     grandTotal,
     notes,
@@ -12580,6 +12780,7 @@ class PurchaseBillEntity extends DataClass
           other.igst == this.igst &&
           other.cess == this.cess &&
           other.tds == this.tds &&
+          other.tdsRate == this.tdsRate &&
           other.roundOff == this.roundOff &&
           other.grandTotal == this.grandTotal &&
           other.notes == this.notes &&
@@ -12625,6 +12826,7 @@ class PurchaseBillsCompanion extends UpdateCompanion<PurchaseBillEntity> {
   final Value<double> igst;
   final Value<double> cess;
   final Value<double> tds;
+  final Value<double> tdsRate;
   final Value<double> roundOff;
   final Value<double> grandTotal;
   final Value<String?> notes;
@@ -12669,6 +12871,7 @@ class PurchaseBillsCompanion extends UpdateCompanion<PurchaseBillEntity> {
     this.igst = const Value.absent(),
     this.cess = const Value.absent(),
     this.tds = const Value.absent(),
+    this.tdsRate = const Value.absent(),
     this.roundOff = const Value.absent(),
     this.grandTotal = const Value.absent(),
     this.notes = const Value.absent(),
@@ -12714,6 +12917,7 @@ class PurchaseBillsCompanion extends UpdateCompanion<PurchaseBillEntity> {
     this.igst = const Value.absent(),
     this.cess = const Value.absent(),
     this.tds = const Value.absent(),
+    this.tdsRate = const Value.absent(),
     this.roundOff = const Value.absent(),
     this.grandTotal = const Value.absent(),
     this.notes = const Value.absent(),
@@ -12762,6 +12966,7 @@ class PurchaseBillsCompanion extends UpdateCompanion<PurchaseBillEntity> {
     Expression<double>? igst,
     Expression<double>? cess,
     Expression<double>? tds,
+    Expression<double>? tdsRate,
     Expression<double>? roundOff,
     Expression<double>? grandTotal,
     Expression<String>? notes,
@@ -12811,6 +13016,7 @@ class PurchaseBillsCompanion extends UpdateCompanion<PurchaseBillEntity> {
       if (igst != null) 'igst': igst,
       if (cess != null) 'cess': cess,
       if (tds != null) 'tds': tds,
+      if (tdsRate != null) 'tds_rate': tdsRate,
       if (roundOff != null) 'round_off': roundOff,
       if (grandTotal != null) 'grand_total': grandTotal,
       if (notes != null) 'notes': notes,
@@ -12858,6 +13064,7 @@ class PurchaseBillsCompanion extends UpdateCompanion<PurchaseBillEntity> {
     Value<double>? igst,
     Value<double>? cess,
     Value<double>? tds,
+    Value<double>? tdsRate,
     Value<double>? roundOff,
     Value<double>? grandTotal,
     Value<String?>? notes,
@@ -12907,6 +13114,7 @@ class PurchaseBillsCompanion extends UpdateCompanion<PurchaseBillEntity> {
       igst: igst ?? this.igst,
       cess: cess ?? this.cess,
       tds: tds ?? this.tds,
+      tdsRate: tdsRate ?? this.tdsRate,
       roundOff: roundOff ?? this.roundOff,
       grandTotal: grandTotal ?? this.grandTotal,
       notes: notes ?? this.notes,
@@ -13030,6 +13238,9 @@ class PurchaseBillsCompanion extends UpdateCompanion<PurchaseBillEntity> {
     if (tds.present) {
       map['tds'] = Variable<double>(tds.value);
     }
+    if (tdsRate.present) {
+      map['tds_rate'] = Variable<double>(tdsRate.value);
+    }
     if (roundOff.present) {
       map['round_off'] = Variable<double>(roundOff.value);
     }
@@ -13101,6 +13312,7 @@ class PurchaseBillsCompanion extends UpdateCompanion<PurchaseBillEntity> {
           ..write('igst: $igst, ')
           ..write('cess: $cess, ')
           ..write('tds: $tds, ')
+          ..write('tdsRate: $tdsRate, ')
           ..write('roundOff: $roundOff, ')
           ..write('grandTotal: $grandTotal, ')
           ..write('notes: $notes, ')
@@ -14348,6 +14560,50 @@ class $PaymentsTable extends Payments
         type: DriftSqlType.dateTime,
         requiredDuringInsert: false,
       );
+  static const VerificationMeta _chequeStatusMeta = const VerificationMeta(
+    'chequeStatus',
+  );
+  @override
+  late final GeneratedColumn<String> chequeStatus = GeneratedColumn<String>(
+    'cheque_status',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _depositedAtMeta = const VerificationMeta(
+    'depositedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> depositedAt = GeneratedColumn<DateTime>(
+    'deposited_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _bouncedAtMeta = const VerificationMeta(
+    'bouncedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> bouncedAt = GeneratedColumn<DateTime>(
+    'bounced_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _bounceReasonMeta = const VerificationMeta(
+    'bounceReason',
+  );
+  @override
+  late final GeneratedColumn<String> bounceReason = GeneratedColumn<String>(
+    'bounce_reason',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _linkedInvoiceIdMeta = const VerificationMeta(
     'linkedInvoiceId',
   );
@@ -14465,6 +14721,10 @@ class $PaymentsTable extends Payments
     mode,
     reference,
     clearanceDate,
+    chequeStatus,
+    depositedAt,
+    bouncedAt,
+    bounceReason,
     linkedInvoiceId,
     linkedInvoiceNumber,
     bankAccount,
@@ -14562,6 +14822,39 @@ class $PaymentsTable extends Payments
         clearanceDate.isAcceptableOrUnknown(
           data['clearance_date']!,
           _clearanceDateMeta,
+        ),
+      );
+    }
+    if (data.containsKey('cheque_status')) {
+      context.handle(
+        _chequeStatusMeta,
+        chequeStatus.isAcceptableOrUnknown(
+          data['cheque_status']!,
+          _chequeStatusMeta,
+        ),
+      );
+    }
+    if (data.containsKey('deposited_at')) {
+      context.handle(
+        _depositedAtMeta,
+        depositedAt.isAcceptableOrUnknown(
+          data['deposited_at']!,
+          _depositedAtMeta,
+        ),
+      );
+    }
+    if (data.containsKey('bounced_at')) {
+      context.handle(
+        _bouncedAtMeta,
+        bouncedAt.isAcceptableOrUnknown(data['bounced_at']!, _bouncedAtMeta),
+      );
+    }
+    if (data.containsKey('bounce_reason')) {
+      context.handle(
+        _bounceReasonMeta,
+        bounceReason.isAcceptableOrUnknown(
+          data['bounce_reason']!,
+          _bounceReasonMeta,
         ),
       );
     }
@@ -14681,6 +14974,22 @@ class $PaymentsTable extends Payments
         DriftSqlType.dateTime,
         data['${effectivePrefix}clearance_date'],
       ),
+      chequeStatus: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}cheque_status'],
+      ),
+      depositedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}deposited_at'],
+      ),
+      bouncedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}bounced_at'],
+      ),
+      bounceReason: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}bounce_reason'],
+      ),
       linkedInvoiceId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}linked_invoice_id'],
@@ -14740,6 +15049,22 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
   final String mode;
   final String? reference;
   final DateTime? clearanceDate;
+
+  /// Where a cheque has got to: null for money that is not a cheque, otherwise
+  /// pending | deposited | cleared | bounced.
+  ///
+  /// A lifecycle rather than a boolean because the three states mean different
+  /// things to the books: a cheque in hand is not money (it can bounce), a
+  /// deposited cheque is still not money until the bank clears it, and only a
+  /// cleared one is. The bucket in the payments screen and "cash in hand" both
+  /// read from here.
+  final String? chequeStatus;
+  final DateTime? depositedAt;
+  final DateTime? bouncedAt;
+
+  /// Why the bank returned it, in the operator's own words ("insufficient
+  /// funds", "signature mismatch") — what a follow-up call is about.
+  final String? bounceReason;
   final String? linkedInvoiceId;
   final String? linkedInvoiceNumber;
   final String? bankAccount;
@@ -14761,6 +15086,10 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
     required this.mode,
     this.reference,
     this.clearanceDate,
+    this.chequeStatus,
+    this.depositedAt,
+    this.bouncedAt,
+    this.bounceReason,
     this.linkedInvoiceId,
     this.linkedInvoiceNumber,
     this.bankAccount,
@@ -14792,6 +15121,18 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
     }
     if (!nullToAbsent || clearanceDate != null) {
       map['clearance_date'] = Variable<DateTime>(clearanceDate);
+    }
+    if (!nullToAbsent || chequeStatus != null) {
+      map['cheque_status'] = Variable<String>(chequeStatus);
+    }
+    if (!nullToAbsent || depositedAt != null) {
+      map['deposited_at'] = Variable<DateTime>(depositedAt);
+    }
+    if (!nullToAbsent || bouncedAt != null) {
+      map['bounced_at'] = Variable<DateTime>(bouncedAt);
+    }
+    if (!nullToAbsent || bounceReason != null) {
+      map['bounce_reason'] = Variable<String>(bounceReason);
     }
     if (!nullToAbsent || linkedInvoiceId != null) {
       map['linked_invoice_id'] = Variable<String>(linkedInvoiceId);
@@ -14836,6 +15177,18 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
       clearanceDate: clearanceDate == null && nullToAbsent
           ? const Value.absent()
           : Value(clearanceDate),
+      chequeStatus: chequeStatus == null && nullToAbsent
+          ? const Value.absent()
+          : Value(chequeStatus),
+      depositedAt: depositedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(depositedAt),
+      bouncedAt: bouncedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(bouncedAt),
+      bounceReason: bounceReason == null && nullToAbsent
+          ? const Value.absent()
+          : Value(bounceReason),
       linkedInvoiceId: linkedInvoiceId == null && nullToAbsent
           ? const Value.absent()
           : Value(linkedInvoiceId),
@@ -14875,6 +15228,10 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
       mode: serializer.fromJson<String>(json['mode']),
       reference: serializer.fromJson<String?>(json['reference']),
       clearanceDate: serializer.fromJson<DateTime?>(json['clearanceDate']),
+      chequeStatus: serializer.fromJson<String?>(json['chequeStatus']),
+      depositedAt: serializer.fromJson<DateTime?>(json['depositedAt']),
+      bouncedAt: serializer.fromJson<DateTime?>(json['bouncedAt']),
+      bounceReason: serializer.fromJson<String?>(json['bounceReason']),
       linkedInvoiceId: serializer.fromJson<String?>(json['linkedInvoiceId']),
       linkedInvoiceNumber: serializer.fromJson<String?>(
         json['linkedInvoiceNumber'],
@@ -14903,6 +15260,10 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
       'mode': serializer.toJson<String>(mode),
       'reference': serializer.toJson<String?>(reference),
       'clearanceDate': serializer.toJson<DateTime?>(clearanceDate),
+      'chequeStatus': serializer.toJson<String?>(chequeStatus),
+      'depositedAt': serializer.toJson<DateTime?>(depositedAt),
+      'bouncedAt': serializer.toJson<DateTime?>(bouncedAt),
+      'bounceReason': serializer.toJson<String?>(bounceReason),
       'linkedInvoiceId': serializer.toJson<String?>(linkedInvoiceId),
       'linkedInvoiceNumber': serializer.toJson<String?>(linkedInvoiceNumber),
       'bankAccount': serializer.toJson<String?>(bankAccount),
@@ -14927,6 +15288,10 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
     String? mode,
     Value<String?> reference = const Value.absent(),
     Value<DateTime?> clearanceDate = const Value.absent(),
+    Value<String?> chequeStatus = const Value.absent(),
+    Value<DateTime?> depositedAt = const Value.absent(),
+    Value<DateTime?> bouncedAt = const Value.absent(),
+    Value<String?> bounceReason = const Value.absent(),
     Value<String?> linkedInvoiceId = const Value.absent(),
     Value<String?> linkedInvoiceNumber = const Value.absent(),
     Value<String?> bankAccount = const Value.absent(),
@@ -14950,6 +15315,10 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
     clearanceDate: clearanceDate.present
         ? clearanceDate.value
         : this.clearanceDate,
+    chequeStatus: chequeStatus.present ? chequeStatus.value : this.chequeStatus,
+    depositedAt: depositedAt.present ? depositedAt.value : this.depositedAt,
+    bouncedAt: bouncedAt.present ? bouncedAt.value : this.bouncedAt,
+    bounceReason: bounceReason.present ? bounceReason.value : this.bounceReason,
     linkedInvoiceId: linkedInvoiceId.present
         ? linkedInvoiceId.value
         : this.linkedInvoiceId,
@@ -14979,6 +15348,16 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
       clearanceDate: data.clearanceDate.present
           ? data.clearanceDate.value
           : this.clearanceDate,
+      chequeStatus: data.chequeStatus.present
+          ? data.chequeStatus.value
+          : this.chequeStatus,
+      depositedAt: data.depositedAt.present
+          ? data.depositedAt.value
+          : this.depositedAt,
+      bouncedAt: data.bouncedAt.present ? data.bouncedAt.value : this.bouncedAt,
+      bounceReason: data.bounceReason.present
+          ? data.bounceReason.value
+          : this.bounceReason,
       linkedInvoiceId: data.linkedInvoiceId.present
           ? data.linkedInvoiceId.value
           : this.linkedInvoiceId,
@@ -15011,6 +15390,10 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
           ..write('mode: $mode, ')
           ..write('reference: $reference, ')
           ..write('clearanceDate: $clearanceDate, ')
+          ..write('chequeStatus: $chequeStatus, ')
+          ..write('depositedAt: $depositedAt, ')
+          ..write('bouncedAt: $bouncedAt, ')
+          ..write('bounceReason: $bounceReason, ')
           ..write('linkedInvoiceId: $linkedInvoiceId, ')
           ..write('linkedInvoiceNumber: $linkedInvoiceNumber, ')
           ..write('bankAccount: $bankAccount, ')
@@ -15025,7 +15408,7 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
   }
 
   @override
-  int get hashCode => Object.hash(
+  int get hashCode => Object.hashAll([
     id,
     firmId,
     type,
@@ -15037,6 +15420,10 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
     mode,
     reference,
     clearanceDate,
+    chequeStatus,
+    depositedAt,
+    bouncedAt,
+    bounceReason,
     linkedInvoiceId,
     linkedInvoiceNumber,
     bankAccount,
@@ -15046,7 +15433,7 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
     isDeleted,
     deletedAt,
     sequence,
-  );
+  ]);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -15062,6 +15449,10 @@ class PaymentEntity extends DataClass implements Insertable<PaymentEntity> {
           other.mode == this.mode &&
           other.reference == this.reference &&
           other.clearanceDate == this.clearanceDate &&
+          other.chequeStatus == this.chequeStatus &&
+          other.depositedAt == this.depositedAt &&
+          other.bouncedAt == this.bouncedAt &&
+          other.bounceReason == this.bounceReason &&
           other.linkedInvoiceId == this.linkedInvoiceId &&
           other.linkedInvoiceNumber == this.linkedInvoiceNumber &&
           other.bankAccount == this.bankAccount &&
@@ -15085,6 +15476,10 @@ class PaymentsCompanion extends UpdateCompanion<PaymentEntity> {
   final Value<String> mode;
   final Value<String?> reference;
   final Value<DateTime?> clearanceDate;
+  final Value<String?> chequeStatus;
+  final Value<DateTime?> depositedAt;
+  final Value<DateTime?> bouncedAt;
+  final Value<String?> bounceReason;
   final Value<String?> linkedInvoiceId;
   final Value<String?> linkedInvoiceNumber;
   final Value<String?> bankAccount;
@@ -15107,6 +15502,10 @@ class PaymentsCompanion extends UpdateCompanion<PaymentEntity> {
     this.mode = const Value.absent(),
     this.reference = const Value.absent(),
     this.clearanceDate = const Value.absent(),
+    this.chequeStatus = const Value.absent(),
+    this.depositedAt = const Value.absent(),
+    this.bouncedAt = const Value.absent(),
+    this.bounceReason = const Value.absent(),
     this.linkedInvoiceId = const Value.absent(),
     this.linkedInvoiceNumber = const Value.absent(),
     this.bankAccount = const Value.absent(),
@@ -15130,6 +15529,10 @@ class PaymentsCompanion extends UpdateCompanion<PaymentEntity> {
     this.mode = const Value.absent(),
     this.reference = const Value.absent(),
     this.clearanceDate = const Value.absent(),
+    this.chequeStatus = const Value.absent(),
+    this.depositedAt = const Value.absent(),
+    this.bouncedAt = const Value.absent(),
+    this.bounceReason = const Value.absent(),
     this.linkedInvoiceId = const Value.absent(),
     this.linkedInvoiceNumber = const Value.absent(),
     this.bankAccount = const Value.absent(),
@@ -15158,6 +15561,10 @@ class PaymentsCompanion extends UpdateCompanion<PaymentEntity> {
     Expression<String>? mode,
     Expression<String>? reference,
     Expression<DateTime>? clearanceDate,
+    Expression<String>? chequeStatus,
+    Expression<DateTime>? depositedAt,
+    Expression<DateTime>? bouncedAt,
+    Expression<String>? bounceReason,
     Expression<String>? linkedInvoiceId,
     Expression<String>? linkedInvoiceNumber,
     Expression<String>? bankAccount,
@@ -15181,6 +15588,10 @@ class PaymentsCompanion extends UpdateCompanion<PaymentEntity> {
       if (mode != null) 'mode': mode,
       if (reference != null) 'reference': reference,
       if (clearanceDate != null) 'clearance_date': clearanceDate,
+      if (chequeStatus != null) 'cheque_status': chequeStatus,
+      if (depositedAt != null) 'deposited_at': depositedAt,
+      if (bouncedAt != null) 'bounced_at': bouncedAt,
+      if (bounceReason != null) 'bounce_reason': bounceReason,
       if (linkedInvoiceId != null) 'linked_invoice_id': linkedInvoiceId,
       if (linkedInvoiceNumber != null)
         'linked_invoice_number': linkedInvoiceNumber,
@@ -15207,6 +15618,10 @@ class PaymentsCompanion extends UpdateCompanion<PaymentEntity> {
     Value<String>? mode,
     Value<String?>? reference,
     Value<DateTime?>? clearanceDate,
+    Value<String?>? chequeStatus,
+    Value<DateTime?>? depositedAt,
+    Value<DateTime?>? bouncedAt,
+    Value<String?>? bounceReason,
     Value<String?>? linkedInvoiceId,
     Value<String?>? linkedInvoiceNumber,
     Value<String?>? bankAccount,
@@ -15230,6 +15645,10 @@ class PaymentsCompanion extends UpdateCompanion<PaymentEntity> {
       mode: mode ?? this.mode,
       reference: reference ?? this.reference,
       clearanceDate: clearanceDate ?? this.clearanceDate,
+      chequeStatus: chequeStatus ?? this.chequeStatus,
+      depositedAt: depositedAt ?? this.depositedAt,
+      bouncedAt: bouncedAt ?? this.bouncedAt,
+      bounceReason: bounceReason ?? this.bounceReason,
       linkedInvoiceId: linkedInvoiceId ?? this.linkedInvoiceId,
       linkedInvoiceNumber: linkedInvoiceNumber ?? this.linkedInvoiceNumber,
       bankAccount: bankAccount ?? this.bankAccount,
@@ -15278,6 +15697,18 @@ class PaymentsCompanion extends UpdateCompanion<PaymentEntity> {
     }
     if (clearanceDate.present) {
       map['clearance_date'] = Variable<DateTime>(clearanceDate.value);
+    }
+    if (chequeStatus.present) {
+      map['cheque_status'] = Variable<String>(chequeStatus.value);
+    }
+    if (depositedAt.present) {
+      map['deposited_at'] = Variable<DateTime>(depositedAt.value);
+    }
+    if (bouncedAt.present) {
+      map['bounced_at'] = Variable<DateTime>(bouncedAt.value);
+    }
+    if (bounceReason.present) {
+      map['bounce_reason'] = Variable<String>(bounceReason.value);
     }
     if (linkedInvoiceId.present) {
       map['linked_invoice_id'] = Variable<String>(linkedInvoiceId.value);
@@ -15328,6 +15759,10 @@ class PaymentsCompanion extends UpdateCompanion<PaymentEntity> {
           ..write('mode: $mode, ')
           ..write('reference: $reference, ')
           ..write('clearanceDate: $clearanceDate, ')
+          ..write('chequeStatus: $chequeStatus, ')
+          ..write('depositedAt: $depositedAt, ')
+          ..write('bouncedAt: $bouncedAt, ')
+          ..write('bounceReason: $bounceReason, ')
           ..write('linkedInvoiceId: $linkedInvoiceId, ')
           ..write('linkedInvoiceNumber: $linkedInvoiceNumber, ')
           ..write('bankAccount: $bankAccount, ')
@@ -17753,6 +18188,1941 @@ class AuditLogsCompanion extends UpdateCompanion<AuditLogEntity> {
   }
 }
 
+class $AccountsTable extends Accounts
+    with TableInfo<$AccountsTable, AccountEntity> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $AccountsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _firmIdMeta = const VerificationMeta('firmId');
+  @override
+  late final GeneratedColumn<String> firmId = GeneratedColumn<String>(
+    'firm_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL REFERENCES firms(id) ON DELETE CASCADE',
+  );
+  static const VerificationMeta _codeMeta = const VerificationMeta('code');
+  @override
+  late final GeneratedColumn<String> code = GeneratedColumn<String>(
+    'code',
+    aliasedName,
+    false,
+    additionalChecks: GeneratedColumn.checkTextLength(
+      minTextLength: 1,
+      maxTextLength: 12,
+    ),
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    additionalChecks: GeneratedColumn.checkTextLength(
+      minTextLength: 1,
+      maxTextLength: 120,
+    ),
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _typeMeta = const VerificationMeta('type');
+  @override
+  late final GeneratedColumn<String> type = GeneratedColumn<String>(
+    'type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _groupNameMeta = const VerificationMeta(
+    'groupName',
+  );
+  @override
+  late final GeneratedColumn<String> groupName = GeneratedColumn<String>(
+    'group_name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _isSystemMeta = const VerificationMeta(
+    'isSystem',
+  );
+  @override
+  late final GeneratedColumn<bool> isSystem = GeneratedColumn<bool>(
+    'is_system',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_system" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _isActiveMeta = const VerificationMeta(
+    'isActive',
+  );
+  @override
+  late final GeneratedColumn<bool> isActive = GeneratedColumn<bool>(
+    'is_active',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_active" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _openingBalanceMeta = const VerificationMeta(
+    'openingBalance',
+  );
+  @override
+  late final GeneratedColumn<double> openingBalance = GeneratedColumn<double>(
+    'opening_balance',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _openingTypeMeta = const VerificationMeta(
+    'openingType',
+  );
+  @override
+  late final GeneratedColumn<String> openingType = GeneratedColumn<String>(
+    'opening_type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('dr'),
+  );
+  static const VerificationMeta _descriptionMeta = const VerificationMeta(
+    'description',
+  );
+  @override
+  late final GeneratedColumn<String> description = GeneratedColumn<String>(
+    'description',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    firmId,
+    code,
+    name,
+    type,
+    groupName,
+    isSystem,
+    isActive,
+    openingBalance,
+    openingType,
+    description,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'accounts';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<AccountEntity> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('firm_id')) {
+      context.handle(
+        _firmIdMeta,
+        firmId.isAcceptableOrUnknown(data['firm_id']!, _firmIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_firmIdMeta);
+    }
+    if (data.containsKey('code')) {
+      context.handle(
+        _codeMeta,
+        code.isAcceptableOrUnknown(data['code']!, _codeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_codeMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('type')) {
+      context.handle(
+        _typeMeta,
+        type.isAcceptableOrUnknown(data['type']!, _typeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_typeMeta);
+    }
+    if (data.containsKey('group_name')) {
+      context.handle(
+        _groupNameMeta,
+        groupName.isAcceptableOrUnknown(data['group_name']!, _groupNameMeta),
+      );
+    }
+    if (data.containsKey('is_system')) {
+      context.handle(
+        _isSystemMeta,
+        isSystem.isAcceptableOrUnknown(data['is_system']!, _isSystemMeta),
+      );
+    }
+    if (data.containsKey('is_active')) {
+      context.handle(
+        _isActiveMeta,
+        isActive.isAcceptableOrUnknown(data['is_active']!, _isActiveMeta),
+      );
+    }
+    if (data.containsKey('opening_balance')) {
+      context.handle(
+        _openingBalanceMeta,
+        openingBalance.isAcceptableOrUnknown(
+          data['opening_balance']!,
+          _openingBalanceMeta,
+        ),
+      );
+    }
+    if (data.containsKey('opening_type')) {
+      context.handle(
+        _openingTypeMeta,
+        openingType.isAcceptableOrUnknown(
+          data['opening_type']!,
+          _openingTypeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('description')) {
+      context.handle(
+        _descriptionMeta,
+        description.isAcceptableOrUnknown(
+          data['description']!,
+          _descriptionMeta,
+        ),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  AccountEntity map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return AccountEntity(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      firmId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}firm_id'],
+      )!,
+      code: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}code'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      type: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}type'],
+      )!,
+      groupName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}group_name'],
+      )!,
+      isSystem: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_system'],
+      )!,
+      isActive: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_active'],
+      )!,
+      openingBalance: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}opening_balance'],
+      )!,
+      openingType: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}opening_type'],
+      )!,
+      description: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}description'],
+      ),
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $AccountsTable createAlias(String alias) {
+    return $AccountsTable(attachedDatabase, alias);
+  }
+}
+
+class AccountEntity extends DataClass implements Insertable<AccountEntity> {
+  final String id;
+  final String firmId;
+  final String code;
+  final String name;
+
+  /// asset | liability | equity | income | expense. The five that decide which
+  /// half of the balance sheet an account lands on and which way a debit moves
+  /// it — everything else about an account is presentation.
+  final String type;
+
+  /// The sub-group a report prints under ("Cash & bank", "Sundry debtors",
+  /// "Duties & taxes", …). Free text because Indian charts differ by trade, and
+  /// a fixed enum would be wrong for somebody's books.
+  final String groupName;
+
+  /// A seeded account. System accounts are what the document side of the ledger
+  /// posts into, so deleting one would silently orphan every invoice already
+  /// written; the UI refuses instead (see LedgerRepository.deleteAccount).
+  final bool isSystem;
+
+  /// Retired accounts stay in the chart for the entries that already reference
+  /// them, and stop being offered on new ones.
+  final bool isActive;
+
+  /// Opening balance, with the side it sits on.
+  final double openingBalance;
+  final String openingType;
+  final String? description;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  const AccountEntity({
+    required this.id,
+    required this.firmId,
+    required this.code,
+    required this.name,
+    required this.type,
+    required this.groupName,
+    required this.isSystem,
+    required this.isActive,
+    required this.openingBalance,
+    required this.openingType,
+    this.description,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['firm_id'] = Variable<String>(firmId);
+    map['code'] = Variable<String>(code);
+    map['name'] = Variable<String>(name);
+    map['type'] = Variable<String>(type);
+    map['group_name'] = Variable<String>(groupName);
+    map['is_system'] = Variable<bool>(isSystem);
+    map['is_active'] = Variable<bool>(isActive);
+    map['opening_balance'] = Variable<double>(openingBalance);
+    map['opening_type'] = Variable<String>(openingType);
+    if (!nullToAbsent || description != null) {
+      map['description'] = Variable<String>(description);
+    }
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  AccountsCompanion toCompanion(bool nullToAbsent) {
+    return AccountsCompanion(
+      id: Value(id),
+      firmId: Value(firmId),
+      code: Value(code),
+      name: Value(name),
+      type: Value(type),
+      groupName: Value(groupName),
+      isSystem: Value(isSystem),
+      isActive: Value(isActive),
+      openingBalance: Value(openingBalance),
+      openingType: Value(openingType),
+      description: description == null && nullToAbsent
+          ? const Value.absent()
+          : Value(description),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory AccountEntity.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return AccountEntity(
+      id: serializer.fromJson<String>(json['id']),
+      firmId: serializer.fromJson<String>(json['firmId']),
+      code: serializer.fromJson<String>(json['code']),
+      name: serializer.fromJson<String>(json['name']),
+      type: serializer.fromJson<String>(json['type']),
+      groupName: serializer.fromJson<String>(json['groupName']),
+      isSystem: serializer.fromJson<bool>(json['isSystem']),
+      isActive: serializer.fromJson<bool>(json['isActive']),
+      openingBalance: serializer.fromJson<double>(json['openingBalance']),
+      openingType: serializer.fromJson<String>(json['openingType']),
+      description: serializer.fromJson<String?>(json['description']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'firmId': serializer.toJson<String>(firmId),
+      'code': serializer.toJson<String>(code),
+      'name': serializer.toJson<String>(name),
+      'type': serializer.toJson<String>(type),
+      'groupName': serializer.toJson<String>(groupName),
+      'isSystem': serializer.toJson<bool>(isSystem),
+      'isActive': serializer.toJson<bool>(isActive),
+      'openingBalance': serializer.toJson<double>(openingBalance),
+      'openingType': serializer.toJson<String>(openingType),
+      'description': serializer.toJson<String?>(description),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  AccountEntity copyWith({
+    String? id,
+    String? firmId,
+    String? code,
+    String? name,
+    String? type,
+    String? groupName,
+    bool? isSystem,
+    bool? isActive,
+    double? openingBalance,
+    String? openingType,
+    Value<String?> description = const Value.absent(),
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) => AccountEntity(
+    id: id ?? this.id,
+    firmId: firmId ?? this.firmId,
+    code: code ?? this.code,
+    name: name ?? this.name,
+    type: type ?? this.type,
+    groupName: groupName ?? this.groupName,
+    isSystem: isSystem ?? this.isSystem,
+    isActive: isActive ?? this.isActive,
+    openingBalance: openingBalance ?? this.openingBalance,
+    openingType: openingType ?? this.openingType,
+    description: description.present ? description.value : this.description,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  AccountEntity copyWithCompanion(AccountsCompanion data) {
+    return AccountEntity(
+      id: data.id.present ? data.id.value : this.id,
+      firmId: data.firmId.present ? data.firmId.value : this.firmId,
+      code: data.code.present ? data.code.value : this.code,
+      name: data.name.present ? data.name.value : this.name,
+      type: data.type.present ? data.type.value : this.type,
+      groupName: data.groupName.present ? data.groupName.value : this.groupName,
+      isSystem: data.isSystem.present ? data.isSystem.value : this.isSystem,
+      isActive: data.isActive.present ? data.isActive.value : this.isActive,
+      openingBalance: data.openingBalance.present
+          ? data.openingBalance.value
+          : this.openingBalance,
+      openingType: data.openingType.present
+          ? data.openingType.value
+          : this.openingType,
+      description: data.description.present
+          ? data.description.value
+          : this.description,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('AccountEntity(')
+          ..write('id: $id, ')
+          ..write('firmId: $firmId, ')
+          ..write('code: $code, ')
+          ..write('name: $name, ')
+          ..write('type: $type, ')
+          ..write('groupName: $groupName, ')
+          ..write('isSystem: $isSystem, ')
+          ..write('isActive: $isActive, ')
+          ..write('openingBalance: $openingBalance, ')
+          ..write('openingType: $openingType, ')
+          ..write('description: $description, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    firmId,
+    code,
+    name,
+    type,
+    groupName,
+    isSystem,
+    isActive,
+    openingBalance,
+    openingType,
+    description,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is AccountEntity &&
+          other.id == this.id &&
+          other.firmId == this.firmId &&
+          other.code == this.code &&
+          other.name == this.name &&
+          other.type == this.type &&
+          other.groupName == this.groupName &&
+          other.isSystem == this.isSystem &&
+          other.isActive == this.isActive &&
+          other.openingBalance == this.openingBalance &&
+          other.openingType == this.openingType &&
+          other.description == this.description &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class AccountsCompanion extends UpdateCompanion<AccountEntity> {
+  final Value<String> id;
+  final Value<String> firmId;
+  final Value<String> code;
+  final Value<String> name;
+  final Value<String> type;
+  final Value<String> groupName;
+  final Value<bool> isSystem;
+  final Value<bool> isActive;
+  final Value<double> openingBalance;
+  final Value<String> openingType;
+  final Value<String?> description;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const AccountsCompanion({
+    this.id = const Value.absent(),
+    this.firmId = const Value.absent(),
+    this.code = const Value.absent(),
+    this.name = const Value.absent(),
+    this.type = const Value.absent(),
+    this.groupName = const Value.absent(),
+    this.isSystem = const Value.absent(),
+    this.isActive = const Value.absent(),
+    this.openingBalance = const Value.absent(),
+    this.openingType = const Value.absent(),
+    this.description = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  AccountsCompanion.insert({
+    required String id,
+    required String firmId,
+    required String code,
+    required String name,
+    required String type,
+    this.groupName = const Value.absent(),
+    this.isSystem = const Value.absent(),
+    this.isActive = const Value.absent(),
+    this.openingBalance = const Value.absent(),
+    this.openingType = const Value.absent(),
+    this.description = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       firmId = Value(firmId),
+       code = Value(code),
+       name = Value(name),
+       type = Value(type);
+  static Insertable<AccountEntity> custom({
+    Expression<String>? id,
+    Expression<String>? firmId,
+    Expression<String>? code,
+    Expression<String>? name,
+    Expression<String>? type,
+    Expression<String>? groupName,
+    Expression<bool>? isSystem,
+    Expression<bool>? isActive,
+    Expression<double>? openingBalance,
+    Expression<String>? openingType,
+    Expression<String>? description,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (firmId != null) 'firm_id': firmId,
+      if (code != null) 'code': code,
+      if (name != null) 'name': name,
+      if (type != null) 'type': type,
+      if (groupName != null) 'group_name': groupName,
+      if (isSystem != null) 'is_system': isSystem,
+      if (isActive != null) 'is_active': isActive,
+      if (openingBalance != null) 'opening_balance': openingBalance,
+      if (openingType != null) 'opening_type': openingType,
+      if (description != null) 'description': description,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  AccountsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? firmId,
+    Value<String>? code,
+    Value<String>? name,
+    Value<String>? type,
+    Value<String>? groupName,
+    Value<bool>? isSystem,
+    Value<bool>? isActive,
+    Value<double>? openingBalance,
+    Value<String>? openingType,
+    Value<String?>? description,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return AccountsCompanion(
+      id: id ?? this.id,
+      firmId: firmId ?? this.firmId,
+      code: code ?? this.code,
+      name: name ?? this.name,
+      type: type ?? this.type,
+      groupName: groupName ?? this.groupName,
+      isSystem: isSystem ?? this.isSystem,
+      isActive: isActive ?? this.isActive,
+      openingBalance: openingBalance ?? this.openingBalance,
+      openingType: openingType ?? this.openingType,
+      description: description ?? this.description,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (firmId.present) {
+      map['firm_id'] = Variable<String>(firmId.value);
+    }
+    if (code.present) {
+      map['code'] = Variable<String>(code.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (type.present) {
+      map['type'] = Variable<String>(type.value);
+    }
+    if (groupName.present) {
+      map['group_name'] = Variable<String>(groupName.value);
+    }
+    if (isSystem.present) {
+      map['is_system'] = Variable<bool>(isSystem.value);
+    }
+    if (isActive.present) {
+      map['is_active'] = Variable<bool>(isActive.value);
+    }
+    if (openingBalance.present) {
+      map['opening_balance'] = Variable<double>(openingBalance.value);
+    }
+    if (openingType.present) {
+      map['opening_type'] = Variable<String>(openingType.value);
+    }
+    if (description.present) {
+      map['description'] = Variable<String>(description.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('AccountsCompanion(')
+          ..write('id: $id, ')
+          ..write('firmId: $firmId, ')
+          ..write('code: $code, ')
+          ..write('name: $name, ')
+          ..write('type: $type, ')
+          ..write('groupName: $groupName, ')
+          ..write('isSystem: $isSystem, ')
+          ..write('isActive: $isActive, ')
+          ..write('openingBalance: $openingBalance, ')
+          ..write('openingType: $openingType, ')
+          ..write('description: $description, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $JournalEntriesTable extends JournalEntries
+    with TableInfo<$JournalEntriesTable, JournalEntryEntity> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $JournalEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _firmIdMeta = const VerificationMeta('firmId');
+  @override
+  late final GeneratedColumn<String> firmId = GeneratedColumn<String>(
+    'firm_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL REFERENCES firms(id) ON DELETE CASCADE',
+  );
+  static const VerificationMeta _numberMeta = const VerificationMeta('number');
+  @override
+  late final GeneratedColumn<String> number = GeneratedColumn<String>(
+    'number',
+    aliasedName,
+    false,
+    additionalChecks: GeneratedColumn.checkTextLength(
+      minTextLength: 1,
+      maxTextLength: 40,
+    ),
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _dateMeta = const VerificationMeta('date');
+  @override
+  late final GeneratedColumn<DateTime> date = GeneratedColumn<DateTime>(
+    'date',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _narrationMeta = const VerificationMeta(
+    'narration',
+  );
+  @override
+  late final GeneratedColumn<String> narration = GeneratedColumn<String>(
+    'narration',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _referenceMeta = const VerificationMeta(
+    'reference',
+  );
+  @override
+  late final GeneratedColumn<String> reference = GeneratedColumn<String>(
+    'reference',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _createdByMeta = const VerificationMeta(
+    'createdBy',
+  );
+  @override
+  late final GeneratedColumn<String> createdBy = GeneratedColumn<String>(
+    'created_by',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  static const VerificationMeta _isDeletedMeta = const VerificationMeta(
+    'isDeleted',
+  );
+  @override
+  late final GeneratedColumn<bool> isDeleted = GeneratedColumn<bool>(
+    'is_deleted',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_deleted" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _deletedAtMeta = const VerificationMeta(
+    'deletedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> deletedAt = GeneratedColumn<DateTime>(
+    'deleted_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _sequenceMeta = const VerificationMeta(
+    'sequence',
+  );
+  @override
+  late final GeneratedColumn<int> sequence = GeneratedColumn<int>(
+    'sequence',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    firmId,
+    number,
+    date,
+    narration,
+    reference,
+    createdBy,
+    createdAt,
+    updatedAt,
+    isDeleted,
+    deletedAt,
+    sequence,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'journal_entries';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<JournalEntryEntity> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('firm_id')) {
+      context.handle(
+        _firmIdMeta,
+        firmId.isAcceptableOrUnknown(data['firm_id']!, _firmIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_firmIdMeta);
+    }
+    if (data.containsKey('number')) {
+      context.handle(
+        _numberMeta,
+        number.isAcceptableOrUnknown(data['number']!, _numberMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_numberMeta);
+    }
+    if (data.containsKey('date')) {
+      context.handle(
+        _dateMeta,
+        date.isAcceptableOrUnknown(data['date']!, _dateMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_dateMeta);
+    }
+    if (data.containsKey('narration')) {
+      context.handle(
+        _narrationMeta,
+        narration.isAcceptableOrUnknown(data['narration']!, _narrationMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_narrationMeta);
+    }
+    if (data.containsKey('reference')) {
+      context.handle(
+        _referenceMeta,
+        reference.isAcceptableOrUnknown(data['reference']!, _referenceMeta),
+      );
+    }
+    if (data.containsKey('created_by')) {
+      context.handle(
+        _createdByMeta,
+        createdBy.isAcceptableOrUnknown(data['created_by']!, _createdByMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    }
+    if (data.containsKey('is_deleted')) {
+      context.handle(
+        _isDeletedMeta,
+        isDeleted.isAcceptableOrUnknown(data['is_deleted']!, _isDeletedMeta),
+      );
+    }
+    if (data.containsKey('deleted_at')) {
+      context.handle(
+        _deletedAtMeta,
+        deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
+      );
+    }
+    if (data.containsKey('sequence')) {
+      context.handle(
+        _sequenceMeta,
+        sequence.isAcceptableOrUnknown(data['sequence']!, _sequenceMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  JournalEntryEntity map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return JournalEntryEntity(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      firmId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}firm_id'],
+      )!,
+      number: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}number'],
+      )!,
+      date: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}date'],
+      )!,
+      narration: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}narration'],
+      )!,
+      reference: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}reference'],
+      ),
+      createdBy: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_by'],
+      ),
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      isDeleted: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_deleted'],
+      )!,
+      deletedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}deleted_at'],
+      ),
+      sequence: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sequence'],
+      )!,
+    );
+  }
+
+  @override
+  $JournalEntriesTable createAlias(String alias) {
+    return $JournalEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class JournalEntryEntity extends DataClass
+    implements Insertable<JournalEntryEntity> {
+  final String id;
+  final String firmId;
+  final String number;
+  final DateTime date;
+
+  /// What the voucher is for — "Depreciation for September", "Capital
+  /// introduced by the proprietor". Required, because an unexplained journal
+  /// entry is the hardest thing to audit a year later.
+  final String narration;
+  final String? reference;
+  final String? createdBy;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final bool isDeleted;
+  final DateTime? deletedAt;
+  final int sequence;
+  const JournalEntryEntity({
+    required this.id,
+    required this.firmId,
+    required this.number,
+    required this.date,
+    required this.narration,
+    this.reference,
+    this.createdBy,
+    required this.createdAt,
+    required this.updatedAt,
+    required this.isDeleted,
+    this.deletedAt,
+    required this.sequence,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['firm_id'] = Variable<String>(firmId);
+    map['number'] = Variable<String>(number);
+    map['date'] = Variable<DateTime>(date);
+    map['narration'] = Variable<String>(narration);
+    if (!nullToAbsent || reference != null) {
+      map['reference'] = Variable<String>(reference);
+    }
+    if (!nullToAbsent || createdBy != null) {
+      map['created_by'] = Variable<String>(createdBy);
+    }
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    map['is_deleted'] = Variable<bool>(isDeleted);
+    if (!nullToAbsent || deletedAt != null) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt);
+    }
+    map['sequence'] = Variable<int>(sequence);
+    return map;
+  }
+
+  JournalEntriesCompanion toCompanion(bool nullToAbsent) {
+    return JournalEntriesCompanion(
+      id: Value(id),
+      firmId: Value(firmId),
+      number: Value(number),
+      date: Value(date),
+      narration: Value(narration),
+      reference: reference == null && nullToAbsent
+          ? const Value.absent()
+          : Value(reference),
+      createdBy: createdBy == null && nullToAbsent
+          ? const Value.absent()
+          : Value(createdBy),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      isDeleted: Value(isDeleted),
+      deletedAt: deletedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(deletedAt),
+      sequence: Value(sequence),
+    );
+  }
+
+  factory JournalEntryEntity.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return JournalEntryEntity(
+      id: serializer.fromJson<String>(json['id']),
+      firmId: serializer.fromJson<String>(json['firmId']),
+      number: serializer.fromJson<String>(json['number']),
+      date: serializer.fromJson<DateTime>(json['date']),
+      narration: serializer.fromJson<String>(json['narration']),
+      reference: serializer.fromJson<String?>(json['reference']),
+      createdBy: serializer.fromJson<String?>(json['createdBy']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      isDeleted: serializer.fromJson<bool>(json['isDeleted']),
+      deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
+      sequence: serializer.fromJson<int>(json['sequence']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'firmId': serializer.toJson<String>(firmId),
+      'number': serializer.toJson<String>(number),
+      'date': serializer.toJson<DateTime>(date),
+      'narration': serializer.toJson<String>(narration),
+      'reference': serializer.toJson<String?>(reference),
+      'createdBy': serializer.toJson<String?>(createdBy),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'isDeleted': serializer.toJson<bool>(isDeleted),
+      'deletedAt': serializer.toJson<DateTime?>(deletedAt),
+      'sequence': serializer.toJson<int>(sequence),
+    };
+  }
+
+  JournalEntryEntity copyWith({
+    String? id,
+    String? firmId,
+    String? number,
+    DateTime? date,
+    String? narration,
+    Value<String?> reference = const Value.absent(),
+    Value<String?> createdBy = const Value.absent(),
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    bool? isDeleted,
+    Value<DateTime?> deletedAt = const Value.absent(),
+    int? sequence,
+  }) => JournalEntryEntity(
+    id: id ?? this.id,
+    firmId: firmId ?? this.firmId,
+    number: number ?? this.number,
+    date: date ?? this.date,
+    narration: narration ?? this.narration,
+    reference: reference.present ? reference.value : this.reference,
+    createdBy: createdBy.present ? createdBy.value : this.createdBy,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+    isDeleted: isDeleted ?? this.isDeleted,
+    deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    sequence: sequence ?? this.sequence,
+  );
+  JournalEntryEntity copyWithCompanion(JournalEntriesCompanion data) {
+    return JournalEntryEntity(
+      id: data.id.present ? data.id.value : this.id,
+      firmId: data.firmId.present ? data.firmId.value : this.firmId,
+      number: data.number.present ? data.number.value : this.number,
+      date: data.date.present ? data.date.value : this.date,
+      narration: data.narration.present ? data.narration.value : this.narration,
+      reference: data.reference.present ? data.reference.value : this.reference,
+      createdBy: data.createdBy.present ? data.createdBy.value : this.createdBy,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      isDeleted: data.isDeleted.present ? data.isDeleted.value : this.isDeleted,
+      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      sequence: data.sequence.present ? data.sequence.value : this.sequence,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('JournalEntryEntity(')
+          ..write('id: $id, ')
+          ..write('firmId: $firmId, ')
+          ..write('number: $number, ')
+          ..write('date: $date, ')
+          ..write('narration: $narration, ')
+          ..write('reference: $reference, ')
+          ..write('createdBy: $createdBy, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('isDeleted: $isDeleted, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('sequence: $sequence')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    firmId,
+    number,
+    date,
+    narration,
+    reference,
+    createdBy,
+    createdAt,
+    updatedAt,
+    isDeleted,
+    deletedAt,
+    sequence,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is JournalEntryEntity &&
+          other.id == this.id &&
+          other.firmId == this.firmId &&
+          other.number == this.number &&
+          other.date == this.date &&
+          other.narration == this.narration &&
+          other.reference == this.reference &&
+          other.createdBy == this.createdBy &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.isDeleted == this.isDeleted &&
+          other.deletedAt == this.deletedAt &&
+          other.sequence == this.sequence);
+}
+
+class JournalEntriesCompanion extends UpdateCompanion<JournalEntryEntity> {
+  final Value<String> id;
+  final Value<String> firmId;
+  final Value<String> number;
+  final Value<DateTime> date;
+  final Value<String> narration;
+  final Value<String?> reference;
+  final Value<String?> createdBy;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<bool> isDeleted;
+  final Value<DateTime?> deletedAt;
+  final Value<int> sequence;
+  final Value<int> rowid;
+  const JournalEntriesCompanion({
+    this.id = const Value.absent(),
+    this.firmId = const Value.absent(),
+    this.number = const Value.absent(),
+    this.date = const Value.absent(),
+    this.narration = const Value.absent(),
+    this.reference = const Value.absent(),
+    this.createdBy = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.isDeleted = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.sequence = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  JournalEntriesCompanion.insert({
+    required String id,
+    required String firmId,
+    required String number,
+    required DateTime date,
+    required String narration,
+    this.reference = const Value.absent(),
+    this.createdBy = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.isDeleted = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.sequence = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       firmId = Value(firmId),
+       number = Value(number),
+       date = Value(date),
+       narration = Value(narration);
+  static Insertable<JournalEntryEntity> custom({
+    Expression<String>? id,
+    Expression<String>? firmId,
+    Expression<String>? number,
+    Expression<DateTime>? date,
+    Expression<String>? narration,
+    Expression<String>? reference,
+    Expression<String>? createdBy,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<bool>? isDeleted,
+    Expression<DateTime>? deletedAt,
+    Expression<int>? sequence,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (firmId != null) 'firm_id': firmId,
+      if (number != null) 'number': number,
+      if (date != null) 'date': date,
+      if (narration != null) 'narration': narration,
+      if (reference != null) 'reference': reference,
+      if (createdBy != null) 'created_by': createdBy,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (isDeleted != null) 'is_deleted': isDeleted,
+      if (deletedAt != null) 'deleted_at': deletedAt,
+      if (sequence != null) 'sequence': sequence,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  JournalEntriesCompanion copyWith({
+    Value<String>? id,
+    Value<String>? firmId,
+    Value<String>? number,
+    Value<DateTime>? date,
+    Value<String>? narration,
+    Value<String?>? reference,
+    Value<String?>? createdBy,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+    Value<bool>? isDeleted,
+    Value<DateTime?>? deletedAt,
+    Value<int>? sequence,
+    Value<int>? rowid,
+  }) {
+    return JournalEntriesCompanion(
+      id: id ?? this.id,
+      firmId: firmId ?? this.firmId,
+      number: number ?? this.number,
+      date: date ?? this.date,
+      narration: narration ?? this.narration,
+      reference: reference ?? this.reference,
+      createdBy: createdBy ?? this.createdBy,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      isDeleted: isDeleted ?? this.isDeleted,
+      deletedAt: deletedAt ?? this.deletedAt,
+      sequence: sequence ?? this.sequence,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (firmId.present) {
+      map['firm_id'] = Variable<String>(firmId.value);
+    }
+    if (number.present) {
+      map['number'] = Variable<String>(number.value);
+    }
+    if (date.present) {
+      map['date'] = Variable<DateTime>(date.value);
+    }
+    if (narration.present) {
+      map['narration'] = Variable<String>(narration.value);
+    }
+    if (reference.present) {
+      map['reference'] = Variable<String>(reference.value);
+    }
+    if (createdBy.present) {
+      map['created_by'] = Variable<String>(createdBy.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (isDeleted.present) {
+      map['is_deleted'] = Variable<bool>(isDeleted.value);
+    }
+    if (deletedAt.present) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt.value);
+    }
+    if (sequence.present) {
+      map['sequence'] = Variable<int>(sequence.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('JournalEntriesCompanion(')
+          ..write('id: $id, ')
+          ..write('firmId: $firmId, ')
+          ..write('number: $number, ')
+          ..write('date: $date, ')
+          ..write('narration: $narration, ')
+          ..write('reference: $reference, ')
+          ..write('createdBy: $createdBy, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('isDeleted: $isDeleted, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('sequence: $sequence, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $JournalLinesTable extends JournalLines
+    with TableInfo<$JournalLinesTable, JournalLineEntity> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $JournalLinesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _entryIdMeta = const VerificationMeta(
+    'entryId',
+  );
+  @override
+  late final GeneratedColumn<String> entryId = GeneratedColumn<String>(
+    'entry_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    $customConstraints:
+        'NOT NULL REFERENCES journal_entries(id) ON DELETE CASCADE',
+  );
+  static const VerificationMeta _accountIdMeta = const VerificationMeta(
+    'accountId',
+  );
+  @override
+  late final GeneratedColumn<String> accountId = GeneratedColumn<String>(
+    'account_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _debitMeta = const VerificationMeta('debit');
+  @override
+  late final GeneratedColumn<double> debit = GeneratedColumn<double>(
+    'debit',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _creditMeta = const VerificationMeta('credit');
+  @override
+  late final GeneratedColumn<double> credit = GeneratedColumn<double>(
+    'credit',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _narrationMeta = const VerificationMeta(
+    'narration',
+  );
+  @override
+  late final GeneratedColumn<String> narration = GeneratedColumn<String>(
+    'narration',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    entryId,
+    accountId,
+    debit,
+    credit,
+    narration,
+    sortOrder,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'journal_lines';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<JournalLineEntity> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('entry_id')) {
+      context.handle(
+        _entryIdMeta,
+        entryId.isAcceptableOrUnknown(data['entry_id']!, _entryIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_entryIdMeta);
+    }
+    if (data.containsKey('account_id')) {
+      context.handle(
+        _accountIdMeta,
+        accountId.isAcceptableOrUnknown(data['account_id']!, _accountIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_accountIdMeta);
+    }
+    if (data.containsKey('debit')) {
+      context.handle(
+        _debitMeta,
+        debit.isAcceptableOrUnknown(data['debit']!, _debitMeta),
+      );
+    }
+    if (data.containsKey('credit')) {
+      context.handle(
+        _creditMeta,
+        credit.isAcceptableOrUnknown(data['credit']!, _creditMeta),
+      );
+    }
+    if (data.containsKey('narration')) {
+      context.handle(
+        _narrationMeta,
+        narration.isAcceptableOrUnknown(data['narration']!, _narrationMeta),
+      );
+    }
+    if (data.containsKey('sort_order')) {
+      context.handle(
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  JournalLineEntity map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return JournalLineEntity(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      entryId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}entry_id'],
+      )!,
+      accountId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}account_id'],
+      )!,
+      debit: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}debit'],
+      )!,
+      credit: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}credit'],
+      )!,
+      narration: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}narration'],
+      ),
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
+      )!,
+    );
+  }
+
+  @override
+  $JournalLinesTable createAlias(String alias) {
+    return $JournalLinesTable(attachedDatabase, alias);
+  }
+}
+
+class JournalLineEntity extends DataClass
+    implements Insertable<JournalLineEntity> {
+  final String id;
+  final String entryId;
+  final String accountId;
+  final double debit;
+  final double credit;
+  final String? narration;
+  final int sortOrder;
+  const JournalLineEntity({
+    required this.id,
+    required this.entryId,
+    required this.accountId,
+    required this.debit,
+    required this.credit,
+    this.narration,
+    required this.sortOrder,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['entry_id'] = Variable<String>(entryId);
+    map['account_id'] = Variable<String>(accountId);
+    map['debit'] = Variable<double>(debit);
+    map['credit'] = Variable<double>(credit);
+    if (!nullToAbsent || narration != null) {
+      map['narration'] = Variable<String>(narration);
+    }
+    map['sort_order'] = Variable<int>(sortOrder);
+    return map;
+  }
+
+  JournalLinesCompanion toCompanion(bool nullToAbsent) {
+    return JournalLinesCompanion(
+      id: Value(id),
+      entryId: Value(entryId),
+      accountId: Value(accountId),
+      debit: Value(debit),
+      credit: Value(credit),
+      narration: narration == null && nullToAbsent
+          ? const Value.absent()
+          : Value(narration),
+      sortOrder: Value(sortOrder),
+    );
+  }
+
+  factory JournalLineEntity.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return JournalLineEntity(
+      id: serializer.fromJson<String>(json['id']),
+      entryId: serializer.fromJson<String>(json['entryId']),
+      accountId: serializer.fromJson<String>(json['accountId']),
+      debit: serializer.fromJson<double>(json['debit']),
+      credit: serializer.fromJson<double>(json['credit']),
+      narration: serializer.fromJson<String?>(json['narration']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'entryId': serializer.toJson<String>(entryId),
+      'accountId': serializer.toJson<String>(accountId),
+      'debit': serializer.toJson<double>(debit),
+      'credit': serializer.toJson<double>(credit),
+      'narration': serializer.toJson<String?>(narration),
+      'sortOrder': serializer.toJson<int>(sortOrder),
+    };
+  }
+
+  JournalLineEntity copyWith({
+    String? id,
+    String? entryId,
+    String? accountId,
+    double? debit,
+    double? credit,
+    Value<String?> narration = const Value.absent(),
+    int? sortOrder,
+  }) => JournalLineEntity(
+    id: id ?? this.id,
+    entryId: entryId ?? this.entryId,
+    accountId: accountId ?? this.accountId,
+    debit: debit ?? this.debit,
+    credit: credit ?? this.credit,
+    narration: narration.present ? narration.value : this.narration,
+    sortOrder: sortOrder ?? this.sortOrder,
+  );
+  JournalLineEntity copyWithCompanion(JournalLinesCompanion data) {
+    return JournalLineEntity(
+      id: data.id.present ? data.id.value : this.id,
+      entryId: data.entryId.present ? data.entryId.value : this.entryId,
+      accountId: data.accountId.present ? data.accountId.value : this.accountId,
+      debit: data.debit.present ? data.debit.value : this.debit,
+      credit: data.credit.present ? data.credit.value : this.credit,
+      narration: data.narration.present ? data.narration.value : this.narration,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('JournalLineEntity(')
+          ..write('id: $id, ')
+          ..write('entryId: $entryId, ')
+          ..write('accountId: $accountId, ')
+          ..write('debit: $debit, ')
+          ..write('credit: $credit, ')
+          ..write('narration: $narration, ')
+          ..write('sortOrder: $sortOrder')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(id, entryId, accountId, debit, credit, narration, sortOrder);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is JournalLineEntity &&
+          other.id == this.id &&
+          other.entryId == this.entryId &&
+          other.accountId == this.accountId &&
+          other.debit == this.debit &&
+          other.credit == this.credit &&
+          other.narration == this.narration &&
+          other.sortOrder == this.sortOrder);
+}
+
+class JournalLinesCompanion extends UpdateCompanion<JournalLineEntity> {
+  final Value<String> id;
+  final Value<String> entryId;
+  final Value<String> accountId;
+  final Value<double> debit;
+  final Value<double> credit;
+  final Value<String?> narration;
+  final Value<int> sortOrder;
+  final Value<int> rowid;
+  const JournalLinesCompanion({
+    this.id = const Value.absent(),
+    this.entryId = const Value.absent(),
+    this.accountId = const Value.absent(),
+    this.debit = const Value.absent(),
+    this.credit = const Value.absent(),
+    this.narration = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  JournalLinesCompanion.insert({
+    required String id,
+    required String entryId,
+    required String accountId,
+    this.debit = const Value.absent(),
+    this.credit = const Value.absent(),
+    this.narration = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       entryId = Value(entryId),
+       accountId = Value(accountId);
+  static Insertable<JournalLineEntity> custom({
+    Expression<String>? id,
+    Expression<String>? entryId,
+    Expression<String>? accountId,
+    Expression<double>? debit,
+    Expression<double>? credit,
+    Expression<String>? narration,
+    Expression<int>? sortOrder,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (entryId != null) 'entry_id': entryId,
+      if (accountId != null) 'account_id': accountId,
+      if (debit != null) 'debit': debit,
+      if (credit != null) 'credit': credit,
+      if (narration != null) 'narration': narration,
+      if (sortOrder != null) 'sort_order': sortOrder,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  JournalLinesCompanion copyWith({
+    Value<String>? id,
+    Value<String>? entryId,
+    Value<String>? accountId,
+    Value<double>? debit,
+    Value<double>? credit,
+    Value<String?>? narration,
+    Value<int>? sortOrder,
+    Value<int>? rowid,
+  }) {
+    return JournalLinesCompanion(
+      id: id ?? this.id,
+      entryId: entryId ?? this.entryId,
+      accountId: accountId ?? this.accountId,
+      debit: debit ?? this.debit,
+      credit: credit ?? this.credit,
+      narration: narration ?? this.narration,
+      sortOrder: sortOrder ?? this.sortOrder,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (entryId.present) {
+      map['entry_id'] = Variable<String>(entryId.value);
+    }
+    if (accountId.present) {
+      map['account_id'] = Variable<String>(accountId.value);
+    }
+    if (debit.present) {
+      map['debit'] = Variable<double>(debit.value);
+    }
+    if (credit.present) {
+      map['credit'] = Variable<double>(credit.value);
+    }
+    if (narration.present) {
+      map['narration'] = Variable<String>(narration.value);
+    }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('JournalLinesCompanion(')
+          ..write('id: $id, ')
+          ..write('entryId: $entryId, ')
+          ..write('accountId: $accountId, ')
+          ..write('debit: $debit, ')
+          ..write('credit: $credit, ')
+          ..write('narration: $narration, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -17774,6 +20144,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $AppSettingsTable appSettings = $AppSettingsTable(this);
   late final $SyncQueueTable syncQueue = $SyncQueueTable(this);
   late final $AuditLogsTable auditLogs = $AuditLogsTable(this);
+  late final $AccountsTable accounts = $AccountsTable(this);
+  late final $JournalEntriesTable journalEntries = $JournalEntriesTable(this);
+  late final $JournalLinesTable journalLines = $JournalLinesTable(this);
   late final Index idxPartiesFirmName = Index(
     'idx_parties_firm_name',
     'CREATE INDEX idx_parties_firm_name ON parties (firm_id, name)',
@@ -17834,6 +20207,30 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     'idx_expenses_firm_date',
     'CREATE INDEX idx_expenses_firm_date ON expenses (firm_id, date)',
   );
+  late final Index uqAccountsCode = Index(
+    'uq_accounts_code',
+    'CREATE UNIQUE INDEX uq_accounts_code ON accounts (firm_id, code)',
+  );
+  late final Index idxAccountsFirmType = Index(
+    'idx_accounts_firm_type',
+    'CREATE INDEX idx_accounts_firm_type ON accounts (firm_id, type)',
+  );
+  late final Index uqJournalNumber = Index(
+    'uq_journal_number',
+    'CREATE UNIQUE INDEX uq_journal_number ON journal_entries (firm_id, number)',
+  );
+  late final Index idxJournalFirmDate = Index(
+    'idx_journal_firm_date',
+    'CREATE INDEX idx_journal_firm_date ON journal_entries (firm_id, date)',
+  );
+  late final Index idxJournalLinesEntry = Index(
+    'idx_journal_lines_entry',
+    'CREATE INDEX idx_journal_lines_entry ON journal_lines (entry_id)',
+  );
+  late final Index idxJournalLinesAccount = Index(
+    'idx_journal_lines_account',
+    'CREATE INDEX idx_journal_lines_account ON journal_lines (account_id)',
+  );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -17855,6 +20252,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     appSettings,
     syncQueue,
     auditLogs,
+    accounts,
+    journalEntries,
+    journalLines,
     idxPartiesFirmName,
     idxItemsFirmName,
     idxMovementsFirmDate,
@@ -17870,6 +20270,12 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     idxPaymentsParty,
     idxPaymentsLinked,
     idxExpensesFirmDate,
+    uqAccountsCode,
+    idxAccountsFirmType,
+    uqJournalNumber,
+    idxJournalFirmDate,
+    idxJournalLinesEntry,
+    idxJournalLinesAccount,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -17886,6 +20292,13 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         limitUpdateKind: UpdateKind.delete,
       ),
       result: [TableUpdate('purchase_bill_items', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'journal_entries',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('journal_lines', kind: UpdateKind.delete)],
     ),
   ]);
 }
@@ -17918,6 +20331,7 @@ typedef $$FirmsTableCreateCompanionBuilder =
       Value<String> creditNotePrefix,
       Value<String> debitNotePrefix,
       Value<String> deliveryNotePrefix,
+      Value<String> purchaseOrderPrefix,
       Value<int> numberingStyle,
       Value<int> invoiceSequencePadding,
       Value<int?> sequenceFy,
@@ -17931,6 +20345,7 @@ typedef $$FirmsTableCreateCompanionBuilder =
       Value<int> creditNoteSequence,
       Value<int> debitNoteSequence,
       Value<int> deliveryNoteSequence,
+      Value<int> purchaseOrderSequence,
       Value<String?> invoiceTerms,
       Value<String?> invoiceNotes,
       Value<String?> signatureName,
@@ -17976,6 +20391,7 @@ typedef $$FirmsTableUpdateCompanionBuilder =
       Value<String> creditNotePrefix,
       Value<String> debitNotePrefix,
       Value<String> deliveryNotePrefix,
+      Value<String> purchaseOrderPrefix,
       Value<int> numberingStyle,
       Value<int> invoiceSequencePadding,
       Value<int?> sequenceFy,
@@ -17989,6 +20405,7 @@ typedef $$FirmsTableUpdateCompanionBuilder =
       Value<int> creditNoteSequence,
       Value<int> debitNoteSequence,
       Value<int> deliveryNoteSequence,
+      Value<int> purchaseOrderSequence,
       Value<String?> invoiceTerms,
       Value<String?> invoiceNotes,
       Value<String?> signatureName,
@@ -18145,6 +20562,11 @@ class $$FirmsTableFilterComposer extends Composer<_$AppDatabase, $FirmsTable> {
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<String> get purchaseOrderPrefix => $composableBuilder(
+    column: $table.purchaseOrderPrefix,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<int> get numberingStyle => $composableBuilder(
     column: $table.numberingStyle,
     builder: (column) => ColumnFilters(column),
@@ -18207,6 +20629,11 @@ class $$FirmsTableFilterComposer extends Composer<_$AppDatabase, $FirmsTable> {
 
   ColumnFilters<int> get deliveryNoteSequence => $composableBuilder(
     column: $table.deliveryNoteSequence,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get purchaseOrderSequence => $composableBuilder(
+    column: $table.purchaseOrderSequence,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -18425,6 +20852,11 @@ class $$FirmsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get purchaseOrderPrefix => $composableBuilder(
+    column: $table.purchaseOrderPrefix,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get numberingStyle => $composableBuilder(
     column: $table.numberingStyle,
     builder: (column) => ColumnOrderings(column),
@@ -18487,6 +20919,11 @@ class $$FirmsTableOrderingComposer
 
   ColumnOrderings<int> get deliveryNoteSequence => $composableBuilder(
     column: $table.deliveryNoteSequence,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get purchaseOrderSequence => $composableBuilder(
+    column: $table.purchaseOrderSequence,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -18681,6 +21118,11 @@ class $$FirmsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get purchaseOrderPrefix => $composableBuilder(
+    column: $table.purchaseOrderPrefix,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<int> get numberingStyle => $composableBuilder(
     column: $table.numberingStyle,
     builder: (column) => column,
@@ -18743,6 +21185,11 @@ class $$FirmsTableAnnotationComposer
 
   GeneratedColumn<int> get deliveryNoteSequence => $composableBuilder(
     column: $table.deliveryNoteSequence,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get purchaseOrderSequence => $composableBuilder(
+    column: $table.purchaseOrderSequence,
     builder: (column) => column,
   );
 
@@ -18864,6 +21311,7 @@ class $$FirmsTableTableManager
                 Value<String> creditNotePrefix = const Value.absent(),
                 Value<String> debitNotePrefix = const Value.absent(),
                 Value<String> deliveryNotePrefix = const Value.absent(),
+                Value<String> purchaseOrderPrefix = const Value.absent(),
                 Value<int> numberingStyle = const Value.absent(),
                 Value<int> invoiceSequencePadding = const Value.absent(),
                 Value<int?> sequenceFy = const Value.absent(),
@@ -18877,6 +21325,7 @@ class $$FirmsTableTableManager
                 Value<int> creditNoteSequence = const Value.absent(),
                 Value<int> debitNoteSequence = const Value.absent(),
                 Value<int> deliveryNoteSequence = const Value.absent(),
+                Value<int> purchaseOrderSequence = const Value.absent(),
                 Value<String?> invoiceTerms = const Value.absent(),
                 Value<String?> invoiceNotes = const Value.absent(),
                 Value<String?> signatureName = const Value.absent(),
@@ -18920,6 +21369,7 @@ class $$FirmsTableTableManager
                 creditNotePrefix: creditNotePrefix,
                 debitNotePrefix: debitNotePrefix,
                 deliveryNotePrefix: deliveryNotePrefix,
+                purchaseOrderPrefix: purchaseOrderPrefix,
                 numberingStyle: numberingStyle,
                 invoiceSequencePadding: invoiceSequencePadding,
                 sequenceFy: sequenceFy,
@@ -18933,6 +21383,7 @@ class $$FirmsTableTableManager
                 creditNoteSequence: creditNoteSequence,
                 debitNoteSequence: debitNoteSequence,
                 deliveryNoteSequence: deliveryNoteSequence,
+                purchaseOrderSequence: purchaseOrderSequence,
                 invoiceTerms: invoiceTerms,
                 invoiceNotes: invoiceNotes,
                 signatureName: signatureName,
@@ -18978,6 +21429,7 @@ class $$FirmsTableTableManager
                 Value<String> creditNotePrefix = const Value.absent(),
                 Value<String> debitNotePrefix = const Value.absent(),
                 Value<String> deliveryNotePrefix = const Value.absent(),
+                Value<String> purchaseOrderPrefix = const Value.absent(),
                 Value<int> numberingStyle = const Value.absent(),
                 Value<int> invoiceSequencePadding = const Value.absent(),
                 Value<int?> sequenceFy = const Value.absent(),
@@ -18991,6 +21443,7 @@ class $$FirmsTableTableManager
                 Value<int> creditNoteSequence = const Value.absent(),
                 Value<int> debitNoteSequence = const Value.absent(),
                 Value<int> deliveryNoteSequence = const Value.absent(),
+                Value<int> purchaseOrderSequence = const Value.absent(),
                 Value<String?> invoiceTerms = const Value.absent(),
                 Value<String?> invoiceNotes = const Value.absent(),
                 Value<String?> signatureName = const Value.absent(),
@@ -19034,6 +21487,7 @@ class $$FirmsTableTableManager
                 creditNotePrefix: creditNotePrefix,
                 debitNotePrefix: debitNotePrefix,
                 deliveryNotePrefix: deliveryNotePrefix,
+                purchaseOrderPrefix: purchaseOrderPrefix,
                 numberingStyle: numberingStyle,
                 invoiceSequencePadding: invoiceSequencePadding,
                 sequenceFy: sequenceFy,
@@ -19047,6 +21501,7 @@ class $$FirmsTableTableManager
                 creditNoteSequence: creditNoteSequence,
                 debitNoteSequence: debitNoteSequence,
                 deliveryNoteSequence: deliveryNoteSequence,
+                purchaseOrderSequence: purchaseOrderSequence,
                 invoiceTerms: invoiceTerms,
                 invoiceNotes: invoiceNotes,
                 signatureName: signatureName,
@@ -21300,6 +23755,7 @@ typedef $$SalesInvoicesTableCreateCompanionBuilder =
       Value<double> igst,
       Value<double> cess,
       Value<double> tcs,
+      Value<double> tcsRate,
       Value<double> roundOff,
       Value<double> grandTotal,
       Value<String?> notes,
@@ -21347,6 +23803,7 @@ typedef $$SalesInvoicesTableUpdateCompanionBuilder =
       Value<double> igst,
       Value<double> cess,
       Value<double> tcs,
+      Value<double> tcsRate,
       Value<double> roundOff,
       Value<double> grandTotal,
       Value<String?> notes,
@@ -21568,6 +24025,11 @@ class $$SalesInvoicesTableFilterComposer
 
   ColumnFilters<double> get tcs => $composableBuilder(
     column: $table.tcs,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get tcsRate => $composableBuilder(
+    column: $table.tcsRate,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -21821,6 +24283,11 @@ class $$SalesInvoicesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<double> get tcsRate => $composableBuilder(
+    column: $table.tcsRate,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<double> get roundOff => $composableBuilder(
     column: $table.roundOff,
     builder: (column) => ColumnOrderings(column),
@@ -22016,6 +24483,9 @@ class $$SalesInvoicesTableAnnotationComposer
   GeneratedColumn<double> get tcs =>
       $composableBuilder(column: $table.tcs, builder: (column) => column);
 
+  GeneratedColumn<double> get tcsRate =>
+      $composableBuilder(column: $table.tcsRate, builder: (column) => column);
+
   GeneratedColumn<double> get roundOff =>
       $composableBuilder(column: $table.roundOff, builder: (column) => column);
 
@@ -22136,6 +24606,7 @@ class $$SalesInvoicesTableTableManager
                 Value<double> igst = const Value.absent(),
                 Value<double> cess = const Value.absent(),
                 Value<double> tcs = const Value.absent(),
+                Value<double> tcsRate = const Value.absent(),
                 Value<double> roundOff = const Value.absent(),
                 Value<double> grandTotal = const Value.absent(),
                 Value<String?> notes = const Value.absent(),
@@ -22181,6 +24652,7 @@ class $$SalesInvoicesTableTableManager
                 igst: igst,
                 cess: cess,
                 tcs: tcs,
+                tcsRate: tcsRate,
                 roundOff: roundOff,
                 grandTotal: grandTotal,
                 notes: notes,
@@ -22228,6 +24700,7 @@ class $$SalesInvoicesTableTableManager
                 Value<double> igst = const Value.absent(),
                 Value<double> cess = const Value.absent(),
                 Value<double> tcs = const Value.absent(),
+                Value<double> tcsRate = const Value.absent(),
                 Value<double> roundOff = const Value.absent(),
                 Value<double> grandTotal = const Value.absent(),
                 Value<String?> notes = const Value.absent(),
@@ -22273,6 +24746,7 @@ class $$SalesInvoicesTableTableManager
                 igst: igst,
                 cess: cess,
                 tcs: tcs,
+                tcsRate: tcsRate,
                 roundOff: roundOff,
                 grandTotal: grandTotal,
                 notes: notes,
@@ -23028,6 +25502,7 @@ typedef $$PurchaseBillsTableCreateCompanionBuilder =
       Value<double> igst,
       Value<double> cess,
       Value<double> tds,
+      Value<double> tdsRate,
       Value<double> roundOff,
       Value<double> grandTotal,
       Value<String?> notes,
@@ -23074,6 +25549,7 @@ typedef $$PurchaseBillsTableUpdateCompanionBuilder =
       Value<double> igst,
       Value<double> cess,
       Value<double> tds,
+      Value<double> tdsRate,
       Value<double> roundOff,
       Value<double> grandTotal,
       Value<String?> notes,
@@ -23294,6 +25770,11 @@ class $$PurchaseBillsTableFilterComposer
 
   ColumnFilters<double> get tds => $composableBuilder(
     column: $table.tds,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get tdsRate => $composableBuilder(
+    column: $table.tdsRate,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -23543,6 +26024,11 @@ class $$PurchaseBillsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<double> get tdsRate => $composableBuilder(
+    column: $table.tdsRate,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<double> get roundOff => $composableBuilder(
     column: $table.roundOff,
     builder: (column) => ColumnOrderings(column),
@@ -23734,6 +26220,9 @@ class $$PurchaseBillsTableAnnotationComposer
   GeneratedColumn<double> get tds =>
       $composableBuilder(column: $table.tds, builder: (column) => column);
 
+  GeneratedColumn<double> get tdsRate =>
+      $composableBuilder(column: $table.tdsRate, builder: (column) => column);
+
   GeneratedColumn<double> get roundOff =>
       $composableBuilder(column: $table.roundOff, builder: (column) => column);
 
@@ -23852,6 +26341,7 @@ class $$PurchaseBillsTableTableManager
                 Value<double> igst = const Value.absent(),
                 Value<double> cess = const Value.absent(),
                 Value<double> tds = const Value.absent(),
+                Value<double> tdsRate = const Value.absent(),
                 Value<double> roundOff = const Value.absent(),
                 Value<double> grandTotal = const Value.absent(),
                 Value<String?> notes = const Value.absent(),
@@ -23896,6 +26386,7 @@ class $$PurchaseBillsTableTableManager
                 igst: igst,
                 cess: cess,
                 tds: tds,
+                tdsRate: tdsRate,
                 roundOff: roundOff,
                 grandTotal: grandTotal,
                 notes: notes,
@@ -23943,6 +26434,7 @@ class $$PurchaseBillsTableTableManager
                 Value<double> igst = const Value.absent(),
                 Value<double> cess = const Value.absent(),
                 Value<double> tds = const Value.absent(),
+                Value<double> tdsRate = const Value.absent(),
                 Value<double> roundOff = const Value.absent(),
                 Value<double> grandTotal = const Value.absent(),
                 Value<String?> notes = const Value.absent(),
@@ -23987,6 +26479,7 @@ class $$PurchaseBillsTableTableManager
                 igst: igst,
                 cess: cess,
                 tds: tds,
+                tdsRate: tdsRate,
                 roundOff: roundOff,
                 grandTotal: grandTotal,
                 notes: notes,
@@ -24716,6 +27209,10 @@ typedef $$PaymentsTableCreateCompanionBuilder =
       Value<String> mode,
       Value<String?> reference,
       Value<DateTime?> clearanceDate,
+      Value<String?> chequeStatus,
+      Value<DateTime?> depositedAt,
+      Value<DateTime?> bouncedAt,
+      Value<String?> bounceReason,
       Value<String?> linkedInvoiceId,
       Value<String?> linkedInvoiceNumber,
       Value<String?> bankAccount,
@@ -24740,6 +27237,10 @@ typedef $$PaymentsTableUpdateCompanionBuilder =
       Value<String> mode,
       Value<String?> reference,
       Value<DateTime?> clearanceDate,
+      Value<String?> chequeStatus,
+      Value<DateTime?> depositedAt,
+      Value<DateTime?> bouncedAt,
+      Value<String?> bounceReason,
       Value<String?> linkedInvoiceId,
       Value<String?> linkedInvoiceNumber,
       Value<String?> bankAccount,
@@ -24813,6 +27314,26 @@ class $$PaymentsTableFilterComposer
 
   ColumnFilters<DateTime> get clearanceDate => $composableBuilder(
     column: $table.clearanceDate,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get chequeStatus => $composableBuilder(
+    column: $table.chequeStatus,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get depositedAt => $composableBuilder(
+    column: $table.depositedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get bouncedAt => $composableBuilder(
+    column: $table.bouncedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get bounceReason => $composableBuilder(
+    column: $table.bounceReason,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -24926,6 +27447,26 @@ class $$PaymentsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get chequeStatus => $composableBuilder(
+    column: $table.chequeStatus,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get depositedAt => $composableBuilder(
+    column: $table.depositedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get bouncedAt => $composableBuilder(
+    column: $table.bouncedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get bounceReason => $composableBuilder(
+    column: $table.bounceReason,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get linkedInvoiceId => $composableBuilder(
     column: $table.linkedInvoiceId,
     builder: (column) => ColumnOrderings(column),
@@ -25016,6 +27557,24 @@ class $$PaymentsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get chequeStatus => $composableBuilder(
+    column: $table.chequeStatus,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get depositedAt => $composableBuilder(
+    column: $table.depositedAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get bouncedAt =>
+      $composableBuilder(column: $table.bouncedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get bounceReason => $composableBuilder(
+    column: $table.bounceReason,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get linkedInvoiceId => $composableBuilder(
     column: $table.linkedInvoiceId,
     builder: (column) => column,
@@ -25092,6 +27651,10 @@ class $$PaymentsTableTableManager
                 Value<String> mode = const Value.absent(),
                 Value<String?> reference = const Value.absent(),
                 Value<DateTime?> clearanceDate = const Value.absent(),
+                Value<String?> chequeStatus = const Value.absent(),
+                Value<DateTime?> depositedAt = const Value.absent(),
+                Value<DateTime?> bouncedAt = const Value.absent(),
+                Value<String?> bounceReason = const Value.absent(),
                 Value<String?> linkedInvoiceId = const Value.absent(),
                 Value<String?> linkedInvoiceNumber = const Value.absent(),
                 Value<String?> bankAccount = const Value.absent(),
@@ -25114,6 +27677,10 @@ class $$PaymentsTableTableManager
                 mode: mode,
                 reference: reference,
                 clearanceDate: clearanceDate,
+                chequeStatus: chequeStatus,
+                depositedAt: depositedAt,
+                bouncedAt: bouncedAt,
+                bounceReason: bounceReason,
                 linkedInvoiceId: linkedInvoiceId,
                 linkedInvoiceNumber: linkedInvoiceNumber,
                 bankAccount: bankAccount,
@@ -25138,6 +27705,10 @@ class $$PaymentsTableTableManager
                 Value<String> mode = const Value.absent(),
                 Value<String?> reference = const Value.absent(),
                 Value<DateTime?> clearanceDate = const Value.absent(),
+                Value<String?> chequeStatus = const Value.absent(),
+                Value<DateTime?> depositedAt = const Value.absent(),
+                Value<DateTime?> bouncedAt = const Value.absent(),
+                Value<String?> bounceReason = const Value.absent(),
                 Value<String?> linkedInvoiceId = const Value.absent(),
                 Value<String?> linkedInvoiceNumber = const Value.absent(),
                 Value<String?> bankAccount = const Value.absent(),
@@ -25160,6 +27731,10 @@ class $$PaymentsTableTableManager
                 mode: mode,
                 reference: reference,
                 clearanceDate: clearanceDate,
+                chequeStatus: chequeStatus,
+                depositedAt: depositedAt,
+                bouncedAt: bouncedAt,
+                bounceReason: bounceReason,
                 linkedInvoiceId: linkedInvoiceId,
                 linkedInvoiceNumber: linkedInvoiceNumber,
                 bankAccount: bankAccount,
@@ -26378,6 +28953,1170 @@ typedef $$AuditLogsTableProcessedTableManager =
       AuditLogEntity,
       PrefetchHooks Function()
     >;
+typedef $$AccountsTableCreateCompanionBuilder =
+    AccountsCompanion Function({
+      required String id,
+      required String firmId,
+      required String code,
+      required String name,
+      required String type,
+      Value<String> groupName,
+      Value<bool> isSystem,
+      Value<bool> isActive,
+      Value<double> openingBalance,
+      Value<String> openingType,
+      Value<String?> description,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+      Value<int> rowid,
+    });
+typedef $$AccountsTableUpdateCompanionBuilder =
+    AccountsCompanion Function({
+      Value<String> id,
+      Value<String> firmId,
+      Value<String> code,
+      Value<String> name,
+      Value<String> type,
+      Value<String> groupName,
+      Value<bool> isSystem,
+      Value<bool> isActive,
+      Value<double> openingBalance,
+      Value<String> openingType,
+      Value<String?> description,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$AccountsTableFilterComposer
+    extends Composer<_$AppDatabase, $AccountsTable> {
+  $$AccountsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get firmId => $composableBuilder(
+    column: $table.firmId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get code => $composableBuilder(
+    column: $table.code,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get type => $composableBuilder(
+    column: $table.type,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get groupName => $composableBuilder(
+    column: $table.groupName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isSystem => $composableBuilder(
+    column: $table.isSystem,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isActive => $composableBuilder(
+    column: $table.isActive,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get openingBalance => $composableBuilder(
+    column: $table.openingBalance,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get openingType => $composableBuilder(
+    column: $table.openingType,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get description => $composableBuilder(
+    column: $table.description,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$AccountsTableOrderingComposer
+    extends Composer<_$AppDatabase, $AccountsTable> {
+  $$AccountsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get firmId => $composableBuilder(
+    column: $table.firmId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get code => $composableBuilder(
+    column: $table.code,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get type => $composableBuilder(
+    column: $table.type,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get groupName => $composableBuilder(
+    column: $table.groupName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isSystem => $composableBuilder(
+    column: $table.isSystem,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isActive => $composableBuilder(
+    column: $table.isActive,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get openingBalance => $composableBuilder(
+    column: $table.openingBalance,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get openingType => $composableBuilder(
+    column: $table.openingType,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get description => $composableBuilder(
+    column: $table.description,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$AccountsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $AccountsTable> {
+  $$AccountsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get firmId =>
+      $composableBuilder(column: $table.firmId, builder: (column) => column);
+
+  GeneratedColumn<String> get code =>
+      $composableBuilder(column: $table.code, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get type =>
+      $composableBuilder(column: $table.type, builder: (column) => column);
+
+  GeneratedColumn<String> get groupName =>
+      $composableBuilder(column: $table.groupName, builder: (column) => column);
+
+  GeneratedColumn<bool> get isSystem =>
+      $composableBuilder(column: $table.isSystem, builder: (column) => column);
+
+  GeneratedColumn<bool> get isActive =>
+      $composableBuilder(column: $table.isActive, builder: (column) => column);
+
+  GeneratedColumn<double> get openingBalance => $composableBuilder(
+    column: $table.openingBalance,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get openingType => $composableBuilder(
+    column: $table.openingType,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get description => $composableBuilder(
+    column: $table.description,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$AccountsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $AccountsTable,
+          AccountEntity,
+          $$AccountsTableFilterComposer,
+          $$AccountsTableOrderingComposer,
+          $$AccountsTableAnnotationComposer,
+          $$AccountsTableCreateCompanionBuilder,
+          $$AccountsTableUpdateCompanionBuilder,
+          (
+            AccountEntity,
+            BaseReferences<_$AppDatabase, $AccountsTable, AccountEntity>,
+          ),
+          AccountEntity,
+          PrefetchHooks Function()
+        > {
+  $$AccountsTableTableManager(_$AppDatabase db, $AccountsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$AccountsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$AccountsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$AccountsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> firmId = const Value.absent(),
+                Value<String> code = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String> type = const Value.absent(),
+                Value<String> groupName = const Value.absent(),
+                Value<bool> isSystem = const Value.absent(),
+                Value<bool> isActive = const Value.absent(),
+                Value<double> openingBalance = const Value.absent(),
+                Value<String> openingType = const Value.absent(),
+                Value<String?> description = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => AccountsCompanion(
+                id: id,
+                firmId: firmId,
+                code: code,
+                name: name,
+                type: type,
+                groupName: groupName,
+                isSystem: isSystem,
+                isActive: isActive,
+                openingBalance: openingBalance,
+                openingType: openingType,
+                description: description,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String firmId,
+                required String code,
+                required String name,
+                required String type,
+                Value<String> groupName = const Value.absent(),
+                Value<bool> isSystem = const Value.absent(),
+                Value<bool> isActive = const Value.absent(),
+                Value<double> openingBalance = const Value.absent(),
+                Value<String> openingType = const Value.absent(),
+                Value<String?> description = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => AccountsCompanion.insert(
+                id: id,
+                firmId: firmId,
+                code: code,
+                name: name,
+                type: type,
+                groupName: groupName,
+                isSystem: isSystem,
+                isActive: isActive,
+                openingBalance: openingBalance,
+                openingType: openingType,
+                description: description,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$AccountsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $AccountsTable,
+      AccountEntity,
+      $$AccountsTableFilterComposer,
+      $$AccountsTableOrderingComposer,
+      $$AccountsTableAnnotationComposer,
+      $$AccountsTableCreateCompanionBuilder,
+      $$AccountsTableUpdateCompanionBuilder,
+      (
+        AccountEntity,
+        BaseReferences<_$AppDatabase, $AccountsTable, AccountEntity>,
+      ),
+      AccountEntity,
+      PrefetchHooks Function()
+    >;
+typedef $$JournalEntriesTableCreateCompanionBuilder =
+    JournalEntriesCompanion Function({
+      required String id,
+      required String firmId,
+      required String number,
+      required DateTime date,
+      required String narration,
+      Value<String?> reference,
+      Value<String?> createdBy,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+      Value<bool> isDeleted,
+      Value<DateTime?> deletedAt,
+      Value<int> sequence,
+      Value<int> rowid,
+    });
+typedef $$JournalEntriesTableUpdateCompanionBuilder =
+    JournalEntriesCompanion Function({
+      Value<String> id,
+      Value<String> firmId,
+      Value<String> number,
+      Value<DateTime> date,
+      Value<String> narration,
+      Value<String?> reference,
+      Value<String?> createdBy,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+      Value<bool> isDeleted,
+      Value<DateTime?> deletedAt,
+      Value<int> sequence,
+      Value<int> rowid,
+    });
+
+final class $$JournalEntriesTableReferences
+    extends
+        BaseReferences<
+          _$AppDatabase,
+          $JournalEntriesTable,
+          JournalEntryEntity
+        > {
+  $$JournalEntriesTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static MultiTypedResultKey<$JournalLinesTable, List<JournalLineEntity>>
+  _journalLinesRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+    db.journalLines,
+    aliasName: $_aliasNameGenerator(
+      db.journalEntries.id,
+      db.journalLines.entryId,
+    ),
+  );
+
+  $$JournalLinesTableProcessedTableManager get journalLinesRefs {
+    final manager = $$JournalLinesTableTableManager(
+      $_db,
+      $_db.journalLines,
+    ).filter((f) => f.entryId.id.sqlEquals($_itemColumn<String>('id')!));
+
+    final cache = $_typedResult.readTableOrNull(_journalLinesRefsTable($_db));
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+}
+
+class $$JournalEntriesTableFilterComposer
+    extends Composer<_$AppDatabase, $JournalEntriesTable> {
+  $$JournalEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get firmId => $composableBuilder(
+    column: $table.firmId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get number => $composableBuilder(
+    column: $table.number,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get date => $composableBuilder(
+    column: $table.date,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get narration => $composableBuilder(
+    column: $table.narration,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get reference => $composableBuilder(
+    column: $table.reference,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get createdBy => $composableBuilder(
+    column: $table.createdBy,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isDeleted => $composableBuilder(
+    column: $table.isDeleted,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sequence => $composableBuilder(
+    column: $table.sequence,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  Expression<bool> journalLinesRefs(
+    Expression<bool> Function($$JournalLinesTableFilterComposer f) f,
+  ) {
+    final $$JournalLinesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.journalLines,
+      getReferencedColumn: (t) => t.entryId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$JournalLinesTableFilterComposer(
+            $db: $db,
+            $table: $db.journalLines,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$JournalEntriesTableOrderingComposer
+    extends Composer<_$AppDatabase, $JournalEntriesTable> {
+  $$JournalEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get firmId => $composableBuilder(
+    column: $table.firmId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get number => $composableBuilder(
+    column: $table.number,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get date => $composableBuilder(
+    column: $table.date,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get narration => $composableBuilder(
+    column: $table.narration,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get reference => $composableBuilder(
+    column: $table.reference,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get createdBy => $composableBuilder(
+    column: $table.createdBy,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isDeleted => $composableBuilder(
+    column: $table.isDeleted,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sequence => $composableBuilder(
+    column: $table.sequence,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$JournalEntriesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $JournalEntriesTable> {
+  $$JournalEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get firmId =>
+      $composableBuilder(column: $table.firmId, builder: (column) => column);
+
+  GeneratedColumn<String> get number =>
+      $composableBuilder(column: $table.number, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get date =>
+      $composableBuilder(column: $table.date, builder: (column) => column);
+
+  GeneratedColumn<String> get narration =>
+      $composableBuilder(column: $table.narration, builder: (column) => column);
+
+  GeneratedColumn<String> get reference =>
+      $composableBuilder(column: $table.reference, builder: (column) => column);
+
+  GeneratedColumn<String> get createdBy =>
+      $composableBuilder(column: $table.createdBy, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<bool> get isDeleted =>
+      $composableBuilder(column: $table.isDeleted, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get deletedAt =>
+      $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get sequence =>
+      $composableBuilder(column: $table.sequence, builder: (column) => column);
+
+  Expression<T> journalLinesRefs<T extends Object>(
+    Expression<T> Function($$JournalLinesTableAnnotationComposer a) f,
+  ) {
+    final $$JournalLinesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.id,
+      referencedTable: $db.journalLines,
+      getReferencedColumn: (t) => t.entryId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$JournalLinesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.journalLines,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return f(composer);
+  }
+}
+
+class $$JournalEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $JournalEntriesTable,
+          JournalEntryEntity,
+          $$JournalEntriesTableFilterComposer,
+          $$JournalEntriesTableOrderingComposer,
+          $$JournalEntriesTableAnnotationComposer,
+          $$JournalEntriesTableCreateCompanionBuilder,
+          $$JournalEntriesTableUpdateCompanionBuilder,
+          (JournalEntryEntity, $$JournalEntriesTableReferences),
+          JournalEntryEntity,
+          PrefetchHooks Function({bool journalLinesRefs})
+        > {
+  $$JournalEntriesTableTableManager(
+    _$AppDatabase db,
+    $JournalEntriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$JournalEntriesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$JournalEntriesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$JournalEntriesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> firmId = const Value.absent(),
+                Value<String> number = const Value.absent(),
+                Value<DateTime> date = const Value.absent(),
+                Value<String> narration = const Value.absent(),
+                Value<String?> reference = const Value.absent(),
+                Value<String?> createdBy = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<bool> isDeleted = const Value.absent(),
+                Value<DateTime?> deletedAt = const Value.absent(),
+                Value<int> sequence = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => JournalEntriesCompanion(
+                id: id,
+                firmId: firmId,
+                number: number,
+                date: date,
+                narration: narration,
+                reference: reference,
+                createdBy: createdBy,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                isDeleted: isDeleted,
+                deletedAt: deletedAt,
+                sequence: sequence,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String firmId,
+                required String number,
+                required DateTime date,
+                required String narration,
+                Value<String?> reference = const Value.absent(),
+                Value<String?> createdBy = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<bool> isDeleted = const Value.absent(),
+                Value<DateTime?> deletedAt = const Value.absent(),
+                Value<int> sequence = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => JournalEntriesCompanion.insert(
+                id: id,
+                firmId: firmId,
+                number: number,
+                date: date,
+                narration: narration,
+                reference: reference,
+                createdBy: createdBy,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                isDeleted: isDeleted,
+                deletedAt: deletedAt,
+                sequence: sequence,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$JournalEntriesTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({journalLinesRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [if (journalLinesRefs) db.journalLines],
+              addJoins: null,
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (journalLinesRefs)
+                    await $_getPrefetchedData<
+                      JournalEntryEntity,
+                      $JournalEntriesTable,
+                      JournalLineEntity
+                    >(
+                      currentTable: table,
+                      referencedTable: $$JournalEntriesTableReferences
+                          ._journalLinesRefsTable(db),
+                      managerFromTypedResult: (p0) =>
+                          $$JournalEntriesTableReferences(
+                            db,
+                            table,
+                            p0,
+                          ).journalLinesRefs,
+                      referencedItemsForCurrentItem: (item, referencedItems) =>
+                          referencedItems.where((e) => e.entryId == item.id),
+                      typedResults: items,
+                    ),
+                ];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$JournalEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $JournalEntriesTable,
+      JournalEntryEntity,
+      $$JournalEntriesTableFilterComposer,
+      $$JournalEntriesTableOrderingComposer,
+      $$JournalEntriesTableAnnotationComposer,
+      $$JournalEntriesTableCreateCompanionBuilder,
+      $$JournalEntriesTableUpdateCompanionBuilder,
+      (JournalEntryEntity, $$JournalEntriesTableReferences),
+      JournalEntryEntity,
+      PrefetchHooks Function({bool journalLinesRefs})
+    >;
+typedef $$JournalLinesTableCreateCompanionBuilder =
+    JournalLinesCompanion Function({
+      required String id,
+      required String entryId,
+      required String accountId,
+      Value<double> debit,
+      Value<double> credit,
+      Value<String?> narration,
+      Value<int> sortOrder,
+      Value<int> rowid,
+    });
+typedef $$JournalLinesTableUpdateCompanionBuilder =
+    JournalLinesCompanion Function({
+      Value<String> id,
+      Value<String> entryId,
+      Value<String> accountId,
+      Value<double> debit,
+      Value<double> credit,
+      Value<String?> narration,
+      Value<int> sortOrder,
+      Value<int> rowid,
+    });
+
+final class $$JournalLinesTableReferences
+    extends
+        BaseReferences<_$AppDatabase, $JournalLinesTable, JournalLineEntity> {
+  $$JournalLinesTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $JournalEntriesTable _entryIdTable(_$AppDatabase db) =>
+      db.journalEntries.createAlias(
+        $_aliasNameGenerator(db.journalLines.entryId, db.journalEntries.id),
+      );
+
+  $$JournalEntriesTableProcessedTableManager get entryId {
+    final $_column = $_itemColumn<String>('entry_id')!;
+
+    final manager = $$JournalEntriesTableTableManager(
+      $_db,
+      $_db.journalEntries,
+    ).filter((f) => f.id.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_entryIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$JournalLinesTableFilterComposer
+    extends Composer<_$AppDatabase, $JournalLinesTable> {
+  $$JournalLinesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get accountId => $composableBuilder(
+    column: $table.accountId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get debit => $composableBuilder(
+    column: $table.debit,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get credit => $composableBuilder(
+    column: $table.credit,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get narration => $composableBuilder(
+    column: $table.narration,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$JournalEntriesTableFilterComposer get entryId {
+    final $$JournalEntriesTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.entryId,
+      referencedTable: $db.journalEntries,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$JournalEntriesTableFilterComposer(
+            $db: $db,
+            $table: $db.journalEntries,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$JournalLinesTableOrderingComposer
+    extends Composer<_$AppDatabase, $JournalLinesTable> {
+  $$JournalLinesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get accountId => $composableBuilder(
+    column: $table.accountId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get debit => $composableBuilder(
+    column: $table.debit,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get credit => $composableBuilder(
+    column: $table.credit,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get narration => $composableBuilder(
+    column: $table.narration,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$JournalEntriesTableOrderingComposer get entryId {
+    final $$JournalEntriesTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.entryId,
+      referencedTable: $db.journalEntries,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$JournalEntriesTableOrderingComposer(
+            $db: $db,
+            $table: $db.journalEntries,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$JournalLinesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $JournalLinesTable> {
+  $$JournalLinesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get accountId =>
+      $composableBuilder(column: $table.accountId, builder: (column) => column);
+
+  GeneratedColumn<double> get debit =>
+      $composableBuilder(column: $table.debit, builder: (column) => column);
+
+  GeneratedColumn<double> get credit =>
+      $composableBuilder(column: $table.credit, builder: (column) => column);
+
+  GeneratedColumn<String> get narration =>
+      $composableBuilder(column: $table.narration, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  $$JournalEntriesTableAnnotationComposer get entryId {
+    final $$JournalEntriesTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.entryId,
+      referencedTable: $db.journalEntries,
+      getReferencedColumn: (t) => t.id,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$JournalEntriesTableAnnotationComposer(
+            $db: $db,
+            $table: $db.journalEntries,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$JournalLinesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $JournalLinesTable,
+          JournalLineEntity,
+          $$JournalLinesTableFilterComposer,
+          $$JournalLinesTableOrderingComposer,
+          $$JournalLinesTableAnnotationComposer,
+          $$JournalLinesTableCreateCompanionBuilder,
+          $$JournalLinesTableUpdateCompanionBuilder,
+          (JournalLineEntity, $$JournalLinesTableReferences),
+          JournalLineEntity,
+          PrefetchHooks Function({bool entryId})
+        > {
+  $$JournalLinesTableTableManager(_$AppDatabase db, $JournalLinesTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$JournalLinesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$JournalLinesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$JournalLinesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> entryId = const Value.absent(),
+                Value<String> accountId = const Value.absent(),
+                Value<double> debit = const Value.absent(),
+                Value<double> credit = const Value.absent(),
+                Value<String?> narration = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => JournalLinesCompanion(
+                id: id,
+                entryId: entryId,
+                accountId: accountId,
+                debit: debit,
+                credit: credit,
+                narration: narration,
+                sortOrder: sortOrder,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String entryId,
+                required String accountId,
+                Value<double> debit = const Value.absent(),
+                Value<double> credit = const Value.absent(),
+                Value<String?> narration = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => JournalLinesCompanion.insert(
+                id: id,
+                entryId: entryId,
+                accountId: accountId,
+                debit: debit,
+                credit: credit,
+                narration: narration,
+                sortOrder: sortOrder,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$JournalLinesTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({entryId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (entryId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.entryId,
+                                referencedTable: $$JournalLinesTableReferences
+                                    ._entryIdTable(db),
+                                referencedColumn: $$JournalLinesTableReferences
+                                    ._entryIdTable(db)
+                                    .id,
+                              )
+                              as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$JournalLinesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $JournalLinesTable,
+      JournalLineEntity,
+      $$JournalLinesTableFilterComposer,
+      $$JournalLinesTableOrderingComposer,
+      $$JournalLinesTableAnnotationComposer,
+      $$JournalLinesTableCreateCompanionBuilder,
+      $$JournalLinesTableUpdateCompanionBuilder,
+      (JournalLineEntity, $$JournalLinesTableReferences),
+      JournalLineEntity,
+      PrefetchHooks Function({bool entryId})
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -26414,4 +30153,10 @@ class $AppDatabaseManager {
       $$SyncQueueTableTableManager(_db, _db.syncQueue);
   $$AuditLogsTableTableManager get auditLogs =>
       $$AuditLogsTableTableManager(_db, _db.auditLogs);
+  $$AccountsTableTableManager get accounts =>
+      $$AccountsTableTableManager(_db, _db.accounts);
+  $$JournalEntriesTableTableManager get journalEntries =>
+      $$JournalEntriesTableTableManager(_db, _db.journalEntries);
+  $$JournalLinesTableTableManager get journalLines =>
+      $$JournalLinesTableTableManager(_db, _db.journalLines);
 }

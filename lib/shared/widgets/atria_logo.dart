@@ -62,7 +62,7 @@ class _FallbackTile extends StatelessWidget {
         style: TextStyle(
           color: Colors.white,
           fontSize: size * 0.52,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w700,
           height: 1.0,
         ),
       ),

@@ -72,6 +72,27 @@ endif()
 set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 
+# Bundle the MSVC runtime beside the executable (app-local deployment).
+#
+# Without this the app depends on the machine already having the Visual C++
+# 2015-2022 redistributable. On a clean Windows install the loader fails before
+# any of our code runs, so the user sees nothing at all — no window, no error
+# message, just a click that does nothing. Shop PCs are exactly where that
+# happens, and "it doesn't start" is not a support call we can diagnose.
+#
+# SKIP is required: the module otherwise adds its own
+# `install(PROGRAMS ... DESTINATION bin)`, and a *relative* destination cannot
+# be combined with the generator expression this file sets as
+# CMAKE_INSTALL_PREFIX — the install script then tries to create a literal
+# directory named `$<TARGET_FILE_DIR:atria>/bin` and fails the whole build.
+set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)
+include(InstallRequiredSystemLibraries)
+if(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS)
+  install(FILES ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS}
+    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+    COMPONENT Runtime)
+endif()
+
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 

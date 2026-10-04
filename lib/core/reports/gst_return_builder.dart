@@ -37,13 +37,34 @@ class GstReturnBuilder {
     final b2bByGstin = <String, List<SalesInvoiceEntity>>{};
     final b2clInvoices = <SalesInvoiceEntity>[];
     final b2csInvoices = <SalesInvoiceEntity>[];
+    // Tables 13A / 13B: zero-rated exports, grouped by place of supply.
+    final expwpByPos = <String, List<SalesInvoiceEntity>>{};
+    final expwopByPos = <String, List<SalesInvoiceEntity>>{};
 
     for (final doc in activeDocs) {
       final gstin = (doc.partyGstin ?? '').trim().toUpperCase();
-      // Zero-rated supplies (exports / SEZ with supplied-to-SEZ flag) are
-      // reported separately from B2CS/B2CL; a GSTR-1 exporter reports them
-      // in the export tables, so keep them out of the domestic buckets.
-      if (doc.isExport) continue;
+      // Zero-rated supplies (exports / SEZ with the supplied-to-SEZ flag) have
+      // their OWN tables. They used to be dropped here, which left an exporter
+      // filing a GSTR-1 that reported no outward supply at all while GSTR-3B
+      // reported the very same invoices under 3.1(b).
+      if (doc.isExport) {
+        // Tables 13A / 13B are grouped by place of supply, and for an export
+        // that place is always '96' — "Outside India". It is NOT the document's
+        // own `placeOfSupply`: that column holds the domestic state (the
+        // exporter's own state, or the state the counterparty sits in), and a
+        // state code is not a legal POS in 13A/13B. The old code used '96' only
+        // as a fallback for a blank POS, which meant every export that DID carry
+        // a POS — in practice all of them — was filed under a state the goods
+        // never went to.
+        const exportPos = '96';
+        // exportType: 'wp' = paid (EXPWP, 13A), 'wop' = unpaid (EXPWOP, 13B).
+        // Untagged exports are filed with payment, the conservative reading.
+        final bucket = (doc.exportType ?? '').trim().toLowerCase() == 'wop'
+            ? expwopByPos
+            : expwpByPos;
+        bucket.putIfAbsent(exportPos, () => []).add(doc);
+        continue;
+      }
       final interState = doc.isInterState;
       // B2CL rule: inter-state supply to an unregistered buyer where the
       // TAXABLE value exceeds ₹2.5 lakh (the old check compared the GROSS
@@ -68,28 +89,49 @@ class GstReturnBuilder {
     }
 
     // ---- CDNUR (Table 10): unregistered/overseas notes --------------------
-    // Full note rows (number, date, value, type) — raw rate rows were an
-    // invalid table.
+    // Full note rows (number, date, value, type) with line item tax rates.
     final cdnur = <Gstr1Cdnur>[];
     for (final cn in creditNotes) {
-      if (cn.status == 'cancelled') continue;      final gstin = (cn.partyGstin ?? '').trim().toUpperCase();
+      if (cn.status == 'cancelled') continue;
+      final gstin = (cn.partyGstin ?? '').trim().toUpperCase();
       if (gstin.isNotEmpty) continue; // registered → CDNR
       // B2CL-large unregistered notes must be flagged; 'B2CL' requires the
-      // same ₹2.5L taxable rule, so only that qualifies.
-      final isB2cl = cn.isInterState && cn.taxableValue >= 250000;
+      // same ₹2.5L taxable rule as the invoice bucket above, so only that
+      // qualifies (same strict >, not >=, or the portal rejects the row).
+      final isB2cl = cn.isInterState && cn.taxableValue > 250000;
+      final items = await sales.itemsFor(cn.id);
+      final itms = items.isEmpty
+          ? [
+              Gstr1Item(
+                num: 1,
+                rate: 0,
+                taxableValue: _d(cn.taxableValue),
+                igst: _d(cn.igst),
+                cgst: _d(cn.cgst),
+                sgst: _d(cn.sgst),
+                cess: _d(cn.cess),
+              ),
+            ]
+          : [
+              for (var i = 0; i < items.length; i++)
+                Gstr1Item(
+                  num: i + 1,
+                  rate: items[i].gstRate,
+                  taxableValue: _d(items[i].taxableValue),
+                  igst: _d(items[i].igst),
+                  cgst: _d(items[i].cgst),
+                  sgst: _d(items[i].sgst),
+                  cess: _d(items[i].cessAmount),
+                ),
+            ];
       cdnur.add(Gstr1Cdnur(
         ntNum: cn.number,
         ntDt: _fmtDate(cn.invoiceDate),
         val: _d(cn.grandTotal),
         ntty: 'C',
         pos: cn.placeOfSupply ?? '',
-        rate: 0,
-        taxableValue: _d(cn.taxableValue),
-        igst: _d(cn.igst),
-        cgst: _d(cn.cgst),
-        sgst: _d(cn.sgst),
-        cess: _d(cn.cess),
         supplyType: isB2cl ? 'B2CL' : 'B2CS',
+        itms: itms,
       ));
     }
 
@@ -102,6 +144,28 @@ class GstReturnBuilder {
     final b2cl = [
       for (final e in b2clByPos.entries)
         Gstr1B2cl(pos: e.key, invoices: e.value),
+    ];
+
+    // ---- EXPWP / EXPWOP (Tables 13A / 13B): zero-rated exports ------------
+    final expwp = [
+      for (final e in expwpByPos.entries)
+        Gstr1Export(
+          pos: e.key,
+          invoices: [
+            for (final doc in e.value)
+              await _invoice(doc, e.key, invoiceType: 'SEWP'),
+          ],
+        ),
+    ];
+    final expwop = [
+      for (final e in expwopByPos.entries)
+        Gstr1Export(
+          pos: e.key,
+          invoices: [
+            for (final doc in e.value)
+              await _invoice(doc, e.key, invoiceType: 'SEWOP'),
+          ],
+        ),
     ];
 
     // ---- B2CS (Table 7): aggregates by (supply type, POS, rate) ----------
@@ -177,10 +241,16 @@ class GstReturnBuilder {
       for (final l in items) {
         final code = (l.hsn ?? '').trim();
         if (code.isEmpty) continue;
+        // Keyed on (HSN, RATE): Table 12 is a rate-wise summary, so the same
+        // HSN sold at 5% and at 18% is TWO rows. Keyed on the code alone they
+        // collapsed into one row holding one arbitrary rate's tax — and with no
+        // rate field on the model `rt` was never emitted at all, which the
+        // offline utility rejects.
         final acc = hsnKeyed.putIfAbsent(
-            code,
+            '$code|${l.gstRate.toStringAsFixed(2)}',
             () => _HsnAccum(
                   hsn: code,
+                  rate: l.gstRate,
                   description: l.name,
                   unit: l.unit,
                 ));
@@ -205,9 +275,18 @@ class GstReturnBuilder {
       for (final a in hsnKeyed.values)
         Gstr1Hsn(
           hsn: a.hsn,
+          rate: a.rate,
           description: a.description,
           uqc: _uqc(a.unit),
-          quantity: _d(a.qty),
+          // Quantity is a POSITIVE total, never a negative: Table 12 has no
+          // sign column for it and the portal rejects a negative `qty`. The
+          // credit note's effect therefore lives in the value columns (val /
+          // txval / iamt / camt / samt / csamt), which all stay net of the
+          // note — the summary is still honest about the return while the
+          // quantity stays fileable. A month whose returns exceed its sales of
+          // that HSN floors at zero rather than claiming stock that was never
+          // invoiced out.
+          quantity: _d(a.qty < 0 ? 0 : a.qty),
           totalValue: _d(a.total),
           taxableValue: _d(a.taxable),
           igst: _d(a.igst),
@@ -215,13 +294,19 @@ class GstReturnBuilder {
           sgst: _d(a.sgst),
           cess: _d(a.cess),
         ),
-    ]..sort((a, b) => a.hsn.compareTo(b.hsn));
+    ]..sort((a, b) {
+        final byCode = a.hsn.compareTo(b.hsn);
+        return byCode != 0 ? byCode : a.rate.compareTo(b.rate);
+      });
 
     // ---- Document issue summary (Table 13) --------------------------------
     // All sales-side doc classes that carry a serial number, not just
     // invoices — the portal asks for every document series in the period.
+    // Sales debit notes are a numbered series too (doc_num 4) and were never
+    // declared, so the series the user had used stayed invisible.
     final docIssue = [
       ...await _docIssue(docType: 'invoice', docNum: 1, from: from, to: to),
+      ...await _docIssue(docType: 'debit_note', docNum: 4, from: from, to: to),
       ...await _docIssue(docType: 'credit_note', docNum: 5, from: from, to: to),
     ];
 
@@ -232,6 +317,8 @@ class GstReturnBuilder {
       b2b: b2b,
       b2cl: b2cl,
       b2cs: b2cs,
+      expwp: expwp,
+      expwop: expwop,
       cdnr: cdnr,
       cdnur: cdnur,
       hsn: hsn,
@@ -243,6 +330,8 @@ class GstReturnBuilder {
       b2b: report.b2b,
       b2cl: report.b2cl,
       b2cs: report.b2cs,
+      expwp: report.expwp,
+      expwop: report.expwop,
       cdnr: report.cdnr,
       cdnur: report.cdnur,
       hsn: report.hsn,
@@ -251,7 +340,11 @@ class GstReturnBuilder {
     );
   }
 
-  Future<Gstr1Invoice> _invoice(SalesInvoiceEntity doc, String pos) async {
+  Future<Gstr1Invoice> _invoice(
+    SalesInvoiceEntity doc,
+    String pos, {
+    String invoiceType = 'R',
+  }) async {
     final items = await db.salesRepositoryFor(firmId).itemsFor(doc.id);
     final byRate = <double, Gstr1Item>{};
     var num = 1;
@@ -285,7 +378,7 @@ class GstReturnBuilder {
       val: _d(doc.grandTotal),
       pos: pos,
       reverseCharge: doc.reverseCharge,
-      invoiceType: 'R',
+      invoiceType: invoiceType,
       itms: byRate.values.toList()..sort((a, b) => a.num.compareTo(b.num)),
     );
   }
@@ -340,11 +433,15 @@ class GstReturnBuilder {
 class _HsnAccum {
   _HsnAccum({
     required this.hsn,
+    required this.rate,
     required this.description,
     required this.unit,
   });
 
   final String hsn;
+
+  /// GST rate this (HSN, rate) bucket reports as Table 12's `rt`.
+  final double rate;
   final String description;
   final String unit;
   double qty = 0;
@@ -418,14 +515,29 @@ class Gstr3bReport {
 
   // Table 5
   final Decimal inwardNilRated;
+
+  /// Table 5(A)(2): inward supplies that are NOT liable to GST at all.
+  ///
+  /// Always zero from the books: an inward bill carries either a supplier
+  /// GSTIN (credit, 4(A)(5)), no GSTIN (nil-rated, 5(A)(1)) or the reverse
+  /// charge (3.1(d)/4(A)(3)) — there is no column anywhere in the schema that
+  /// marks a bill as a non-GST inward supply, so nothing can populate this.
+  /// It is therefore OMITTED from the emitted Table 5 rather than filed as a
+  /// hard zero: a false 0 asserts "this firm had no non-GST inward supplies",
+  /// which the books cannot know. The moment a capture path exists, a non-zero
+  /// value starts appearing in the JSON.
   final Decimal inwardNonGst;
 
-  /// Net tax payable = 3.1 output tax − net ITC (floored at 0; credit carry
-  /// is the user's decision, not ours).
+  /// Net tax payable = outward tax payable after eligible ITC (floored at 0)
+  /// plus reverse charge liability which under Section 49(4) of the CGST Act
+  /// must be discharged in cash through the electronic cash ledger.
   Decimal get netPayable {
-    final output = outwardIgst + outwardCgst + outwardSgst + outwardCess;
-    final net = output - netItc;
-    return net < Decimal.zero ? Decimal.zero : net;
+    final outwardTax = outwardIgst + outwardCgst + outwardSgst + outwardCess;
+    final itcForOutward = netItc - itcReverseCharge;
+    final netOutward = outwardTax - itcForOutward;
+    final regularPayable =
+        netOutward < Decimal.zero ? Decimal.zero : netOutward;
+    return regularPayable + reverseChargeTax;
   }
 
   Map<String, Object?> toJson() => {
@@ -465,7 +577,9 @@ class Gstr3bReport {
         },
         '5': {
           'nil_exempt_composition': _n(inwardNilRated),
-          'non_gst': _n(inwardNonGst),
+          // See [inwardNonGst]: nothing in the books can populate this, so it
+          // is left out rather than filed as an invented zero.
+          if (inwardNonGst != Decimal.zero) 'non_gst': _n(inwardNonGst),
         },
       };
 
@@ -514,13 +628,58 @@ Future<Gstr3bReport> buildGstr3b(
   double nilRated = 0;
   final interByPos = <String, Gstr3bInterState>{};
 
+  // Table 3.1(a) vs 3.1(c) is a RATE split, so it can only be made from the
+  // line rows: `sales_invoice_items.gst_rate` is the only record of which part
+  // of a document is exempt. One batched read for the period (the per-document
+  // `itemsFor` inside a loop was an N+1 on a firm with a thousand invoices).
+  // Exports are excluded — they are 3.1(b) zero-rated and have no rate split.
+  final outwardLines = await sales.itemsForMany([
+    for (final d in [...docs, ...creditNotes])
+      if (!d.isExport) d.id,
+  ]);
+
   void addOutward(SalesInvoiceEntity doc, {double sign = 1.0}) {
     if (doc.isExport) {
       // Zero-rated supplies report TAXABLE value, not the gross total.
       zeroRated += sign * doc.taxableValue;
       return;
     }
-    taxable += sign * doc.taxableValue;
+    // Split the document's taxable value by LINE rate. The stored per-line
+    // `taxableValue` is what the editor apportioned (line discount + the
+    // invoice-level discount by largest remainder), so summing the lines
+    // reproduces `doc.taxableValue` exactly — which is the whole point: 3.1(a)
+    // + 3.1(c) keeps adding up to the document total, so the return still
+    // reconciles with Table 4.1.
+    var taxablePart = 0.0;
+    var nilPart = 0.0;
+    final lines = outwardLines[doc.id] ?? const <SalesInvoiceItemEntity>[];
+    for (final l in lines) {
+      if (l.gstRate == 0) {
+        nilPart += l.taxableValue;
+      } else {
+        taxablePart += l.taxableValue;
+      }
+    }
+    if (lines.isEmpty) {
+      // No line rows (an imported or legacy document): fall back to the
+      // document totals, which can only classify the WHOLE document — the
+      // behaviour that existed before the line-level split.
+      taxablePart = doc.taxableValue;
+      nilPart = 0;
+    }
+    if (doc.cgst == 0 && doc.sgst == 0 && doc.igst == 0 && doc.cess == 0) {
+      // No tax anywhere on the document. At 0% GST a line carries no tax, so
+      // the whole document is nil-rated/exempt: Table 3.1(c). Read off the
+      // document total (not the line split) so the invariant above holds even
+      // if the stored lines do not add up.
+      nilRated += sign * doc.taxableValue;
+      return;
+    }
+    // A nil-rated line carries no tax, so the document's own tax totals are
+    // already exactly the tax on the 3.1(a) portion — only the VALUE has to be
+    // split by rate.
+    taxable += sign * taxablePart;
+    nilRated += sign * nilPart;
     oigst += sign * doc.igst;
     ocgst += sign * doc.cgst;
     osgst += sign * doc.sgst;
@@ -530,8 +689,11 @@ Future<Gstr3bReport> buildGstr3b(
       final existing = interByPos[pos];
       interByPos[pos] = Gstr3bInterState(
         pos: pos,
-        taxableValue: (existing?.taxableValue ?? Decimal.zero) +
-            _d(sign * doc.taxableValue),
+        // Table 3.2 details the 3.1(a) outward value, so the exempt portion
+        // stays out of it — reporting the document total here would not add up
+        // against 3.1(a).
+        taxableValue:
+            (existing?.taxableValue ?? Decimal.zero) + _d(sign * taxablePart),
         igst:
             (existing?.igst ?? Decimal.zero) + _d(sign * doc.igst),
       );
@@ -552,24 +714,17 @@ Future<Gstr3bReport> buildGstr3b(
   double itcAll = 0;
   double itcRc = 0;
   double inwardNil = 0;
-  double inwardNonGst = 0;
   void addInward(PurchaseBillEntity b, {double sign = 1.0}) {
-    final gstin = (b.partyGstin ?? '').trim();
-    if (gstin.isEmpty) {
-      if (b.isInwardSupplyFromUnregistered) {
-        // Table 3.1(d) reverse-charge inward from an unregistered supplier:
-        // the tax is payable by the recipient, not creditable here.
-        itcRc += sign * (b.cgst + b.sgst + b.igst + b.cess);
-      } else {
-        // Purchases from unregistered suppliers under the regular scheme
-        // are NOT nil-rated: they are either non-GST or composition inward.
-        // Composition inward is nil-rated/exempt for the recipient.
-        inwardNil += sign * b.taxableValue;
-      }
+    if (b.reverseCharge || b.isInwardSupplyFromUnregistered) {
+      // Table 3.1(d) & Table 4(A3) reverse-charge inward:
+      // tax liability is payable by recipient in cash under Section 49(4).
+      itcRc += sign * (b.cgst + b.sgst + b.igst + b.cess);
       return;
     }
-    if (b.reverseCharge) {
-      itcRc += sign * (b.cgst + b.sgst + b.igst + b.cess);
+    final gstin = (b.partyGstin ?? '').trim();
+    if (gstin.isEmpty) {
+      // Regular purchases from unregistered suppliers (Table 5 nil-rated/exempt)
+      inwardNil += sign * b.taxableValue;
       return;
     }
     itcAll += sign * (b.cgst + b.sgst + b.igst + b.cess);
@@ -581,6 +736,31 @@ Future<Gstr3bReport> buildGstr3b(
   for (final dn in debitNotes) {
     addInward(dn, sign: -1.0);
   }
+
+  // The GST inside the firm's own expenses (rent, software, professional fees)
+  // is credit like any other inward supply and belongs in 4(A)(5). It used to
+  // be missing entirely: the return only ever read purchase bills, so the tax
+  // on an expense quietly became payable. An expense carries one GST figure
+  // and no place of supply, so the amount cannot be split across heads — which
+  // is also why it is added to the "all other ITC" total rather than to a
+  // per-head column.
+  final expenseGst = await db
+      .expenseRepositoryFor(firmId)
+      .list(type: 'expense', from: from, to: to, limit: 1000000)
+      .then((rows) => rows.fold<double>(
+            0,
+            (sum, e) => sum + e.gstAmount.clamp(0, e.amount).toDouble(),
+          ));
+  itcAll += expenseGst;
+
+  // A period whose purchase DEBIT NOTES exceed its bills reverses more ITC than
+  // was ever available. That is a real event, not an error: the excess is
+  // clawed back under Rules 42/43, which is exactly what Table 4(B)(1) is for.
+  // It used to be discarded (`itcAll < 0 ? 0 : itcAll`) while 4(B) was hardcoded
+  // 0 — so the return reported MORE credit than existed and nothing showed the
+  // clawback. The reversal is now routed to 4(B)(1) and 4(C) nets out negative,
+  // which netPayable already treats as "nothing to pay, carry the credit".
+  final reversedExcess = itcAll < 0 ? -itcAll : 0.0;
 
   return Gstr3bReport(
     fp: '${from.month.toString().padLeft(2, '0')}${from.year.toString()}',
@@ -598,10 +778,17 @@ Future<Gstr3bReport> buildGstr3b(
     itcReverseCharge: _d(itcRc),
     itcInwardIsd: Decimal.zero,
     itcAllOther: _d(itcAll < 0 ? 0 : itcAll),
-    itcReversedRule4243: Decimal.zero,
+    itcReversedRule4243: _d(reversedExcess),
     itcReversedOther: Decimal.zero,
+    // Table 5 is a disclosure of supply VALUE, not a liability, and the portal
+    // has no reversal row for it — so a debit note that exceeds nil-rated bills
+    // in the period leaves this at zero. Nothing is lost: nil-rated inward
+    // supplies generate no ITC, so the excess is not a credit reversal and has
+    // no home in Table 4(B) either. It is only the value figure that floors.
     inwardNilRated: _d(inwardNil < 0 ? 0 : inwardNil),
-    inwardNonGst: _d(inwardNonGst),
+    // Never populated from the books — see [Gstr3bReport.inwardNonGst]. The
+    // declaration is kept out of the file rather than filed as a false zero.
+    inwardNonGst: Decimal.zero,
   );
 }
 
@@ -750,20 +937,57 @@ class Gstr2aReconciliation {
     // Books: purchases in the period from registered suppliers.
     final books = <String, List<PurchaseBillEntity>>{};
     var booksTax = 0.0;
+    // Collected here, appended to [rows] once that list exists.
+    final noteRows = <Gstr2aMatchRow>[];
     final purchaseRepo = db.purchaseRepositoryFor(firmId);
     final bills = await purchaseRepo
         .list(docType: 'bill', from: from, to: to, limit: 1000000);
+    final debitNotes = await purchaseRepo
+        .list(docType: 'debit_note', from: from, to: to, limit: 1000000);
     for (final b in bills) {
       if (b.status == 'cancelled' || b.isDeleted) continue;
       if ((b.partyGstin ?? '').trim().isEmpty) continue;
+      // Match on the SUPPLIER's invoice number — the portal knows that one,
+      // not our internal bill number. (Keying on b.number made every row
+      // books_only/portal_only; the reconciliation never matched anything.)
+      final supplierRef =
+          (b.supplierInvoiceNumber ?? '').trim().toUpperCase();
       books.putIfAbsent(
-          _key((b.partyGstin ?? '').trim().toUpperCase(), b.number), () => [])
+          _key((b.partyGstin ?? '').trim().toUpperCase(),
+              supplierRef.isEmpty ? b.number : supplierRef), () => [])
           .add(b);
       booksTax += b.cgst + b.sgst + b.igst + b.cess;
     }
 
+    // Purchase debit notes reverse a bill's ITC, so they belong on the books
+    // side of this comparison — GSTR-3B Table 4(A)(5)/(B) already subtracts
+    // them, and reading bills only made "Books ITC" contradict the return built
+    // from these very books for this very period. One negative row each, keyed
+    // on the SUPPLIER's invoice number of the bill they return (the only number
+    // the portal knows), with the tax subtracted from [booksTax].
+    for (final dn in debitNotes) {
+      if (dn.status == 'cancelled' || dn.isDeleted) continue;
+      if ((dn.partyGstin ?? '').trim().isEmpty) continue;
+      final supplierRef =
+          (dn.supplierInvoiceNumber ?? '').trim().toUpperCase();
+      final key = _key((dn.partyGstin ?? '').trim().toUpperCase(),
+          supplierRef.isEmpty ? dn.number : supplierRef);
+      final tax = -(dn.cgst + dn.sgst + dn.igst + dn.cess);
+      booksTax += tax;
+      noteRows.add(Gstr2aMatchRow(
+        invoiceNumber: supplierRef.isEmpty ? dn.number : supplierRef,
+        // Nothing filed under this key at all → the books hold something the
+        // portal does not. A portal invoice DOES exist under it but our side
+        // now nets below it → the supplier has not reported the return.
+        status: portal.containsKey(key) ? 'value_mismatch' : 'books_only',
+        booksTaxable: -dn.taxableValue,
+        booksTax: tax,
+      ));
+    }
+
     final rows = <Gstr2aMatchRow>[];
     final seen = <String>{};
+    rows.addAll(noteRows);
     portal.forEach((key, portalInvoices) {
       seen.add(key);
       final bookBills = books[key] ?? const <PurchaseBillEntity>[];

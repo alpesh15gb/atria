@@ -8,15 +8,36 @@ import '../../core/database/app_database.dart';
 import '../../core/database/repositories/report_repository.dart';
 import '../../core/responsive/breakpoints.dart';
 import '../../core/state/providers.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
+import '../../shared/widgets/atria_avatar.dart';
+import '../../shared/widgets/atria_create_menu.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/money_text.dart';
 import '../../shared/widgets/status_chip.dart';
 
+/// Every link on this page that points at a **branch root** — `/sales`,
+/// `/purchase`, `/reports`, `/stock`, `/expenses`, `/settings` — uses `go`,
+/// never `push`.
+///
+/// Each of those paths is the root of a `StatefulShellBranch` and no branch
+/// route sets a `parentNavigatorKey`. go_router resolves an imperative push by
+/// walking the *current* match list until something is incompatible with the
+/// target, and its reuse test
+/// (`RouteMatchList._createNewMatchUntilIncompatible`) only reuses a shell
+/// when `otherMatches.last is ShellRouteMatch`. Coming from any branch, the
+/// last entry of that list is a plain `RouteMatch`, so the reuse branch is
+/// skipped and the `ImperativeRouteMatch` is appended as a **top-level sibling
+/// of the `StatefulShellMatch`**. The page then renders on the ROOT navigator:
+/// no nav rail, no bottom bar, and on Android Back unwinds to the pre-push
+/// screen instead of behaving like a tab. `go` replaces the match list, so the
+/// shell stays one instance and the branch really switches.
+///
+/// Deep links into a branch — `/sales/new`, `/sales/detail/<id>` — and the
+/// three routes that sit outside the shell on purpose (`/pos`,
+/// `/payment-reminders`, `/onboarding/firm-setup`) are pushed as before.
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
@@ -64,6 +85,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
   Widget build(BuildContext context) {
     final firm = ref.watch(activeFirmProvider).valueOrNull;
     final reports = ref.watch(reportRepositoryProvider);
+    // Warm the firm list while the dashboard is open: the switcher sheet
+    // reads it on tap, and an unwatched FutureProvider is still loading at
+    // that moment — the sheet opened EMPTY (the "company not showing" bug).
+    ref.watch(allFirmsProvider);
 
     final now = DateTime.now();
     final from = DateTime(now.year, now.month, 1);
@@ -71,8 +96,17 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
     final greeting = hour < 12
         ? 'Good Morning'
         : hour < 17
-            ? 'Good Afternoon'
-            : 'Good Evening';
+        ? 'Good Afternoon'
+        : 'Good Evening';
+
+    // The greeting header carries two lines, and `toolbarHeight` is what gives
+    // them room. It was a flat 72, which the default text size fits and a
+    // 2.0× system font (see `app.dart`, which no longer caps text scaling)
+    // does not — the pair is ~54dp at 1.0 and ~108 at 2.0, and a title taller
+    // than the toolbar overflows it. Scaling the band with the type keeps the
+    // headline legible instead of trading it away for a fixed height.
+    final textScale = MediaQuery.textScalerOf(context).scale(1.0);
+    final toolbarHeight = (72 * textScale).clamp(72.0, 144.0);
 
     return Scaffold(
       body: RefreshIndicator(
@@ -84,148 +118,234 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
           // vanishing before the provider resolves.
           await Future<void>.delayed(const Duration(milliseconds: 350));
         },
-        child: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            pinned: true,
-            stretch: true,
-            toolbarHeight: 72,
-            titleSpacing: 0,
-            // 2026 greeting header: "Good Morning, <Business>" like the
-            // reference home, with the FY as the quiet second line.
-            title: Padding(
-              padding: const EdgeInsets.only(left: 4),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    greeting,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color:
-                              Theme.of(context).colorScheme.onSurfaceVariant,
+        child: LayoutBuilder(
+          // QBO's dashboard is a two-column card grid on a desktop width and
+          // one long column on a phone — but "desktop width" means the width of
+          // the *pane*, not of the window. `AdaptiveNavShell` removes 236+1dp
+          // for the extended rail at exactly the same `Breakpoints.medium`
+          // threshold, so a window at 900dp used to take the two-column branch
+          // with 663dp of real width and split it into ~375/250 columns. The
+          // pane's own constraints are what this decision has to read — the
+          // same reason `AtriaEditorForm` uses a `LayoutBuilder` here.
+          builder: (context, constraints) => CustomScrollView(
+            slivers: [
+              SliverAppBar(
+                pinned: true,
+                stretch: true,
+                toolbarHeight: toolbarHeight,
+                titleSpacing: 0,
+                // NOT `primary`, so no second status-bar inset.
+                //
+                // `SliverAppBar` is `primary: true` by default, which prepends
+                // `MediaQuery.padding.top` to its own height and parks the
+                // toolbar row that far down — leaving that much blank band
+                // above the greeting. On a phone that band is a dead status-bar
+                // height between the chrome and the content, and it grows with
+                // a taller inset on a cutout or in landscape.
+                //
+                // It must be dropped *here* and not globally, because this
+                // screen is not the only `SliverAppBar`. `AdaptiveNavShell`
+                // stacks `AtriaTopBar` — which insets itself with `SafeArea` —
+                // directly above the branch navigators, so everything below it
+                // has already had the status bar drawn. But `_BottomShell`
+                // drops the top bar entirely for detail routes
+                // (`/detail/…`, `/edit/…`), and there `sale_detail_screen.dart`'s
+                // `SliverAppBar` is the only thing that will ever inset for the
+                // status bar — so that one keeps its default.
+                primary: false,
+                // 2026 greeting header: "Good Morning, <Business>" like the
+                // reference home, with the FY as the quiet second line.
+                title: Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        greeting,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                           fontWeight: FontWeight.w600,
                         ),
+                      ),
+                      Text(
+                        firm?.name ?? 'Atria',
+                        style: Theme.of(context).textTheme.headlineMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                   ),
-                  Text(
-                    firm?.name ?? 'Atria',
-                    style: Theme.of(context).textTheme.headlineMedium
-                        ?.copyWith(fontWeight: FontWeight.w800),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                ),
+                actions: [
+                  // The green Create button lives in the header, as it does in
+                  // QBO — the page itself carries no create tiles.
+                  const AtriaCreateButton(menuOffset: Offset(0, 46)),
+                  const SizedBox(width: 10),
+                  IconButton(
+                    onPressed: () => _showFirmSwitcher(context),
+                    icon: const Icon(Icons.business_center_outlined, size: 20),
+                    tooltip: 'Switch business',
                   ),
+                  IconButton(
+                    // `go`, never `push` — see the class doc.
+                    onPressed: () => context.go('/settings'),
+                    icon: const Icon(PhosphorIconsRegular.gear, size: 20),
+                    tooltip: 'Settings',
+                  ),
+                  const SizedBox(width: 12),
                 ],
               ),
-            ),
-            actions: [
-              IconButton.filledTonal(
-                onPressed: () => _showFirmSwitcher(context),
-                icon: const Icon(Icons.business_center_outlined, size: 20),
-                tooltip: 'Switch business',
-                style: IconButton.styleFrom(
-                  backgroundColor:
-                      Theme.of(context).colorScheme.surfaceContainerHighest,
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate([
+                    if (reports == null)
+                      const _NoFirmState()
+                    else ...[
+                      // QuickBooks' dashboard order: the business
+                      // snapshot, the movement figures, then profit &
+                      // loss beside the invoices owed to you, and the
+                      // get-things-done checklist last.
+                      _HeroCard(firm: firm, reports: reports, from: from),
+                      const SizedBox(height: 16),
+                      _KpiGrid(reports: reports, from: from),
+                      const SizedBox(height: 20),
+                      if (constraints.maxWidth >= Breakpoints.medium)
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              flex: 3,
+                              child: _TrendSection(reports: reports),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              flex: 2,
+                              child: Column(
+                                children: [
+                                  _RecentInvoices(),
+                                  const SizedBox(height: 16),
+                                  _AlertsSection(reports: reports),
+                                ],
+                              ),
+                            ),
+                          ],
+                        )
+                      else ...[
+                        _TrendSection(reports: reports),
+                        const SizedBox(height: 20),
+                        _RecentInvoices(),
+                        const SizedBox(height: 20),
+                        _AlertsSection(reports: reports),
+                      ],
+                      const SizedBox(height: 20),
+                      _QuickActions(),
+                    ],
+                  ]),
                 ),
               ),
-              const SizedBox(width: 10),
-              IconButton.filledTonal(
-                onPressed: () => context.push('/settings'),
-                icon: const Icon(PhosphorIconsRegular.gear, size: 20),
-                tooltip: 'Settings',
-                style: IconButton.styleFrom(
-                  backgroundColor:
-                      Theme.of(context).colorScheme.surfaceContainerHighest,
-                ),
-              ),
-              const SizedBox(width: 16),
             ],
           ),
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
-            sliver: SliverList(
-              delegate: SliverChildListDelegate([
-                if (reports == null)
-                  const _NoFirmState()
-                else ...[
-                  _HeroCard(firm: firm, reports: reports, from: from),
-                  const SizedBox(height: 16),
-                  _QuickActions(),
-                  const SizedBox(height: 20),
-                  _KpiGrid(reports: reports, from: from),
-                  const SizedBox(height: 20),
-                  _TrendSection(reports: reports),
-                  const SizedBox(height: 20),
-                  _RecentInvoices(),
-                  const SizedBox(height: 20),
-                  _AlertsSection(reports: reports),
-                ],
-              ]),
-            ),
-          ),
-        ],
-      ),
+        ),
       ),
     );
   }
 
   void _showFirmSwitcher(BuildContext context) {
-    final firms = ref.read(allFirmsProvider).valueOrNull ?? [];
     final activeId = ref.read(activeFirmIdProvider);
     showModalBottomSheet(
       context: context,
       showDragHandle: true,
       builder: (sheetContext) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.only(left: 8, right: 8, bottom: 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(left: 16, bottom: 8),
-                  child: Text('Your businesses',
-                      style: Theme.of(sheetContext).textTheme.titleMedium),
-                ),
-                RadioGroup<String>(
-                  groupValue: activeId,
-                  onChanged: (value) {
-                    if (value == null) return;
-                    ref.read(activeFirmIdProvider.notifier).select(value);
-                    ref.read(firmRepositoryProvider).setDefault(value);
-                    Navigator.of(sheetContext).pop();
-                  },
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      for (final f in firms)
-                        RadioListTile<String>(
-                          value: f.id,
-                          title: Text(f.name),
-                          subtitle: Text(
-                            (f.gstin ?? 'Unregistered').toUpperCase(),
-                            style: Theme.of(sheetContext).textTheme.bodySmall,
+        // The sheet watches the provider itself: even if it was still loading
+        // when the sheet opened, the list appears the moment it resolves
+        // instead of leaving an empty sheet.
+        return Consumer(
+          builder: (sheetContext, sheetRef, _) {
+            final firmsAsync = sheetRef.watch(allFirmsProvider);
+            final firms = firmsAsync.valueOrNull ?? const [];
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.only(left: 8, right: 8, bottom: 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(left: 16, bottom: 8),
+                      child: Text(
+                        'Your businesses',
+                        style: Theme.of(sheetContext).textTheme.titleMedium,
+                      ),
+                    ),
+                    if (firmsAsync.isLoading && firms.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Center(
+                          child: SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2),
                           ),
                         ),
-                    ],
-                  ),
+                      )
+                    else if (firms.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text('No businesses yet.'),
+                      )
+                    else
+                      RadioGroup<String>(
+                        groupValue: activeId,
+                        onChanged: (value) {
+                          if (value == null) return;
+                          sheetRef
+                              .read(activeFirmIdProvider.notifier)
+                              .select(value);
+                          sheetRef
+                              .read(firmRepositoryProvider)
+                              .setDefault(value);
+                          Navigator.of(sheetContext).pop();
+                        },
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            for (final f in firms)
+                              RadioListTile<String>(
+                                value: f.id,
+                                title: Text(f.name),
+                                subtitle: Text(
+                                  (f.gstin ?? 'Unregistered').toUpperCase(),
+                                  style: Theme.of(sheetContext)
+                                      .textTheme
+                                      .bodySmall,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: FilledButton.tonalIcon(
+                        onPressed: () {
+                          Navigator.of(sheetContext).pop();
+                          context.push('/onboarding/firm-setup');
+                        },
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add another business'),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: FilledButton.tonalIcon(
-                    onPressed: () {
-                      Navigator.of(sheetContext).pop();
-                      context.push('/onboarding/firm-setup');
-                    },
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add another business'),
-                  ),
-                ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
@@ -240,7 +360,8 @@ class _NoFirmState extends StatelessWidget {
     return EmptyState(
       icon: PhosphorIconsRegular.books,
       title: 'No business yet',
-      message: 'Create your first business or start with sample data to '
+      message:
+          'Create your first business or start with sample data to '
           'explore Atria end to end.',
       actionLabel: 'Set up business',
       onAction: () => context.push('/onboarding/firm-setup'),
@@ -251,7 +372,11 @@ class _NoFirmState extends StatelessWidget {
 /// The brand hero: gradient card with the headline sales number and the
 /// two balances that matter most to a business owner.
 class _HeroCard extends ConsumerWidget {
-  const _HeroCard({required this.firm, required this.reports, required this.from});
+  const _HeroCard({
+    required this.firm,
+    required this.reports,
+    required this.from,
+  });
 
   final FirmEntity? firm;
   final ReportRepository reports;
@@ -271,18 +396,25 @@ class _HeroCard extends ConsumerWidget {
           children: [
             Row(
               children: [
-                Icon(PhosphorIconsRegular.warningCircle,
-                    size: 18, color: Theme.of(context).colorScheme.error),
+                Icon(
+                  PhosphorIconsRegular.warningCircle,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.error,
+                ),
                 const SizedBox(width: 8),
-                Text('Could not load today’s numbers',
-                    style: Theme.of(context).textTheme.titleMedium),
+                Text(
+                  'Could not load today’s numbers',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
               ],
             ),
             const SizedBox(height: 8),
-            Text('$e',
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall),
+            Text(
+              '$e',
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
             const SizedBox(height: 8),
             TextButton.icon(
               onPressed: () => ref.invalidate(_dashboardProvider(from)),
@@ -293,28 +425,14 @@ class _HeroCard extends ConsumerWidget {
         ),
       ),
       data: (summary) {
-        final isDark = Theme.of(context).brightness == Brightness.dark;
+        // QuickBooks' "Business snapshot": a plain white panel with a bold
+        // title, the headline figure in ink, and the balances on a hairline
+        // rule — no gradient band, no decoration competing with the numbers.
+        final scheme = Theme.of(context).colorScheme;
+        final text = Theme.of(context).textTheme;
 
-        return Container(
-          width: double.infinity,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.all(Radius.circular(AppRadius.xl)),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              stops: const [0, 0.55, 1],
-              colors: isDark
-                  ? [
-                      const Color(0xFF7C3AED),
-                      const Color(0xFF5B21B6),
-                      const Color(0xFF2E1065),
-                    ]
-                  : AppColors.heroGradient,
-            ),
-            boxShadow:
-                isDark ? null : AppShadows.cardHigh,
-          ),
-          padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
+        return AtriaCard(
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -322,71 +440,48 @@ class _HeroCard extends ConsumerWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Total Sales',
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.75),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.3,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        Formatters.monthYear(DateTime.now()),
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.92),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                  // The reference card's signature tile: a soft white chip
-                  // with the brand mark, top-right.
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.18),
-                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                  Text(
+                    'Business snapshot',
+                    style: text.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
                     ),
-                    child: const Icon(
-                      PhosphorIconsFill.stack,
-                      color: Colors.white,
-                      size: 20,
+                  ),
+                  const Spacer(),
+                  Text(
+                    Formatters.monthYear(DateTime.now()),
+                    style: text.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 6),
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
+              Text(
+                'Total sales this month',
+                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 2),
               Text(
                 Formatters.money(summary.totalSales),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 38,
-                  fontWeight: FontWeight.w800,
-                  height: 1.05,
-                  letterSpacing: -1,
+                style: text.displayMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  height: 1.1,
                   fontFeatures: const [FontFeature.tabularFigures()],
                 ),
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 4),
               Text(
-                '${summary.invoiceCount} invoice${summary.invoiceCount == 1 ? '' : 's'} this month',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.72),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
+                '${Formatters.count(summary.invoiceCount, 'invoice')} this month',
+                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 12),
+              Divider(height: 1, color: scheme.outline),
+              const SizedBox(height: 12),
+              // The four numbers every Indian billing home carries, in one
+              // strip: what customers owe, what you owe, what is actually in
+              // hand, and what the shelf is worth.
               IntrinsicHeight(
                 child: Row(
                   children: [
@@ -396,24 +491,24 @@ class _HeroCard extends ConsumerWidget {
                       Formatters.moneyCompact(summary.receivable),
                       PhosphorIconsRegular.arrowDownLeft,
                     ),
-                    VerticalDivider(
-                      width: 28,
-                      color: Colors.white.withValues(alpha: 0.22),
-                      indent: 4,
-                      endIndent: 4,
-                    ),
+                    _heroDivider(),
                     _heroStat(
                       context,
                       'To pay',
                       Formatters.moneyCompact(summary.payable),
                       PhosphorIconsRegular.arrowUpRight,
                     ),
-                    VerticalDivider(
-                      width: 28,
-                      color: Colors.white.withValues(alpha: 0.22),
-                      indent: 4,
-                      endIndent: 4,
+                    _heroDivider(),
+                    _heroStat(
+                      context,
+                      'Cash in hand',
+                      // Lifetime receipts less payments. The month-to-date
+                      // figures belong in the KPIs below; here they labelled
+                      // a balance that was really a period net.
+                      Formatters.moneyCompact(summary.cashIn - summary.cashOut),
+                      PhosphorIconsRegular.wallet,
                     ),
+                    _heroDivider(),
                     _heroStat(
                       context,
                       'Stock value',
@@ -430,36 +525,48 @@ class _HeroCard extends ConsumerWidget {
     );
   }
 
-  Widget _heroStat(BuildContext context, String label, String value, IconData icon) {
+  Widget _heroDivider() => VerticalDivider(
+    width: 16,
+    color: Color(0x00000000),
+    indent: 2,
+    endIndent: 2,
+  );
+
+  Widget _heroStat(
+    BuildContext context,
+    String label,
+    String value,
+    IconData icon,
+  ) {
+    // Four stats share the panel's width, so the icon moves above the label
+    // instead of beside it — side by side, "Cash in hand" truncated.
+    final scheme = Theme.of(context).colorScheme;
     return Expanded(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 13, color: Colors.white.withValues(alpha: 0.8)),
-              const SizedBox(width: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.8),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
+          Icon(icon, size: 14, color: scheme.onSurfaceVariant),
           const SizedBox(height: 3),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: scheme.onSurfaceVariant,
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 2),
           Text(
             value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 15.5,
+            style: TextStyle(
+              color: scheme.onSurface,
+              fontSize: 14,
               fontWeight: FontWeight.w700,
-              fontFeatures: [FontFeature.tabularFigures()],
+              fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
         ],
@@ -472,14 +579,17 @@ class _HeroCard extends ConsumerWidget {
       height: 172,
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.all(Radius.circular(AppRadius.xl)),
+        borderRadius: const BorderRadius.all(Radius.circular(AppRadius.xl)),
+        border: Border.all(color: Theme.of(context).colorScheme.outline),
       ),
     );
   }
 }
 
-final _dashboardProvider =
-    FutureProvider.family<DashboardSummary, DateTime>((ref, from) async {
+final _dashboardProvider = FutureProvider.family<DashboardSummary, DateTime>((
+  ref,
+  from,
+) async {
   final reports = ref.watch(reportRepositoryProvider);
   if (reports == null) {
     return DashboardSummary.empty();
@@ -487,107 +597,96 @@ final _dashboardProvider =
   return reports.dashboard(from: from, to: DateTime.now());
 });
 
+/// QBO's "Get things done" card: a short list of green action links, each of
+/// which is a page in itself. QBO deliberately avoids tiles here — the whole
+/// card is text, which is why it survives any width.
 class _QuickActions extends StatelessWidget {
+  const _QuickActions();
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final colors = atriaColors(context);
-    final actions = <_QuickAction>[
-      _QuickAction(
-        label: 'New Invoice',
-        icon: PhosphorIconsRegular.receipt,
-        color: colors.brandGradientStart,
-        onTap: () => context.push('/sales/new?type=invoice'),
+    final text = Theme.of(context).textTheme;
+    const actions = <(IconData, String, String)>[
+      (
+        PhosphorIconsRegular.receipt,
+        'Create invoice',
+        '/sales/new?type=invoice',
       ),
-      _QuickAction(
-        label: 'Add Item',
-        icon: PhosphorIconsRegular.cube,
-        color: colors.warning,
-        onTap: () => context.push('/items/new'),
+      (
+        PhosphorIconsRegular.fileText,
+        'Send a quote',
+        '/sales/new?type=quotation',
       ),
-      _QuickAction(
-        label: 'Add Party',
-        icon: PhosphorIconsRegular.userPlus,
-        color: colors.positive,
-        onTap: () => context.push('/parties/new'),
+      (PhosphorIconsRegular.arrowsLeftRight, 'Record a payment', '/payments'),
+      (
+        PhosphorIconsRegular.shoppingCart,
+        'Enter a bill',
+        '/purchase/new?type=bill',
       ),
-      _QuickAction(
-        label: 'Reports',
-        icon: PhosphorIconsRegular.chartBar,
-        color: scheme.secondary,
-        onTap: () => context.push('/reports'),
+      (
+        PhosphorIconsRegular.moneyWavy,
+        'Add an expense',
+        '/expenses/new?type=expense',
+      ),
+      (PhosphorIconsRegular.cube, 'Add a product or service', '/items/new'),
+      (
+        PhosphorIconsRegular.users,
+        'Add a customer',
+        '/parties/new?type=customer',
+      ),
+      // The chase-up list. `/payment-reminders` sits outside the shell on
+      // purpose (like `/pos`), and it is in neither `NavDestinations.sections`
+      // nor the global search panel — so before this the *only* way into it was
+      // the "Overdue" alert card, which does not render at all on a shop with
+      // nothing overdue. This card always renders, so the reminders list is
+      // reachable whether or not anything is late.
+      (
+        PhosphorIconsRegular.bellRinging,
+        'Payment reminders',
+        '/payment-reminders',
       ),
     ];
-    return Row(
-      children: [
-        for (final a in actions) ...[
-          Expanded(child: _QuickActionButton(action: a)),
-          if (a != actions.last) const SizedBox(width: 12),
-        ],
-      ],
-    );
-  }
-}
 
-class _QuickAction {
-  final String label;
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _QuickAction({
-    required this.label,
-    required this.icon,
-    required this.color,
-    required this.onTap,
-  });
-}
-
-class _QuickActionButton extends StatelessWidget {
-  const _QuickActionButton({required this.action});
-
-  final _QuickAction action;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    // Reference-style quick actions: borderless card, soft tinted icon tile.
-    return Material(
-      color: scheme.surface,
-      borderRadius: BorderRadius.circular(AppRadius.lg),
-      child: InkWell(
-        onTap: action.onTap,
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppRadius.lg),
-            boxShadow: AppShadows.card,
+    return AtriaCard(
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Get things done',
+            style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 4,
+            runSpacing: 2,
             children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: action.color.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(AppRadius.sm),
-                ),
-                alignment: Alignment.center,
-                child: Icon(action.icon, size: 21, color: action.color),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                action.label,
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
+              for (final (icon, label, route) in actions)
+                TextButton.icon(
+                  onPressed: () {
+                    // `/payments` is a branch root; everything else
+                    // in this list is a deep link into a branch, or a route
+                    // outside the shell. See [DashboardScreen].
+                    if (route == '/payments') {
+                      context.go(route);
+                    } else {
+                      context.push(route);
+                    }
+                  },
+                  style: TextButton.styleFrom(
+                    foregroundColor: scheme.primary,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
                     ),
-                textAlign: TextAlign.center,
-              ),
+                  ),
+                  icon: Icon(icon, size: 18),
+                  label: Text(label),
+                ),
             ],
           ),
-        ),
+        ],
       ),
     );
   }
@@ -611,52 +710,70 @@ class _KpiGrid extends ConsumerWidget {
         child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
       ),
       error: (e, _) => AtriaCard(
-        child: Text('Could not load summary: $e',
-            style: TextStyle(color: scheme.error)),
+        child: Text(
+          'Could not load summary: $e',
+          style: TextStyle(color: scheme.error),
+        ),
       ),
       data: (summary) {
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            final crossCount = constraints.isCompact ? 2 : 4;
-            return GridView.count(
-              crossAxisCount: crossCount,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: constraints.isCompact ? 1.05 : 1.15,
-              children: [
-                _KpiCard(
-                  label: 'Purchases',
-                  amount: summary.totalPurchases,
-                  icon: PhosphorIconsRegular.shoppingCart,
-                  tint: colors.saffronGradientStart,
-                  onTap: () => context.push('/purchase'),
+        // Three tiles now, not four: "Net received" became "Cash in hand" in
+        // the hero strip directly above, so the grid was repeating a figure.
+        // IntrinsicHeight keeps the three equal without a fixed aspect ratio.
+        //
+        // The caption names the window: these three are month-to-date like the
+        // hero above them, and unlabelled they read as lifetime totals — a
+        // book with purchases recorded only in an earlier month showed
+        // "Purchases ₹0.00" next to a non-zero GST figure.
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: 2, bottom: 6),
+              child: Text(
+                'This month so far · since ${Formatters.date(from)}',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
                 ),
-                _KpiCard(
-                  label: 'Expenses',
-                  amount: summary.totalExpenses,
-                  icon: PhosphorIconsRegular.moneyWavy,
-                  tint: colors.negative,
-                  onTap: () => context.push('/expenses'),
-                ),
-                _KpiCard(
-                  label: 'GST payable',
-                  amount: summary.gstPayable,
-                  icon: PhosphorIconsRegular.receipt,
-                  tint: colors.warning,
-                  onTap: () => context.push('/reports'),
-                ),
-                _KpiCard(
-                  label: 'Net received',
-                  amount: summary.totalReceived - summary.totalPaid,
-                  icon: PhosphorIconsRegular.bank,
-                  tint: colors.positive,
-                  onTap: () => context.push('/reports'),
-                ),
-              ],
-            );
-          },
+              ),
+            ),
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: _KpiCard(
+                      label: 'Purchases',
+                      amount: summary.totalPurchases,
+                      icon: PhosphorIconsRegular.shoppingCart,
+                      tint: colors.saffronGradientStart,
+                      onTap: () => context.go('/purchase'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _KpiCard(
+                      label: 'Expenses',
+                      amount: summary.totalExpenses,
+                      icon: PhosphorIconsRegular.moneyWavy,
+                      tint: colors.negative,
+                      onTap: () => context.go('/expenses'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _KpiCard(
+                      label: 'GST payable',
+                      amount: summary.gstPayable,
+                      icon: PhosphorIconsRegular.receipt,
+                      tint: colors.warning,
+                      onTap: () => context.go('/reports'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         );
       },
     );
@@ -690,6 +807,7 @@ class _KpiCard extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppRadius.lg),
+            border: Border.all(color: Theme.of(context).colorScheme.outline),
             boxShadow: AppShadows.card,
           ),
           child: Column(
@@ -709,9 +827,9 @@ class _KpiCard extends StatelessWidget {
               Text(
                 label,
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 2),
               FittedBox(
@@ -719,10 +837,8 @@ class _KpiCard extends StatelessWidget {
                 alignment: Alignment.centerLeft,
                 child: MoneyText(
                   amount,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 17,
-                      ),
+                  style: Theme.of(context).textTheme.titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w700, fontSize: 17),
                   colorize: false,
                 ),
               ),
@@ -748,7 +864,7 @@ class _TrendSection extends ConsumerWidget {
           title: 'Sales vs Purchases',
           subtitle: 'Last 6 months',
           actionLabel: 'Reports',
-          onAction: () => context.push('/reports'),
+          onAction: () => context.go('/reports'),
         ),
         _TrendChart(reports: reports),
       ],
@@ -771,8 +887,10 @@ class _TrendChart extends ConsumerWidget {
         child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
       ),
       error: (e, _) => AtriaCard(
-        child: Text('Could not load trend: $e',
-            style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        child: Text(
+          'Could not load trend: $e',
+          style: TextStyle(color: Theme.of(context).colorScheme.error),
+        ),
       ),
       data: (points) {
         if (points.isEmpty) {
@@ -791,7 +909,9 @@ class _TrendChart extends ConsumerWidget {
   }
 }
 
-final _trendProvider = FutureProvider.autoDispose<List<MonthlyPoint>>((ref) async {
+final _trendProvider = FutureProvider.autoDispose<List<MonthlyPoint>>((
+  ref,
+) async {
   final reports = ref.watch(reportRepositoryProvider);
   if (reports == null) return const [];
   return reports.monthlyTrend(months: 6);
@@ -815,7 +935,8 @@ class _BarsCard extends StatelessWidget {
 
   final List<MonthlyPoint> points;
 
-  double get _maxValue {    var max = 0.0;
+  double get _maxValue {
+    var max = 0.0;
     for (final p in points) {
       max = [
         max,
@@ -844,72 +965,99 @@ class _BarsCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          // The bars share this box with the month label beneath them, so the
-          // full 150px is not all theirs — sizing a bar to 150 * ratio pushed
-          // the tallest pair past the bottom of the card.
-          const SizedBox(height: _TrendBars.height),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final groupWidth = constraints.maxWidth / points.length;
-              return Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  for (final p in points)
-                    SizedBox(
-                      width: groupWidth * 0.72,
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              _bar(
-                                context,
-                                height: _TrendBars.barHeight *
-                                    (p.sales.toDouble() / max),
-                                color: colors.brandGradientStart,
-                              ),
-                              const SizedBox(width: 4),
-                              _bar(
-                                context,
-                                height: _TrendBars.barHeight *
-                                    (p.purchases.toDouble() / max),
-                                color: colors.saffronGradientStart,
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            Formatters.monthYear(p.month).substring(0, 3),
-                            style:
-                                Theme.of(context).textTheme.labelSmall?.copyWith(
-                                      color: scheme.onSurfaceVariant,
-                                      fontWeight: FontWeight.w600,
+          SizedBox(
+            height: _TrendBars.height,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final groupWidth = constraints.maxWidth / points.length;
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    for (final p in points)
+                      SizedBox(
+                        width: groupWidth * 0.72,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                // The bars cap at 16px but give way when the
+                                // month group is narrower than that — on a
+                                // 360dp screen six months share ~290px, so a
+                                // group is ~48px and its 0.72 slot is 34px,
+                                // less than the 36px two fixed bars need.
+                                // Fixed-width bars overflowed by a fraction
+                                // and painted the striped banner.
+                                Flexible(
+                                  child: ConstrainedBox(
+                                    constraints: const BoxConstraints(
+                                      maxWidth: 16,
                                     ),
-                          ),
-                        ],
+                                    child: _bar(
+                                      context,
+                                      height:
+                                          _TrendBars.barHeight *
+                                          (p.sales.toDouble() / max),
+                                      color: colors.brandGradientStart,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Flexible(
+                                  child: ConstrainedBox(
+                                    constraints: const BoxConstraints(
+                                      maxWidth: 16,
+                                    ),
+                                    child: _bar(
+                                      context,
+                                      height:
+                                          _TrendBars.barHeight *
+                                          (p.purchases.toDouble() / max),
+                                      color: colors.saffronGradientStart,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              Formatters.monthYear(p.month).substring(0, 3),
+                              style: Theme.of(context).textTheme.labelSmall
+                                  ?.copyWith(
+                                    color: scheme.onSurfaceVariant,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                ],
-              );
-            },
+                  ],
+                );
+              },
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _bar(BuildContext context, {required double height, required Color color}) {
+  Widget _bar(
+    BuildContext context, {
+    required double height,
+    required Color color,
+  }) {
     return Container(
       width: 16,
       height: height.clamp(2, double.infinity),
       decoration: BoxDecoration(
         color: color,
+        // A bar rounds its top corners only, on the 4px scale.
         borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(5),
-          topRight: Radius.circular(5),
+          topLeft: Radius.circular(AppRadius.xs),
+          topRight: Radius.circular(AppRadius.xs),
         ),
       ),
     );
@@ -924,16 +1072,18 @@ class _BarsCard extends StatelessWidget {
           height: 10,
           decoration: BoxDecoration(
             color: color,
-            borderRadius: BorderRadius.circular(3),
+            // 2px, not 3: a legend swatch reads as either a dot or the bar it
+            // stands for, and 3px was neither.
+            borderRadius: const BorderRadius.all(Radius.circular(AppRadius.xs)),
           ),
         ),
         const SizedBox(width: 6),
         Text(
           label,
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w600,
-              ),
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ],
     );
@@ -954,7 +1104,7 @@ class _RecentInvoices extends ConsumerWidget {
         SectionHeader(
           title: 'Recent invoices',
           actionLabel: 'View all',
-          onAction: () => context.push('/sales'),
+          onAction: () => context.go('/sales'),
         ),
         StreamBuilder(
           stream: invoices,
@@ -963,7 +1113,9 @@ class _RecentInvoices extends ConsumerWidget {
               return const AtriaCard(
                 child: SizedBox(
                   height: 72,
-                  child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                  child: Center(
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
                 ),
               );
             }
@@ -982,8 +1134,7 @@ class _RecentInvoices extends ConsumerWidget {
             }
             return Column(
               children: [
-                for (final invoice in data)
-                  _InvoiceTile(invoice: invoice),
+                for (final invoice in data) _InvoiceTile(invoice: invoice),
               ],
             );
           },
@@ -1000,9 +1151,6 @@ class _InvoiceTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = atriaColors(context);
-    final initials = _initials(invoice.partyName ?? '?');
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
@@ -1015,21 +1163,14 @@ class _InvoiceTile extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(AppRadius.lg),
+              border: Border.all(color: Theme.of(context).colorScheme.outline),
               boxShadow: AppShadows.card,
             ),
             child: Row(
               children: [
-                CircleAvatar(
-                  radius: 20,
-                  backgroundColor: colors.brandGradientStart.withValues(alpha: 0.14),
-                  child: Text(
-                    initials,
-                    style: TextStyle(
-                      color: colors.brandGradientStart,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                    ),
-                  ),
+                AtriaAvatar.initials(
+                  name: invoice.partyName ?? 'Walk-in customer',
+                  radius: AtriaAvatar.row,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -1038,9 +1179,8 @@ class _InvoiceTile extends StatelessWidget {
                     children: [
                       Text(
                         invoice.partyName ?? 'Walk-in customer',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
+                        style: Theme.of(context).textTheme.titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w600),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -1048,10 +1188,8 @@ class _InvoiceTile extends StatelessWidget {
                       Text(
                         '${invoice.number} • ${Formatters.date(invoice.invoiceDate)}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant,
-                            ),
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ],
                   ),
@@ -1065,9 +1203,8 @@ class _InvoiceTile extends StatelessWidget {
                 const SizedBox(width: 10),
                 MoneyText(
                   Decimal.parse(invoice.grandTotal.toString()),
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                  style: Theme.of(context).textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
                   colorize: false,
                 ),
               ],
@@ -1076,14 +1213,6 @@ class _InvoiceTile extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  String _initials(String name) {
-    final parts = name.trim().split(RegExp(r'\s+'));
-    if (parts.isEmpty || parts.first.isEmpty) return '?';
-    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
-    return (parts.first.substring(0, 1) + parts[1].substring(0, 1))
-        .toUpperCase();
   }
 }
 
@@ -1094,8 +1223,11 @@ class _AlertsSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final future = ref.watch(_dashboardProvider(DateTime(DateTime.now().year,
-        DateTime.now().month, 1)));
+    final future = ref.watch(
+      _dashboardProvider(
+        DateTime(DateTime.now().year, DateTime.now().month, 1),
+      ),
+    );
 
     return future.when(
       loading: () => const SizedBox.shrink(),
@@ -1103,18 +1235,26 @@ class _AlertsSection extends ConsumerWidget {
         padding: const EdgeInsets.only(top: 12),
         child: Row(
           children: [
-            Icon(PhosphorIconsRegular.warningCircle,
-                size: 16, color: Theme.of(context).colorScheme.error),
+            Icon(
+              PhosphorIconsRegular.warningCircle,
+              size: 16,
+              color: Theme.of(context).colorScheme.error,
+            ),
             const SizedBox(width: 6),
             Expanded(
-              child: Text('Could not load alerts — $e',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall),
+              child: Text(
+                'Could not load alerts — $e',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ),
             TextButton(
-              onPressed: () => ref.invalidate(_dashboardProvider(DateTime(
-                  DateTime.now().year, DateTime.now().month, 1))),
+              onPressed: () => ref.invalidate(
+                _dashboardProvider(
+                  DateTime(DateTime.now().year, DateTime.now().month, 1),
+                ),
+              ),
               child: const Text('Retry'),
             ),
           ],
@@ -1125,40 +1265,66 @@ class _AlertsSection extends ConsumerWidget {
           return const SizedBox.shrink();
         }
         final colors = atriaColors(context);
+        final lowStock = summary.lowStockCount > 0
+            ? _AlertCard(
+                icon: PhosphorIconsRegular.package,
+                tint: colors.warning,
+                title: 'Low stock',
+                body:
+                    '${Formatters.count(summary.lowStockCount, 'item')} at or below the alert level',
+                onTap: () => context.go('/stock'),
+              )
+            : null;
+        final overdue = summary.overdueCount > 0
+            ? _AlertCard(
+                icon: PhosphorIconsRegular.warning,
+                tint: colors.negative,
+                title: 'Overdue',
+                body:
+                    '${Formatters.count(summary.overdueCount, 'invoice')} past the due date',
+                // Straight to the reminders list — the action a user takes on
+                // overdue invoices is nudging the party.
+                onTap: () => context.push('/payment-reminders'),
+              )
+            : null;
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SectionHeader(title: 'Needs attention'),
-            Row(
-              children: [
-                if (summary.lowStockCount > 0) ...[
-                  Expanded(
-                    child: _AlertCard(
-                      icon: PhosphorIconsRegular.package,
-                      tint: colors.warning,
-                      title: 'Low stock',
-                      body:
-                          '${summary.lowStockCount} item${summary.lowStockCount == 1 ? '' : 's'} at or below the alert level',
-                      onTap: () => context.push('/stock'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                ],
-                if (summary.overdueCount > 0) ...[
-                  Expanded(
-                    child: _AlertCard(
-                      icon: PhosphorIconsRegular.warning,
-                      tint: colors.negative,
-                      title: 'Overdue',
-                      body:
-                          '${summary.overdueCount} invoice${summary.overdueCount == 1 ? '' : 's'} past the due date',
-                      // Straight to the reminders list — the action a user
-                      // takes on overdue invoices is nudging the party.
-                      onTap: () => context.push('/payment-reminders'),
-                    ),
-                  ),
-                ],
-              ],
+            // Stacked below `Breakpoints.medium` of *pane*. Two cards side by
+            // side share whatever the pane gives them, and the shell has
+            // already taken the rail — at 900dp of window that is ~330dp each,
+            // and on a 360dp phone it is 156dp each, where both bodies wrap to
+            // four or five lines. One under the other reads as a list and costs
+            // the reader nothing.
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final cards = [
+                  ?lowStock,
+                  ?overdue,
+                ];
+                if (cards.length < 2 ||
+                    constraints.maxWidth < Breakpoints.medium) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (var i = 0; i < cards.length; i++) ...[
+                        if (i > 0) const SizedBox(height: 12),
+                        cards[i],
+                      ],
+                    ],
+                  );
+                }
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: cards[0]),
+                    const SizedBox(width: 12),
+                    Expanded(child: cards[1]),
+                  ],
+                );
+              },
             ),
           ],
         );
@@ -1194,6 +1360,7 @@ class _AlertCard extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppRadius.lg),
+            border: Border.all(color: Theme.of(context).colorScheme.outline),
             boxShadow: AppShadows.card,
           ),
           child: Column(
@@ -1203,18 +1370,16 @@ class _AlertCard extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 title,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: tint,
-                    ),
+                style: Theme.of(context).textTheme.titleSmall
+                    ?.copyWith(fontWeight: FontWeight.w700, color: tint),
               ),
               const SizedBox(height: 2),
               Text(
                 body,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      height: 1.4,
-                    ),
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  height: 1.4,
+                ),
               ),
             ],
           ),

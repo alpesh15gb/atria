@@ -1,0 +1,29 @@
+{
+  "success": true,
+  "categories": [
+    {
+      "category_id": 1,
+      "category": "Rent",
+      "type": "expense",
+      "category_type": "direct",
+      "parent_category_id": null,
+      "children": []
+    },
+    {
+      "category_id": 2,
+      "category": "Internet",
+      "type": "expense",
+      "category_type": "direct",
+      "parent_category_id": null,
+      "children": []
+    },
+    {
+      "category_id": 20,
+      "category": "Dividend",
+      "type": "indirect_income",
+      "category_type": "indirect",
+      "parent_category_id": null,
+      "children": []
+    }
+  ]
+}

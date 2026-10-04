@@ -1,0 +1,27 @@
+{
+  "invoice_details": {
+    "serial_number": "INV-2026-002",
+    "document_type": "invoice",
+    "document_date": "10-04-2026",
+    "due_date": "10-04-2026",
+    "hash_id": "INVHASH2",
+    "party": {"id": "CUST2", "type": "customer", "name": "Walk-in Customer", "country_code": "91", "phone_number": "", "email": "", "gstin": "",
+      "billing_address": {"address_line1": "", "city": "Hyderabad", "state": "TELANGANA", "country": "India", "pincode": "500001"}},
+    "items": [
+      {"id": "ITEM3", "item_type": "Service", "name": "Installation Service", "quantity": 1, "unit_price": 1000, "tax_rate": 18, "price_with_tax": 1180, "net_amount": 1000, "total_amount": 1180, "discount_percent": 0, "discount_amount": 0, "description": "On-site installation", "hsn_code": "998721", "unit": "nos", "category": "Services"}
+    ],
+    "net_amount": 1000,
+    "tax_amount": 180,
+    "total_amount": 1180,
+    "total_discount": 0,
+    "amount_paid": 1180,
+    "amount_pending": 0,
+    "payment_status": "paid",
+    "notes": "",
+    "terms": "",
+    "payments": [
+      {"amount": 1180, "method": "upi", "notes": "UPI ref 8891", "payment_date": "10-04-2026",
+       "bank_details": {"bank_name": "DCB BANK", "account_number": "02711500000268", "ifsc": "DCBL0000027", "branch": "Hyderabad"}}
+    ]
+  }
+}

@@ -24,6 +24,15 @@ enum GstSplit {
   ut,
 }
 
+/// What the second half of an intra-state tax split is called on a document.
+///
+/// The arithmetic is identical either way, but a dealer in or supplying a Union
+/// Territory charges CGST + **UTGST**, and a tax invoice that says SGST is a
+/// misstatement on the face of the document the customer reconciles against
+/// their own return. Cosmetic on a screen, not on paper.
+String intraStateSecondHead(GstSplit split) =>
+    split == GstSplit.ut ? 'UTGST' : 'SGST';
+
 /// Determines the GST split from the two state codes involved.
 GstSplit resolveGstSplit({String? supplierState, String? buyerState}) {
   if (supplierState == null || buyerState == null) {
@@ -287,6 +296,24 @@ class GstEngine {
     return invoiceDiscountAmount < 0 ? 0 : invoiceDiscountAmount;
   }
 
+  /// Tax deducted (TDS) or collected (TCS) at source on a document.
+  ///
+  /// Worked out on the *taxable value*, which is the reading both sides of the
+  /// transaction use: s.206C(1H)'s Explanation excludes GST from the sale
+  /// consideration TCS is charged on, and a 194Q deduction is taken on the
+  /// value of the goods rather than on the GST the buyer also paid. Applying it
+  /// to the grand total would over-deduct by the tax on every document.
+  ///
+  /// Zero for a null or non-positive rate, so a caller that has no TDS/TCS
+  /// field wired up yet gets exactly the behaviour it had before.
+  static Decimal settlementTax({
+    required Decimal taxableValue,
+    Decimal? rate,
+  }) {
+    if (rate == null || rate <= Money.zero) return Money.zero;
+    return Money.percent(taxableValue, rate.toDouble());
+  }
+
   /// Computes a single line, ignoring invoice-level discounts (which are
   /// applied proportionally by [computeDocument]).
   static LineTotals computeLine(TaxLine line, GstSplit split) {
@@ -402,12 +429,27 @@ class GstEngine {
       invoiceDiscount = preDiscountTaxable;
     }
     if (invoiceDiscount < Money.zero) invoiceDiscount = Money.zero;
+    // A percent discount rarely lands on a whole paisa (7.5% of ₹299.97 is
+    // ₹22.49775), and the apportionment below moves whole paisa, so settle the
+    // discount itself to paisa first. Everything that reads it — the PDF, the
+    // detail screen, the round-off — then sees a real money amount, and the
+    // line taxables can sum to it exactly.
+    invoiceDiscount = Money.round2(invoiceDiscount);
 
-    // Re-apportion the invoice discount and recompute taxes per line so the
-    // rate-wise split stays accurate.
-    final ratio = preDiscountTaxable > Money.zero
-        ? Money.div(invoiceDiscount, preDiscountTaxable)
-        : Money.zero;
+    // Apportion the invoice discount across the lines in whole paisa, by
+    // largest fractional remainder.
+    //
+    // The previous version scaled each line by a ratio
+    // (invoiceDiscount / preDiscountTaxable) instead, and that quotient usually
+    // does not terminate — Money.div rounds it to two places, so ₹10 off a ₹300
+    // line used 0.03 rather than 1/30 and left the line a rupee too high, while
+    // ₹1 off ₹300 rounded to 0.00 and was dropped entirely even though the
+    // invoice still printed "Discount ₹1.00". Handing out actual paisa keeps
+    // the sum exact whatever the ratio happens to be.
+    final lineInvoiceDiscounts = _apportionInvoiceDiscount(
+      discount: invoiceDiscount,
+      lineTaxables: [for (final entry in lineResults) entry.value.taxable],
+    );
 
     var taxableValue = Money.zero;
     var cgstTotal = Money.zero;
@@ -417,20 +459,21 @@ class GstEngine {
     final byRate = <double, RateWiseTax>{};
     final computed = <ComputedLine>[];
 
-    for (final entry in lineResults) {
-      final line = entry.key;
-      final base = entry.value;
-      final lineTaxable = Money.round2(base.taxable * (Decimal.one - ratio));
+    for (var i = 0; i < lineResults.length; i++) {
+      final line = lineResults[i].key;
+      final base = lineResults[i].value;
+      final lineTaxable =
+          Money.round2(base.taxable - lineInvoiceDiscounts[i]);
 
       // Recompute tax on the apportioned taxable value.
       final taxAmount = Money.percent(lineTaxable, line.gstRate);
       Decimal cgst = Money.zero;
       Decimal sgst = Money.zero;
       Decimal igst = Money.zero;
-      _splitTax(taxAmount, split, (c, s, i) {
+      _splitTax(taxAmount, split, (c, s, interState) {
         cgst = c;
         sgst = s;
-        igst = i;
+        igst = interState;
       });
       final cess = Money.percent(lineTaxable, line.cessRate);
 
@@ -493,5 +536,80 @@ class GstEngine {
       rateWise: rateWise,
       lines: computed,
     );
+  }
+
+  /// Splits [discount] across [lineTaxables] in proportion to each line's
+  /// taxable value, working in whole paisa.
+  ///
+  /// The returned list has one entry per input line. Each entry is a multiple
+  /// of ₹0.01, none is negative, none exceeds its own line's taxable value, and
+  /// together they sum to exactly [discount] — so the apportionment neither
+  /// invents nor loses money however awkward the ratio (₹10 across ₹300 is
+  /// 1/30 per line, which has no finite decimal expansion).
+  ///
+  /// It does that with the standard largest-remainder rule: integer division
+  /// gives every line a floor share and discards a fractional paisa, then the
+  /// leftover paisa go back out one at a time to the lines that were furthest
+  /// from their true share. As long as [discount] fits inside the total there is
+  /// always room to place them, because a line's spare capacity is at least its
+  /// own discarded fraction.
+  static List<Decimal> _apportionInvoiceDiscount({
+    required Decimal discount,
+    required List<Decimal> lineTaxables,
+  }) {
+    if (discount <= Money.zero || lineTaxables.isEmpty) {
+      return List<Decimal>.filled(lineTaxables.length, Money.zero);
+    }
+
+    Decimal fromPaisa(int paisa) {
+      final rupees = paisa ~/ 100;
+      final p = paisa % 100;
+      return Decimal.parse('$rupees.${p.toString().padLeft(2, '0')}');
+    }
+
+    // Paisa are exact integers, so the division and the sort below never have
+    // to round and never see floating-point error.
+    int toPaisa(Decimal value) =>
+        (value * Decimal.fromInt(100)).toBigInt().toInt();
+
+    final caps = [for (final taxable in lineTaxables) toPaisa(taxable)];
+    final totalPaisa = caps.fold<int>(0, (sum, cap) => sum + cap);
+    if (totalPaisa <= 0) {
+      return List<Decimal>.filled(lineTaxables.length, Money.zero);
+    }
+
+    // A sub-paisa taxable (a rate entered to three places, say) can make the
+    // truncated total a paisa short of the discount; keep the discount inside
+    // what is actually here rather than over-discount the last line.
+    var discountPaisa = toPaisa(discount);
+    if (discountPaisa > totalPaisa) discountPaisa = totalPaisa;
+    if (discountPaisa < 0) discountPaisa = 0;
+
+    final shares = [for (final cap in caps) discountPaisa * cap ~/ totalPaisa];
+    var leftover =
+        discountPaisa - shares.fold<int>(0, (sum, share) => sum + share);
+
+    if (leftover > 0) {
+      // Largest fractional remainder first, which keeps each line closest to
+      // its true proportional share.
+      final order = List<int>.generate(caps.length, (i) => i)
+        ..sort(
+          (a, b) => (discountPaisa * caps[b] % totalPaisa)
+              .compareTo(discountPaisa * caps[a] % totalPaisa),
+        );
+      for (var j = 0; leftover > 0 && j < order.length; j++) {
+        final i = order[j];
+        if (shares[i] < caps[i]) {
+          shares[i] += 1;
+          leftover -= 1;
+        }
+      }
+      // Leftover is zero for any paisa-clean input; the clamp above is what
+      // makes that provable, so a paisa left here means a sub-paisa input was
+      // truncated away rather than that a line was over-discounted.
+      assert(leftover == 0);
+    }
+
+    return [for (final share in shares) fromPaisa(share)];
   }
 }

@@ -215,6 +215,68 @@ class SalesDraft {
   }
 }
 
+/// The one place a document's outstanding balance and its payment status are
+/// derived. Every write path — save (insert and edit), applyPayment, cancel —
+/// builds one of these instead of computing the two figures separately, which
+/// is what let a document end up storing a **negative** balance while its
+/// status still read 'paid'.
+///
+/// The rules, once:
+///  * [balance] is clamped at zero. A document cannot owe less than nothing;
+///    a negative payable nets against every other party's outstanding in
+///    `totalOutstanding`, which is how one over-edited bill corrupts a total.
+///  * [status] follows [balance], never the raw difference, so the two columns
+///    can never contradict each other.
+///  * [overpaid] is the residue that clamping hides: money already received
+///    (or already paid out) that exceeds what the document is now worth. The
+///    balance stays honest at 0, but the user has to be told, because the
+///    payments ledger still records the full amount.
+class DocumentSettlement {
+  const DocumentSettlement({
+    required this.balance,
+    required this.status,
+    required this.overpaid,
+  });
+
+  /// [grandTotal] minus what is already settled, floored at zero.
+  final double balance;
+
+  /// 'paid' | 'partial' | 'unpaid'.
+  final String status;
+
+  /// Payments recorded against the document exceed its value.
+  final bool overpaid;
+
+  /// A document that carries no outstanding balance at all: every document
+  /// type except invoice/bill (an order, a quotation, a note is not payable —
+  /// the invoice or bill raised against it is), and a cancelled document
+  /// whose balance the cancel path zeroes out so ageing stops counting it.
+  ///
+  /// These used to store a ₹0 balance beside a status derived from the
+  /// unclamped difference, so a debit note permanently read "Unpaid" next to
+  /// nothing owed.
+  static const settled =
+      DocumentSettlement(balance: 0, status: 'paid', overpaid: false);
+
+  /// Derives both figures from what the document is worth and what has
+  /// already been settled against it. [Tolerance] keeps a sub-paisa residue
+  /// from reading as an unpaid balance while still printing ₹0.00.
+  factory DocumentSettlement.of({
+    required double grandTotal,
+    required double paidAmount,
+    double tolerance = 0.001,
+  }) {
+    final outstanding = grandTotal - paidAmount;
+    return DocumentSettlement(
+      balance: outstanding < 0 ? 0 : outstanding,
+      status: outstanding <= tolerance
+          ? 'paid'
+          : (paidAmount > tolerance ? 'partial' : 'unpaid'),
+      overpaid: outstanding < -tolerance,
+    );
+  }
+}
+
 /// Reads/writes sales documents of every kind.
 class SalesRepository with SyncQueueMixin {
   SalesRepository(this.db, this.firmId);
@@ -278,10 +340,15 @@ class SalesRepository with SyncQueueMixin {
       // Payments already recorded against this id must survive the re-save;
       // balanceDue and paymentStatus are derived from them, not reset.
       final paidAmount = existing?.paidAmount ?? 0.0;
-      final balance = grandTotal.toDouble() - paidAmount;
-      final paymentStatus = balance <= 0.001
-          ? 'paid'
-          : (paidAmount > 0.001 ? 'partial' : 'unpaid');
+      // One derivation, one truth (see [DocumentSettlement]). Only an invoice
+      // is payable; every other document type stores a zero balance — and now
+      // a status that agrees with it.
+      final settlement = draft.docType == 'invoice'
+          ? DocumentSettlement.of(
+              grandTotal: grandTotal.toDouble(),
+              paidAmount: paidAmount,
+            )
+          : DocumentSettlement.settled;
 
       final companion = SalesInvoicesCompanion.insert(
         id: draft.id,
@@ -292,10 +359,9 @@ class SalesRepository with SyncQueueMixin {
         invoiceDate: draft.invoiceDate,
         dueDate: Value(draft.dueDate),
         status: Value(draft.status),
-        paymentStatus: Value(paymentStatus),
+        paymentStatus: Value(settlement.status),
         paidAmount: Value(paidAmount),
-        balanceDue:
-            Value(draft.docType == 'invoice' ? balance : 0),
+        balanceDue: Value(settlement.balance),
         partyName: Value(draft.partyName),
         partyGstin: Value(draft.partyGstin),
         partyGstType: Value(draft.partyGstType),
@@ -401,6 +467,10 @@ class SalesRepository with SyncQueueMixin {
     return query.getSingleOrNull();
   }
 
+  /// "Invoice INV-4" — how a refusal names the row it refused, so the message
+  /// a user reads names a document rather than a uuid.
+  String _docLabel(SalesInvoiceEntity doc) => 'Document ${doc.number}';
+
   /// The live (not-recycled) document, for edit/save paths. Re-saving a
   /// binned document used to silently resurrect it, rewrite its lines and
   /// re-post its stock — the editor must load through this.
@@ -495,7 +565,8 @@ class SalesRepository with SyncQueueMixin {
       invoiceDiscountAmount:
           Decimal.parse(doc.invoiceDiscountAmount.toString()),
       shippingCharge: Decimal.parse(doc.shippingCharge.toString()),
-      applyRoundOff: doc.roundOff.abs() > 0.000001,
+      applyRoundOff: doc.roundOff.abs() > 0.000001 ||
+          (doc.grandTotal - doc.grandTotal.round()).abs() < 0.001,
       notes: doc.notes,
       terms: doc.terms,
       sequence: doc.sequence,
@@ -621,11 +692,13 @@ class SalesRepository with SyncQueueMixin {
       await db.assertDateEditable(firmId, doc.invoiceDate);
       // A cancelled invoice stops chasing money: its balance columns zero
       // out so outstanding/ageing never count it (H3 parity at the row level).
+      // The status comes from the same derivation as everywhere else, so the
+      // row cannot end up reading "Unpaid" beside a zero balance.
       await db.update(db.salesInvoices).replace(doc.copyWith(
             status: 'cancelled',
-            balanceDue: 0,
+            balanceDue: DocumentSettlement.settled.balance,
             paidAmount: doc.paidAmount,
-            paymentStatus: doc.paidAmount > 0.001 ? 'paid' : 'unpaid',
+            paymentStatus: DocumentSettlement.settled.status,
             updatedAt: DateTime.now(),
           ));
       await enqueue(
@@ -647,11 +720,16 @@ class SalesRepository with SyncQueueMixin {
 
   /// Soft-deletes into the document recycle bin and reverses the stock the
   /// invoice deducted. Audited; refused when the document date is inside a
-  /// locked period.
+  /// locked period, and refused when the document is already in the bin —
+  /// reversing an already-reversed document silently doubled its stock back.
   Future<void> softDelete(String id, {String? actor}) async {
     await db.transaction(() async {
       final doc = await getById(id);
       if (doc == null) return;
+      if (doc.isDeleted) {
+        throw StateError(
+            '${_docLabel(doc)} is already in the recycle bin.');
+      }
       await db.assertDateEditable(firmId, doc.invoiceDate);
       await db.reverseStockForSource(firmId, id);
       await (db.update(db.salesInvoices)..where((t) => t.id.equals(id))).write(
@@ -676,11 +754,19 @@ class SalesRepository with SyncQueueMixin {
     });
   }
 
-  /// Restores a soft-deleted document and re-applies its stock effect.
+  /// Restores a soft-deleted document and re-applies its stock effect. Refused
+  /// for a document that is not in the bin — re-posting a live document's
+  /// stock deducted it a second time, and the guard used to live only in the
+  /// UI that hides the action.
   Future<void> restore(String id, {String? actor}) async {
     await db.transaction(() async {
       final doc = await getById(id);
       if (doc == null) return;
+      if (!doc.isDeleted) {
+        throw StateError(
+            '${_docLabel(doc)} is not in the recycle bin — there is nothing '
+            'to restore.');
+      }
       await db.assertDateEditable(firmId, doc.invoiceDate);
       await (db.update(db.salesInvoices)..where((t) => t.id.equals(id))).write(
         SalesInvoicesCompanion(
@@ -815,14 +901,15 @@ class SalesRepository with SyncQueueMixin {
         amount = doc.balanceDue;
       }
       final paid = doc.paidAmount + amount;
-      final balance = doc.grandTotal - paid;
-      final status = balance <= 0.001
-          ? 'paid'
-          : (paid > 0.001 ? 'partial' : 'unpaid');
+      // Same derivation the save path uses (see [DocumentSettlement]).
+      final settlement = DocumentSettlement.of(
+        grandTotal: doc.grandTotal,
+        paidAmount: paid,
+      );
       await db.update(db.salesInvoices).replace(doc.copyWith(
             paidAmount: paid,
-            balanceDue: balance < 0 ? 0 : balance,
-            paymentStatus: status,
+            balanceDue: settlement.balance,
+            paymentStatus: settlement.status,
             updatedAt: DateTime.now(),
           ));
       await enqueue(
@@ -918,11 +1005,45 @@ extension StockMovementsInsert on AppDatabase {
   /// Posts the equal-and-opposite of every movement [sourceId] recorded, so a
   /// document being rewritten lands at the net effect of its new lines rather
   /// than its old lines plus its new ones.
+  ///
+  /// Two rules keep the ledger from growing on every cycle:
+  ///
+  /// 1. **Reversal rows are never reversed again.** They carry the same
+  ///    `sourceId` as the movement they undo, so the query used to match them
+  ///    too and post the opposite of each — net stock stayed right while the
+  ///    table doubled per call (2^n phantom rows for one document after n
+  ///    edit/delete cycles), in the table the code itself calls "the stock
+  ///    ledger of record".
+  /// 2. **A movement is reversed at most once**, enforced by
+  ///    [_stockReversalId] (see above). Without it, skipping rule 1 alone
+  ///    would still leave one orphan reversal per call.
+  ///
+  /// Migration: the `notes = 'reversal'` marker has been written since the
+  /// reversal path was introduced, so existing rows are recognised by rule 1
+  /// and stay excluded — the doubling stops immediately. Rows written by the
+  /// *old* code carry random ids, so they cannot be paired with the movement
+  /// they undo after the fact; they are left in place (they net to zero
+  /// against their originals, so deleting them would double the reversal)
+  /// and only stop multiplying. A firm that wants a clean ledger purges the
+  /// affected documents, which is the one operation that rewrites it.
   Future<void> reverseStockForSource(String firmId, String sourceId) async {
     final movements = await (select(stockMovements)
-          ..where((t) => t.firmId.equals(firmId) & t.sourceId.equals(sourceId)))
+          ..where((t) =>
+              t.firmId.equals(firmId) &
+              t.sourceId.equals(sourceId) &
+              // `IS NOT` rather than `<>`: SQL three-valued logic would make
+              // `notes <> 'reversal'` FALSE for every row whose notes are NULL,
+              // which is most of them.
+              t.notes.isNotValue(_kStockReversalNote)))
         .get();
     for (final m in movements) {
+      // Already undone — see rule 2 above.
+      final reversalId = _stockReversalId(m.id);
+      final posted = await (select(stockMovements)
+            ..where((t) => t.id.equals(reversalId)))
+          .getSingleOrNull();
+      if (posted != null) continue;
+
       final item = await (select(items)
             ..where((t) => t.id.equals(m.itemId) & t.firmId.equals(firmId)))
           .getSingleOrNull();
@@ -930,7 +1051,6 @@ extension StockMovementsInsert on AppDatabase {
       final newBalance = item.currentStock - m.quantity;
       await update(items).replace(
           item.copyWith(currentStock: newBalance, updatedAt: DateTime.now()));
-      final reversalId = newStockMovementId();
       await into(stockMovements).insert(StockMovementsCompanion.insert(
         id: reversalId,
         firmId: firmId,
@@ -945,7 +1065,7 @@ extension StockMovementsInsert on AppDatabase {
         // the original movement's date so the ledger stays chronologically
         // consistent with the document that produced it.
         date: m.date,
-        notes: const Value('reversal'),
+        notes: const Value(_kStockReversalNote),
       ));
       await _MovementOutbox(this).enqueue(
         firmId: firmId,
@@ -956,6 +1076,21 @@ extension StockMovementsInsert on AppDatabase {
     }
   }
 }
+
+/// Marks a row posted by [StockMovementsInsert.reverseStockForSource]. A
+/// reversal carries the source document's own `sourceId`, so this note is the
+/// only thing separating "the document moved this stock" from "we undid that".
+const String _kStockReversalNote = 'reversal';
+
+/// The id of the reversal owed by the movement [movementId].
+///
+/// Idempotency: a document is rewritten many times, and each call has to undo
+/// exactly the movements still standing. Keying the reversal on the movement it
+/// undoes turns "already reversed" into a lookup — `rev_<movement id>` either
+/// exists or it does not — instead of a heuristic, so a repeated call (a
+/// double-tap, a retried sync pull that already carries the row) can never post
+/// the opposite twice.
+String _stockReversalId(String movementId) => 'rev_$movementId';
 
 /// Outbox access for [StockMovementsInsert], which is an extension on the
 /// database and has no repository of its own to inherit the sync mixin.

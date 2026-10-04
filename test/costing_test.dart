@@ -844,6 +844,7 @@ void main() {
             ),
           );
 
+      await SchemaRollback.bankingV12(first);
       await SchemaRollback.costingV11(first);
       await SchemaRollback.setVersion(first, 10);
       await first.close();
@@ -851,7 +852,9 @@ void main() {
       final upgraded = AppDatabase.test(NativeDatabase(file));
       addTearDown(upgraded.close);
 
-      expect(upgraded.schemaVersion, 11);
+      // The file is a v10 one, so reopening runs v11 *and* v12 — the assertion
+      // is on where the chain ends, not on which step this test is about.
+      expect(upgraded.schemaVersion, 12);
 
       final upgradedItem = await (upgraded.select(
         upgraded.items,

@@ -96,6 +96,7 @@ void main() {
     await first.customStatement(
       'ALTER TABLE firm_members DROP COLUMN is_active',
     );
+    await SchemaRollback.bankingV12(first);
     await SchemaRollback.costingV11(first);
     await SchemaRollback.setVersion(first, 8);
     await first.close();
@@ -139,6 +140,6 @@ void main() {
       reason: 'cancelling it would wipe the only record that it was invoiced',
     );
 
-    expect(upgraded.schemaVersion, 11);
+    expect(upgraded.schemaVersion, 12);
   });
 }

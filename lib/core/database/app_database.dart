@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../domain/member_role.dart';
+import 'tables/banking.dart';
 import 'tables/firms.dart';
 import 'tables/godowns.dart';
 import 'tables/items.dart';
@@ -45,6 +46,10 @@ part 'app_database.g.dart';
     JournalEntries,
     JournalLines,
     Godowns,
+    BankAccounts,
+    Loans,
+    LoanTransactions,
+    Gstr9Adjustments,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -52,7 +57,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.test(super.e);
 
   @override
-  int get schemaVersion => 11;
+  int get schemaVersion => 12;
 
   /// Who is operating, for local-user permissions.
   ///
@@ -229,6 +234,27 @@ class AppDatabase extends _$AppDatabase {
         // therefore never applies this table's `@TableIndex` to an upgraded
         // database. Same reason as the v4 block above.
         await m.createIndex(idxGodownsFirm);
+      }
+
+      if (from < 12) {
+        await m.addColumn(payments, payments.bankAccountId);
+        await m.addColumn(expenses, expenses.itemId);
+        await m.addColumn(purchaseBills, purchaseBills.deducteePan);
+        await m.addColumn(purchaseBills, purchaseBills.tdsSection);
+        await m.addColumn(purchaseBills, purchaseBills.tdsSectionRate);
+        await m.createTable(bankAccounts);
+        await m.createTable(loans);
+        await m.createTable(loanTransactions);
+        await m.createTable(gstr9Adjustments);
+        // Explicit, for the same reason as the v11 block above: `createAll`
+        // skips a table that already exists and never reaches its
+        // `@TableIndex`, so an upgraded database would silently have no index
+        // on any of these four.
+        await m.createIndex(idxBankAccountsFirm);
+        await m.createIndex(idxLoansFirm);
+        await m.createIndex(idxLoansParty);
+        await m.createIndex(idxLoanTxnLoan);
+        await m.createIndex(idxGstr9AdjFirm);
       }
     },
   );

@@ -255,6 +255,53 @@ void main() {
             name: 'Store $suffix',
           ),
         );
+    await db
+        .into(db.bankAccounts)
+        .insert(
+          BankAccountsCompanion.insert(
+            id: 'bank-$suffix',
+            firmId: firmId,
+            name: 'HDFC $suffix',
+          ),
+        );
+    // A loan plus a transaction against it, because the child is the row that
+    // is easiest to leave behind: it hangs off the loan rather than naming a
+    // firm in any way a casual reader would notice.
+    final loan = await db
+        .into(db.loans)
+        .insertReturning(
+          LoansCompanion.insert(
+            id: 'loan-$suffix',
+            firmId: firmId,
+            principalAmount: 50000,
+            startDate: now,
+          ),
+        );
+    await db
+        .into(db.loanTransactions)
+        .insert(
+          LoanTransactionsCompanion.insert(
+            id: 'loan-txn-$suffix',
+            firmId: firmId,
+            loanId: loan.id,
+            kind: 'disbursement',
+            amount: 50000,
+            date: now,
+          ),
+        );
+    await db
+        .into(db.gstr9Adjustments)
+        .insert(
+          Gstr9AdjustmentsCompanion.insert(
+            id: 'adj-$suffix',
+            firmId: firmId,
+            schedule: '4.1A',
+            description: 'ITC on capex $suffix',
+            amount: 1200,
+            date: now,
+            financialYearStart: DateTime(2026, 4, 1),
+          ),
+        );
   }
 
   setUp(() async {

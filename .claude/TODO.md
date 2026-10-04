@@ -53,16 +53,32 @@ so nothing ships as a stub.
         at today's average leaks cost on every document edit.
       - **Oversold stock carries its liability.** 10 @ 20, sold 15, then 10
         bought @ 30 leaves 5 units at **40**, not 30.
-- [ ] **Phase 2 — schema v12: bank accounts, loans, TDS metadata.**
-      `bank_accounts`, `loans` + `loan_transactions`,
-      `purchase_bills.deducteePan`/`tdsSection`, `expenses.itemId`,
-      `gstr9_adjustments`. **Every new table must also be added to
-      `settings_repository.export`/`_clearAll`/`import`** — a table missing from
-      the backup list loses its data on restore silently.
-      - Add a `bankingV12` block to `test/helpers/schema_rollback.dart`, call
-        it from all three existing migration tests, and re-assert
-        `schemaVersion` 12 in each.
-- [ ] **Phase 3 — the framework.** Spec layer, engine with `assertIntegrity`,
+- [x] **Phase 2 — schema v12: bank accounts, loans, TDS metadata.** Built and
+      tested. `lib/core/database/tables/banking.dart` — `BankAccounts`,
+      `Loans`, `LoanTransactions`, `Gstr9Adjustments`; plus
+      `purchase_bills.deducteePan`/`tdsSection`/`tdsSectionRate`,
+      `payments.bankAccountId`, `expenses.itemId`. All four tables in
+      `settings_repository.export`/`import`/`_clearAll` **and**
+      `firm_repository.purge`. `test/migration_v12_test.dart` (2).
+      Suite **782 / 0 failed**.
+      - **A rollback that DROPs a table cannot assert that table's rows
+        survive.** My first version seeded the new tables, rolled back (which
+        drops them), and asserted the rows returned — the test was deleting the
+        data it checked. "Rows survive" belongs on the additive columns only;
+        the new tables get "exists, is empty, and a full row round-trips
+        through it".
+      - **Revert-proofing `_clearAll` needed a new test, not a new
+        assertion.** Export and restore were covered; the wipe was not, so a
+        missing delete was invisible. The new test asserts *no old id
+        remains* — counts would pass on a merge.
+      - `BankAccounts.type` includes `cash` deliberately: the Bank Statement
+        report lists cash beside the bank accounts, and cash as the absence of
+        a row would make the accounts list a lie.
+      - TDS/interest fields are **snapshotted**, never re-derived. A 26Q filed
+        against a guessed PAN is a notice, and a mid-term rate change must not
+        rewrite what a February repayment was worth.
+- [ ] **Phase 3 — the framework.** Spec layer, engine with `assertIntegrity`
+      (**prove it has teeth by injecting an off-by-one into a group subtotal**),
       `ReportViewPage` + `ReportDataTable`, `ReportExportService` +
       `ReportPdfBuilder`, `ReportCatalogue` with all 47 registered from day one
       so "which reports are done" is a `grep`.

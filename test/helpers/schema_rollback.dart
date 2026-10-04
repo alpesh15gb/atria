@@ -12,6 +12,31 @@ import 'package:atria/core/database/app_database.dart';
 class SchemaRollback {
   SchemaRollback._();
 
+  /// Drops everything the v12 banking/loans/TDS migration added.
+  ///
+  /// `loan_transactions` goes before `loans` for the same reason the purge
+  /// does: the foreign key points at it, and dropping the parent first leaves a
+  /// child nothing to point at.
+  static Future<void> bankingV12(AppDatabase db) async {
+    await db.customStatement('DROP TABLE IF EXISTS loan_transactions');
+    await db.customStatement('DROP TABLE IF EXISTS loans');
+    await db.customStatement('DROP TABLE IF EXISTS bank_accounts');
+    await db.customStatement('DROP TABLE IF EXISTS gstr9_adjustments');
+    await db.customStatement(
+      'ALTER TABLE payments DROP COLUMN bank_account_id',
+    );
+    await db.customStatement('ALTER TABLE expenses DROP COLUMN item_id');
+    await db.customStatement(
+      'ALTER TABLE purchase_bills DROP COLUMN deductee_pan',
+    );
+    await db.customStatement(
+      'ALTER TABLE purchase_bills DROP COLUMN tds_section',
+    );
+    await db.customStatement(
+      'ALTER TABLE purchase_bills DROP COLUMN tds_section_rate',
+    );
+  }
+
   /// Drops everything the v11 costing migration added.
   ///
   /// `godowns` is a whole table, and its index goes with it.
@@ -54,6 +79,17 @@ class SchemaRollback {
   /// wants a file as a v9 build left it, and every step since has to be undone
   /// for the replay to reach it.
   static Future<void> afterV8(AppDatabase db) async {
+    await costingV11(db);
+    await localUsersV10(db);
+  }
+
+  /// Everything from v10 up, for a test that wants a file as a v10 build left
+  /// it. The v12 test uses this; the three older tests each call
+  /// [bankingV12] next to their own hand-rolled drops instead, because each
+  /// reaches a different version and hiding that behind one helper would make
+  /// the rollback invisible.
+  static Future<void> afterV9(AppDatabase db) async {
+    await bankingV12(db);
     await costingV11(db);
     await localUsersV10(db);
   }

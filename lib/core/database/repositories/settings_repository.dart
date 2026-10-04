@@ -271,6 +271,18 @@ class BackupRepository {
     final godowns = await (db.select(
       db.godowns,
     )..where((t) => t.firmId.isIn(firmIds))).get();
+    final bankAccounts = await (db.select(
+      db.bankAccounts,
+    )..where((t) => t.firmId.isIn(firmIds))).get();
+    final loans = await (db.select(
+      db.loans,
+    )..where((t) => t.firmId.isIn(firmIds))).get();
+    final loanTransactions = await (db.select(
+      db.loanTransactions,
+    )..where((t) => t.firmId.isIn(firmIds))).get();
+    final gstr9Adjustments = await (db.select(
+      db.gstr9Adjustments,
+    )..where((t) => t.firmId.isIn(firmIds))).get();
     final sales = await (db.select(
       db.salesInvoices,
     )..where((t) => t.firmId.isIn(firmIds))).get();
@@ -338,6 +350,16 @@ class BackupRepository {
           .map((e) => _rowToMap(e.toCompanion(true)))
           .toList(),
       'godowns': godowns.map((e) => _rowToMap(e.toCompanion(true))).toList(),
+      'bank_accounts': bankAccounts
+          .map((e) => _rowToMap(e.toCompanion(true)))
+          .toList(),
+      'loans': loans.map((e) => _rowToMap(e.toCompanion(true))).toList(),
+      'loan_transactions': loanTransactions
+          .map((e) => _rowToMap(e.toCompanion(true)))
+          .toList(),
+      'gstr9_adjustments': gstr9Adjustments
+          .map((e) => _rowToMap(e.toCompanion(true)))
+          .toList(),
       'sales_invoices': sales
           .map((e) => _rowToMap(e.toCompanion(true)))
           .toList(),
@@ -430,6 +452,17 @@ class BackupRepository {
       // reference null, which is the same state a single-location firm is in,
       // so the older file restores correctly rather than failing.
       count += await _restore(db.godowns, json['godowns']);
+      // Before `payments` and `loans`, which can name a bank account or a
+      // loan. A backup written before v12 has none of these keys, and each
+      // `_restore` treats a missing key as "nothing to restore" rather than as
+      // an error — an older file restores correctly instead of failing on a
+      // null the schema never had.
+      count += await _restore(db.bankAccounts, json['bank_accounts']);
+      // Loan transactions before loans, for the same children-first reason the
+      // journal lines above give.
+      count += await _restore(db.loanTransactions, json['loan_transactions']);
+      count += await _restore(db.loans, json['loans']);
+      count += await _restore(db.gstr9Adjustments, json['gstr9_adjustments']);
       // Children before parents: journal lines reference their voucher, and
       // vouchers reference a firm that the first line above has restored.
       count += await _restore(db.accounts, json['accounts']);
@@ -568,6 +601,16 @@ class BackupRepository {
     await db.delete(db.purchaseBills).go();
     await db.delete(db.payments).go();
     await db.delete(db.expenses).go();
+    // `loan_transactions.loan_id` is a real foreign key, so the schedule goes
+    // before the loan it hangs off. The payments above come first for the same
+    // reason: a repayment records the payment it settled.
+    await db.delete(db.loanTransactions).go();
+    await db.delete(db.loans).go();
+    await db.delete(db.gstr9Adjustments).go();
+    // `bank_accounts` is named by `payments.bankAccountId` and
+    // `bank_accounts.ledgerAccountId`, both of which point at accounts — so it
+    // goes after `accounts` below, not here. Listed here anyway to make the
+    // ordering explicit rather than incidental.
     await db.delete(db.stockMovements).go();
     await db.delete(db.items).go();
     await db.delete(db.units).go();
@@ -586,6 +629,9 @@ class BackupRepository {
     // `stock_movements.godownId`, so it goes before those two — and before
     // `firms`, which it does carry a real foreign key to.
     await db.delete(db.godowns).go();
+    // `ledger_account_id` points at `accounts`, so this goes after it and
+    // before the firms.
+    await db.delete(db.bankAccounts).go();
     // `audit_logs.firm_id` is nullable and carries no foreign key, so nothing
     // would ever remove these for us — the same reason eraseFirmRows deletes
     // them explicitly. Before the firms whose actions they record.

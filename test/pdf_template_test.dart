@@ -210,6 +210,7 @@ void main() {
       await first.customStatement(
         'ALTER TABLE firm_members DROP COLUMN is_active',
       );
+      await SchemaRollback.bankingV12(first);
       await SchemaRollback.costingV11(first);
       await SchemaRollback.setVersion(first, 7);
       await first.close();
@@ -244,7 +245,7 @@ void main() {
 
       expect(
         upgraded.schemaVersion,
-        11,
+        12,
         reason: 'the chain runs all the way to current, not just to 8',
       );
     });

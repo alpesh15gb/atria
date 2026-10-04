@@ -233,6 +233,57 @@ void main() {
             ),
           );
 
+      // A row in each table v12 added. Without these the section-coverage check
+      // below still passes on a section that exports nothing at all — which is
+      // exactly the bug it exists to catch, one level up.
+      await db
+          .into(db.bankAccounts)
+          .insert(
+            BankAccountsCompanion.insert(
+              id: 'bank-1',
+              firmId: firmId,
+              name: 'HDFC Main',
+              accountNumber: const Value('50100234567890'),
+            ),
+          );
+      final loan = await db
+          .into(db.loans)
+          .insertReturning(
+            LoansCompanion.insert(
+              id: 'loan-1',
+              firmId: firmId,
+              direction: const Value('borrowed'),
+              partyName: const Value('Sriram Finance'),
+              principalAmount: 200000,
+              startDate: DateTime(2026, 4, 1),
+            ),
+          );
+      await db
+          .into(db.loanTransactions)
+          .insert(
+            LoanTransactionsCompanion.insert(
+              id: 'loan-txn-1',
+              firmId: firmId,
+              loanId: loan.id,
+              kind: 'repayment',
+              amount: 27500,
+              date: DateTime(2026, 5, 5),
+            ),
+          );
+      await db
+          .into(db.gstr9Adjustments)
+          .insert(
+            Gstr9AdjustmentsCompanion.insert(
+              id: 'adj-1',
+              firmId: firmId,
+              schedule: '4.1A',
+              description: 'ITC on capex',
+              amount: 8400,
+              date: DateTime(2026, 6, 30),
+              financialYearStart: DateTime(2026, 4, 1),
+            ),
+          );
+
       final data = await backup.export();
 
       final tables = await db
@@ -276,6 +327,101 @@ void main() {
       expect(godowns.single.name, 'Main Store');
       expect(godowns.single.firmId, firmId);
       expect(godowns.single.city, 'Bengaluru');
+
+      final banks = await target.select(target.bankAccounts).get();
+      expect(banks, hasLength(1));
+      expect(banks.single.name, 'HDFC Main');
+      expect(banks.single.accountNumber, '50100234567890');
+      expect(banks.single.firmId, firmId);
+
+      final loans = await target.select(target.loans).get();
+      expect(loans, hasLength(1));
+      expect(loans.single.principalAmount, 200000);
+      expect(loans.single.direction, 'borrowed');
+      expect(loans.single.partyName, 'Sriram Finance');
+
+      // The child row is restored through its loan, so this proves the parent
+      // existed first — an out-of-order `_restore` would leave it dangling.
+      final loanTxns = await target.select(target.loanTransactions).get();
+      expect(loanTxns, hasLength(1));
+      expect(loanTxns.single.loanId, 'loan-1');
+      expect(loanTxns.single.amount, 27500);
+
+      final adjustments = await target.select(target.gstr9Adjustments).get();
+      expect(adjustments, hasLength(1));
+      expect(adjustments.single.schedule, '4.1A');
+      expect(adjustments.single.amount, 8400);
+    });
+
+    test('restoring over existing books erases what was there', () async {
+      // `_clearAll` runs before the restore, and a table it forgets is the one
+      // way a stale row survives: the firm it named is gone, so no screen can
+      // show it and no report can reconcile it. Asserting the *counts* rather
+      // than the ids is deliberate — the restore puts its own rows back, so
+      // only "none of the old ids remain" distinguishes a wipe from a merge.
+      await seedBooks(db, name: 'Incoming');
+      final data = await backup.export();
+
+      final target = AppDatabase.test(NativeDatabase.memory());
+      addTearDown(target.close);
+      final doomed = await seedBooks(target, name: 'Doomed');
+      await target
+          .into(target.bankAccounts)
+          .insert(
+            BankAccountsCompanion.insert(
+              id: 'bank-doomed',
+              firmId: doomed,
+              name: 'Stale Bank',
+            ),
+          );
+      final doomedLoan = await target
+          .into(target.loans)
+          .insertReturning(
+            LoansCompanion.insert(
+              id: 'loan-doomed',
+              firmId: doomed,
+              principalAmount: 50000,
+              startDate: DateTime(2026, 4, 1),
+            ),
+          );
+      await target
+          .into(target.loanTransactions)
+          .insert(
+            LoanTransactionsCompanion.insert(
+              id: 'loan-txn-doomed',
+              firmId: doomed,
+              loanId: doomedLoan.id,
+              kind: 'disbursement',
+              amount: 50000,
+              date: DateTime(2026, 4, 1),
+            ),
+          );
+      await target
+          .into(target.gstr9Adjustments)
+          .insert(
+            Gstr9AdjustmentsCompanion.insert(
+              id: 'adj-doomed',
+              firmId: doomed,
+              schedule: '4.1A',
+              description: 'Stale adjustment',
+              amount: 999,
+              date: DateTime(2026, 6, 30),
+              financialYearStart: DateTime(2026, 4, 1),
+            ),
+          );
+
+      await target.backupRepository.importFromJson(data);
+
+      expect(
+        await target.select(target.bankAccounts).get(),
+        isEmpty,
+        reason: 'a bank account of an erased firm survived the restore',
+      );
+      expect(await target.select(target.loans).get(), isEmpty);
+      // The child is the easiest to miss: it does not name a firm anywhere a
+      // casual reader of the delete list would look.
+      expect(await target.select(target.loanTransactions).get(), isEmpty);
+      expect(await target.select(target.gstr9Adjustments).get(), isEmpty);
     });
 
     test(

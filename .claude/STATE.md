@@ -1,7 +1,7 @@
 # Project State
 
-_Last updated: 2026-10-04 (**reporting build, Phase 1 built and tested**; the
-earlier six-phase build is complete)_
+_Last updated: 2026-10-05 (**reporting build, Phase 2 built, tested and committing**;
+Phases 0–1 shipped; the earlier six-phase build is complete)_
 
 ## Current objective
 
@@ -16,9 +16,9 @@ Six phases, full plan in
 | Phase | Piece | State |
 |---|---|---|
 | 0 | one date window | **shipped** (`3bfbe36`) |
-| 1 | schema v11: costing, godown, party groups | **built + tested, committing** |
-| 2 | schema v12: bank accounts, loans, TDS metadata | next |
-| 3 | the framework (spec / engine / view / export / catalogue) | — |
+| 1 | schema v11: costing, godown, party groups | **shipped** (`7da4eea`, `9931129`) |
+| 2 | schema v12: bank accounts, loans, TDS metadata | **built + tested, committing** |
+| 3 | the framework (spec / engine / view / export / catalogue) | next |
 | 4 | the 47 reports, one commit per category | — |
 | 5 | retire the dashboard to the menu + Overview | — |
 
@@ -38,8 +38,8 @@ Six phases, full plan in
 ## Current implementation state
 
 - `flutter analyze lib/ test/` → clean.
-- `flutter test` → **779 passed / 0 failed** (723 + 30 Phase 0 + 25 Phase 1 +
-  1 backup-integrity).
+- `flutter test` → **782 passed / 0 failed** (723 + 30 Phase 0 + 25 Phase 1 +
+  1 backup-integrity + 3 Phase 2).
 - Windows debug builds; APK debug **and** release build (release APK is
   debug-key-signed, `CN=Android Debug`, per `build.gradle.kts`'s deliberate
   fallback — 80.1 MB).
@@ -722,30 +722,102 @@ item/stock reports that need real cost.
 - **Perl on these files needs `\r?\n`** (they are CRLF) — a bare `\n` anchor
   silently no-ops. Never `sed` across a Dart file here.
 
+## Phase 2 — schema v12: bank accounts, loans, TDS metadata (built + tested)
+
+`schemaVersion` 11 → 12. Four new tables and five columns, and they unblock the
+Bank Statement, Loan Statement, TDS Payable/Receivable, TCS Receivable, 27EQ,
+Expense Item and GSTR-9 reports.
+
+- **`lib/core/database/tables/banking.dart`** — `BankAccounts`, `Loans`,
+  `LoanTransactions`, `Gstr9Adjustments`. Three modelling decisions worth not
+  re-deriving:
+  - **`BankAccounts.type` includes `cash`.** "Cash in hand" has to be a *row*,
+    not the absence of one: the Bank Statement report lists cash beside the bank
+    accounts, and special-casing a null account to show it would make the
+    "accounts" list a lie. `currentBalance` is documented as a cached
+    convenience — the ledger is still the source of truth, which is what
+    `cashBankBalancesProvider` reads.
+  - **`Loans.direction` is `borrowed`/`lent`, not a signed amount.** It is
+    always from the *business's* point of view. A signed principal would make
+    every statement guess which way round a figure runs.
+  - **`LoanTransactions` snapshots interest per transaction** rather than
+    re-deriving it from `Loans.interestRate`. A rate renegotiated mid-term must
+    not retroactively change what a February repayment was worth.
+  - **`Gstr9Adjustments.schedule` is free text.** The schedule list is fixed by
+    the portal; hard-coding it means a schema migration every time the
+    government renumbers something.
+- **`purchase_bills` gains `deducteePan` / `tdsSection` / `tdsSectionRate`,
+  snapshotted rather than derived.** A supplier's PAN is on their invoice, not
+  in this database — a 26Q filed against a guessed PAN is a notice. An upgrade
+  must never invent one; the migration test asserts the column stays null.
+- **`payments.bankAccountId` is additive, not a replacement.** The free-text
+  `bankAccount` stays: it is on documents already printed and in backups already
+  taken, so discarding it would lose data nobody can get back — and it is what
+  an older build reads back.
+- **`expenses.itemId`** (Expense Item Report) and `gstr9_adjustments`.
+
+### Things not to re-learn (Phase 2)
+
+- **A rollback that DROPs a table cannot also assert that table's rows survive.**
+  My first `migration_v12_test` seeded a bank account and a loan, rolled back
+  with `SchemaRollback.bankingV12` — which drops those four tables wholesale —
+  and then asserted the rows came back. The test was deleting the data it was
+  checking. Split it: "rows survive" belongs on the *additive columns*
+  (`payments`, `expenses`, `purchase_bills`, whose rows live in tables v12 does
+  not drop), and the new tables get "exists, is empty, and a full row round-trips
+  through it". Asserting only "the table exists" would pass on a table with the
+  wrong shape, so the second test writes a real row and reads the defaults back.
+- **Revert-proofing `_clearAll` needed a new test, not a new assertion.** The
+  existing backup tests covered export and restore but nothing covered the wipe,
+  so a missing delete was invisible. `restoring over existing books erases what
+  was there` seeds the four new tables with a doomed firm, restores, and asserts
+  *none of the old ids remain* — counts would pass on a merge. Reverting the
+  `delete(db.loans)` line fails it.
+- **`firm_purge_test.dart` finds tables by reading `sqlite_master`**, so the new
+  tables are covered automatically — but only if the fixture seeds a row in
+  each. This is the **second** time that exact trap fired (the first was
+  `godowns`). Adding a firm-scoped table means adding a seed line, always.
+- The three existing migration tests all had to learn `bankingV12`, because
+  setting `user_version` to 7/8/9/11 makes the chain run through v12 and
+  `addColumn` dies on a duplicate. That is a property of the hand-rolled
+  rollback, not of any real database.
+
 ## Exact next action
 
-**Phase 2 — schema v12: bank accounts, loans, TDS metadata.**
+**Phase 3 — the framework.** Nothing visible ships; it exists so the other 40
+reports are cheap.
 
-1. `schemaVersion` 11 → 12 in `app_database.dart`, one `if (from < 12)` block,
-   after the v11 one.
-2. `bank_accounts` table + `payments.bankAccountId`; `loans` +
-   `loan_transactions`; `purchase_bills.deducteePan` + `tdsSection` (27EQ needs
-   section + rate + PAN **per payment**, snapshotted at deduction time);
-   `expenses.itemId`; `gstr9_adjustments`.
-3. **Every new table goes into `settings_repository.export` / `_clearAll` /
-   `import` AND `firm_repository.purge` in the same commit.** Both backup
-   tests find tables by reading the schema and will fail if one is missed —
-   they are the reason this is cheap to get wrong.
-4. Extend `test/helpers/schema_rollback.dart` with a `bankingV12` block and
-   call it from **all three** existing migration tests, and assert
-   `schemaVersion` 12. This is the step that is easy to forget and expensive
-   to rediscover.
-5. `test/migration_v12_test.dart` — build a real v11 file, roll back, reopen,
-   assert rows survive with the new defaults, plus the same `sqlite_master`
-   index check for each new table.
+1. `lib/core/reports/spec/` — `ReportSpec` (id, title, columns, groupBy, filters,
+   totals, sort), `ReportColumn` (key, label, `ReportValueKind`, flex, `wideOnly`,
+   `emphasise`, `colorize`, `negate`), `ReportGroupBy`, `ReportFilter<T>`.
+2. `lib/core/reports/engine/` — `ReportSource` (the only layer that knows SQL),
+   `ReportRow`/`ReportGroupRow`/`ReportResult`, `ReportRunner.fold()`, and
+   **`assertIntegrity`** — group subtotals must sum *exactly* in `Decimal` to the
+   grand total. **Prove it has teeth by injecting an off-by-one into a group
+   subtotal and confirming it fails.**
+3. `lib/features/reports/report_view_page.dart` +
+   `lib/shared/widgets/report_data_table.dart` — one `ConsumerWidget` over
+   `AtriaListPage` keyed by `reportId`. Wide = sticky-header table, tabular
+   figures, pinned grand total. Narrow = cards, `wideOnly` columns drop.
+   Deliberately **not** `AtriaLineGrid` (it owns an editable-cell model a
+   read-only report has no use for). **Always put the export button in
+   `actions`** — that one line is what fixes "no report screen has any export
+   affordance today".
+4. `lib/core/reports/export/report_export_service.dart` — CSV via the existing
+   `CsvExport.esc`/`row`; Excel mirroring `StatementExport.exportExcel`; a **new**
+   `ReportPdfBuilder` (today's `PdfSections` is invoice-shaped — parties panel,
+   items table, totals — and a report has none of that anatomy).
+5. `ReportCatalogue` registers **all 47** from day one, most pointing at an empty
+   source, so "which reports are done" is a `grep` and not a guess.
 
-Then Phase 3 (the framework), Phase 4 (the 47 reports in six commits),
-Phase 5 (retire the dashboard to the menu).
+Then Phase 4 (the 47 reports in six commits: 4a Transaction 9, 4b Party 6,
+4c Item/Stock 11, 4d GST 6, 4e Business Status + Taxes 8, 4f Expense + Order +
+Loan 6), then Phase 5 (retire the dashboard to the menu).
+
+The plan's fifteen correctness rules (bounced cheques, cancelled *and* deleted,
+`taxableValue` never `grandTotal`, `Decimal` accumulation, HSN vs SAC, 27EQ
+snapshots, GSTR-9's 1 Apr – 31 Mar window, and the rest) are listed in the plan
+file and belong in shared helpers, not re-derived 47 times.
 
 ---
 

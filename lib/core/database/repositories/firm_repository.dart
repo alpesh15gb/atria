@@ -447,6 +447,23 @@ Future<void> eraseFirmRows(AppDatabase db, String firmId) async {
     // `firm_purge_test.dart` asserts on every firm-scoped table for exactly
     // this reason.
     await (db.delete(db.godowns)..where((t) => t.firmId.equals(firmId))).go();
+    // Same reasoning for the v12 tables, in child-before-parent order:
+    // `loan_transactions.loan_id` is a real foreign key, and
+    // `bank_accounts.ledgerAccount_id` points at the accounts deleted above.
+    // None of these are enforced by SQLite here — the test database does not
+    // enable `PRAGMA foreign_keys` — so a forgotten line leaves rows nothing
+    // can reach rather than an error, which is the failure mode
+    // `firm_purge_test.dart` exists to catch.
+    await (db.delete(
+      db.loanTransactions,
+    )..where((t) => t.firmId.equals(firmId))).go();
+    await (db.delete(db.loans)..where((t) => t.firmId.equals(firmId))).go();
+    await (db.delete(
+      db.gstr9Adjustments,
+    )..where((t) => t.firmId.equals(firmId))).go();
+    await (db.delete(
+      db.bankAccounts,
+    )..where((t) => t.firmId.equals(firmId))).go();
     await (db.delete(db.firms)..where((t) => t.id.equals(firmId))).go();
   });
 }

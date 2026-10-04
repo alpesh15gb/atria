@@ -63,7 +63,7 @@ void main() {
   Map<String, dynamic> backupEnvelope() => {
     'app': 'Apex Books',
     'version': 3,
-    'schemaVersion': 11,
+    'schemaVersion': 12,
     'firms': [
       {'id': firmId, 'name': 'Apex Integrations'},
     ],
@@ -665,17 +665,20 @@ void main() {
         await rolled.customStatement(
           'ALTER TABLE firm_members DROP COLUMN is_active',
         );
-        // v11's columns too — the chain runs v9 → v10 → v11, and leaving them
-        // in place makes the v11 step fail on a duplicate column, which reads
-        // as a broken migration rather than a stale rollback list.
+        // v11's and v12's columns too — the chain runs v9 → v10 → v11 → v12,
+        // and leaving them in place makes a later step fail on a duplicate
+        // column, which reads as a broken migration rather than a stale
+        // rollback list.
+        await SchemaRollback.bankingV12(rolled);
         await SchemaRollback.costingV11(rolled);
         await SchemaRollback.setVersion(rolled, 9);
         await rolled.close();
 
-        // 3. Reopen: the v9 -> v10 and v10 -> v11 upgrades run for real.
+        // 3. Reopen: the v9 -> v10, v10 -> v11 and v11 -> v12 upgrades run for
+        //    real.
         final upgraded = AppDatabase.test(NativeDatabase(file));
         addTearDown(upgraded.close);
-        expect(upgraded.schemaVersion, 11);
+        expect(upgraded.schemaVersion, 12);
 
         final member = await upgraded
             .membersRepositoryFor(firm.id)

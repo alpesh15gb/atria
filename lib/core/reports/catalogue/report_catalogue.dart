@@ -4,6 +4,7 @@ import '../../database/app_database.dart';
 import '../engine/report_result.dart';
 import '../engine/report_runner.dart';
 import '../engine/report_source.dart';
+import '../sources/business_status/bank_statement.dart';
 import '../sources/business_status/discount_report.dart';
 import '../sources/business_status/gst_rate_report.dart';
 import '../sources/gst/gstr1.dart';
@@ -243,11 +244,7 @@ class ReportCatalogue {
 
   // ---- Business Status (2) ----
   static final List<ReportDefinition> _businessStatus = [
-    _placeholder(
-      'bank_statement',
-      'Bank Statement',
-      ReportCategory.businessStatus,
-    ),
+    bankStatement,
     discountReport,
   ];
 

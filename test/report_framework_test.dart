@@ -130,18 +130,18 @@ void main() {
         // GST, as of Phase 4d. Its two return-shaped reports read
         // GstReturnBuilder rather than the books directly.
         ...ReportCatalogue.inCategory(ReportCategory.gst),
-        // Discount Report (Business Status) and GST Rate Report (Taxes), as
-        // of Phase 4e. Deliberately **not** the whole of either category:
-        // Bank Statement and the four remaining Taxes reports are still
-        // placeholders, and naming the category would claim they are built.
-        ReportCatalogue.byId('discount_report')!,
+        // Business Status in full (Bank Statement + Discount Report), and
+        // GST Rate Report from Taxes — deliberately **not** the whole Taxes
+        // category, whose other five are still placeholders and would be
+        // claimed as built by naming it.
+        ...ReportCatalogue.inCategory(ReportCategory.businessStatus),
         ReportCatalogue.byId('gst_rate_report')!,
       };
       expect(
         ReportCatalogue.implemented.map((d) => d.spec.id).toSet(),
         finished.map((d) => d.spec.id).toSet(),
       );
-      expect(ReportCatalogue.implemented, hasLength(34));
+      expect(ReportCatalogue.implemented, hasLength(35));
     });
   });
 

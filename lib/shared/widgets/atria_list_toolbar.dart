@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../core/responsive/breakpoints.dart';
+import '../../core/responsive/platform_ui.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/utils/formatters.dart';
 
@@ -402,7 +403,11 @@ class AtriaFilterBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final wide = constraints.maxWidth >= Breakpoints.compact;
+        // A phone gets the scrolling pill strip at every width — that is the
+        // reference's answer, and a set of five status pills laid out in a row
+        // on a 360dp screen leaves room for one and a half.
+        final wide = !Theme.of(context).platform.isMobileUi &&
+            constraints.maxWidth >= Breakpoints.compact;
         return _FilterBarScope(
           wide: wide,
           child: Padding(

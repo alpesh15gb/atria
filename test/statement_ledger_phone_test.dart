@@ -118,7 +118,11 @@ void main() {
           UncontrolledProviderScope(
             container: container,
             child: MaterialApp(
-              theme: AppTheme.light(),
+              // The name says "at 360dp" and the width delivers that. The
+              // platform is declared because the ledger and grid now choose
+              // their layout by platform as well: a 360dp window on the desktop
+              // surface is a squeezed desktop, which is a different claim.
+              theme: AppTheme.light().copyWith(platform: TargetPlatform.android),
               home: Scaffold(body: screen.$2(partyId)),
             ),
           ),

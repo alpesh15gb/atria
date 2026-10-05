@@ -21,3 +21,11 @@
 # five-minute per-test budget in teardown *after* writing its PNG. Run it on its
 # own with --plain-name; the image is written either way.
 exclude_tags: golden
+
+# Live-network TLS tests (test/le_trust_store_live_test.dart) need the internet
+# and hit the production server, so they are kept out of every default run too.
+# Run them explicitly after any change to the API layer's TLS handling:
+#
+#   flutter test --tags live-tls
+tags:
+  live-tls:

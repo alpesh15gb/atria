@@ -73,3 +73,12 @@ SETUP_PROMPT.md
 # plus a 20 MB portable zip, both regenerated from build\release.
 /installer/output/
 /installer/smoke-install/
+
+# Scratch captures and transcripts from UI audits — not part of the app.
+# half baked.txt is a prior agent's session transcript, kept locally for
+# context only.
+apex_check.png
+ct.html
+gp.html
+half baked.txt
+mobile reference/

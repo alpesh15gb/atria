@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'le_trust_store.dart';
+
 /// The outcome of asking a server "are you the Apex Books API?".
 class ServerProbeResult {
   const ServerProbeResult({required this.ok, required this.message});
@@ -42,24 +44,40 @@ class ServerProbe {
           ok: false, message: 'That is not a usable server address.');
     }
 
-    final client = HttpClient()..connectionTimeout = timeout;
     try {
-      final request = await client.getUrl(uri).timeout(timeout);
-      final response = await request.close().timeout(timeout);
-      final body =
-          await response.transform(utf8.decoder).join().timeout(timeout);
+      // The trust-store fallback lives inside the per-attempt wrapper: the
+      // first attempt uses the platform's own roots, and only if the handshake
+      // fails for that reason is it retried once with the bundled Let's Encrypt
+      // roots (see [LeTrustStore]). A device whose trust store predates ISRG
+      // Root X2 — common on phones that stopped receiving updates — then
+      // connects instead of dead-ending on a certificate the server cannot
+      // be talked out of.
+      return await LeTrustStore.run((tlsContext) async {
+        final client = HttpClient(context: tlsContext)
+          ..connectionTimeout = timeout;
+        try {
+          final request = await client.getUrl(uri).timeout(timeout);
+          final response = await request.close().timeout(timeout);
+          final body =
+              await response.transform(utf8.decoder).join().timeout(timeout);
 
-      if (response.statusCode != 200) {
-        return ServerProbeResult(
-          ok: false,
-          message: 'The server answered HTTP ${response.statusCode}. Check the '
-              'address has no path after it.',
-        );
-      }
-      return describeHealthBody(body);
+          if (response.statusCode != 200) {
+            return ServerProbeResult(
+              ok: false,
+              message: 'The server answered HTTP ${response.statusCode}. Check the '
+                  'address has no path after it.',
+            );
+          }
+          return describeHealthBody(body);
+        } finally {
+          client.close(force: true);
+        }
+      });
     } on HandshakeException {
       // Its own message because it is its own fix — a self-signed or expired
       // certificate is not a typo in the address, and retyping will not help.
+      // Reached only when neither the platform's roots nor the bundled
+      // Let's Encrypt roots accept the chain.
       return const ServerProbeResult(
         ok: false,
         message: 'TLS handshake failed, so this device does not trust that '
@@ -78,8 +96,6 @@ class ServerProbe {
       );
     } catch (error) {
       return ServerProbeResult(ok: false, message: 'Request failed: $error');
-    } finally {
-      client.close(force: true);
     }
   }
 

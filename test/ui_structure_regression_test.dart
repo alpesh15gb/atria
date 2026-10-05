@@ -90,7 +90,10 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: AppTheme.light(),
+          // Declared: the shared filter picks a scrolling pill strip on mobile
+          // at any width, so this "desktop-width surface" claim only holds on
+          // the desktop platform. `flutter test` defaults to android.
+          theme: AppTheme.light().copyWith(platform: TargetPlatform.windows),
           home: const ExpensesScreen(),
         ),
       ),

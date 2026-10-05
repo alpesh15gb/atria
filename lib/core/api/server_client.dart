@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'api_config.dart';
+import 'le_trust_store.dart';
 
 /// What the server had to say about an erasure request.
 enum FirmErasure {
@@ -73,39 +74,52 @@ class ServerClient {
     required String accessToken,
   }) async {
     final uri = await _config.endpoint('/v1/firms/$firmId');
-    final client = HttpClient()..connectionTimeout = timeout;
     try {
-      final request = await client.deleteUrl(uri).timeout(timeout);
-      request.headers
-          .set(HttpHeaders.authorizationHeader, 'Bearer $accessToken');
-      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      // Same trust-store fallback as everywhere else in the API layer (see
+      // [LeTrustStore]): platform roots first, bundled Let's Encrypt roots on
+      // a handshake failure. The erase must behave like every other request
+      // — a device that can sign in but cannot erase is a confusing half.
+      return await LeTrustStore.run((tlsContext) async {
+        final client = HttpClient(context: tlsContext)
+          ..connectionTimeout = timeout;
+        try {
+          final request = await client.deleteUrl(uri).timeout(timeout);
+          request.headers
+              .set(HttpHeaders.authorizationHeader, 'Bearer $accessToken');
+          request.headers.set(HttpHeaders.acceptHeader, 'application/json');
 
-      final response = await request.close().timeout(timeout);
-      final body =
-          await response.transform(utf8.decoder).join().timeout(timeout);
+          final response = await request.close().timeout(timeout);
+          final body =
+              await response.transform(utf8.decoder).join().timeout(timeout);
 
-      switch (response.statusCode) {
-        case 200:
-          return FirmErasure.erased;
-        case 404:
-          return FirmErasure.alreadyGone;
-        case 401:
-        case 403:
-          throw const ServerRequestException(
-            'Apex Books no longer accepts this device\'s session. Sign in again, '
-            'then retry.',
-            signedOut: true,
-          );
-        default:
-          throw ServerRequestException(
-            _messageFrom(body) ??
-                'The server refused the request (HTTP ${response.statusCode}).',
-            statusCode: response.statusCode,
-          );
-      }
+          switch (response.statusCode) {
+            case 200:
+              return FirmErasure.erased;
+            case 404:
+              return FirmErasure.alreadyGone;
+            case 401:
+            case 403:
+              throw const ServerRequestException(
+                'Apex Books no longer accepts this device\'s session. Sign in again, '
+                'then retry.',
+                signedOut: true,
+              );
+            default:
+              throw ServerRequestException(
+                _messageFrom(body) ??
+                    'The server refused the request (HTTP ${response.statusCode}).',
+                statusCode: response.statusCode,
+              );
+          }
+        } finally {
+          client.close(force: true);
+        }
+      });
     } on ServerRequestException {
       rethrow;
     } on HandshakeException {
+      // Reached only when neither the platform's roots nor the bundled
+      // Let's Encrypt roots accepted the chain.
       throw const ServerRequestException(
         'This device does not trust the server\'s certificate, so nothing was '
         'deleted there.',
@@ -121,8 +135,6 @@ class ServerClient {
       );
     } on HttpException catch (error) {
       throw ServerRequestException('The request failed: ${error.message}');
-    } finally {
-      client.close(force: true);
     }
   }
 

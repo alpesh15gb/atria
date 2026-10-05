@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'le_trust_store.dart';
 import 'server_client.dart' show ServerRequestException;
 
 /// The one way this app talks to the Apex Books API.
@@ -36,55 +37,73 @@ class ServerHttp {
     Duration timeout = const Duration(seconds: 20),
     String? timeoutMessage,
   }) async {
-    final client = HttpClient()..connectionTimeout = timeout;
     try {
-      final request = await client.openUrl(method, uri).timeout(timeout);
-      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      if (accessToken != null && accessToken.trim().isNotEmpty) {
-        request.headers
-            .set(HttpHeaders.authorizationHeader, 'Bearer $accessToken');
-      }
-      if (body != null) {
-        final encoded = utf8.encode(jsonEncode(body));
-        request.headers.contentType = ContentType.json;
-        request.headers.contentLength = encoded.length;
-        request.add(encoded);
-      }
+      // First attempt with the platform's own trust store; on a handshake
+      // failure, retried once with the bundled Let's Encrypt roots (see
+      // [LeTrustStore]). A device whose trust store predates ISRG Root X2 —
+      // common on phones that stopped receiving updates — then connects
+      // instead of dead-ending on a certificate the server cannot be talked
+      // out of. Anything neither store accepts still lands in the
+      // HandshakeException arm below.
+      return await LeTrustStore.run((tlsContext) async {
+        final client = HttpClient(context: tlsContext)
+          ..connectionTimeout = timeout;
+        try {
+          final request = await client.openUrl(method, uri).timeout(timeout);
+          request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+          if (accessToken != null && accessToken.trim().isNotEmpty) {
+            request.headers
+                .set(HttpHeaders.authorizationHeader, 'Bearer $accessToken');
+          }
+          if (body != null) {
+            final encoded = utf8.encode(jsonEncode(body));
+            request.headers.contentType = ContentType.json;
+            request.headers.contentLength = encoded.length;
+            request.add(encoded);
+          }
 
-      final response = await request.close().timeout(timeout);
-      final raw = await response.transform(utf8.decoder).join().timeout(timeout);
-      final status = response.statusCode;
+          final response = await request.close().timeout(timeout);
+          final raw =
+              await response.transform(utf8.decoder).join().timeout(timeout);
+          final status = response.statusCode;
 
-      if (status >= 200 && status < 300) {
-        if (raw.trim().isEmpty) return const {};
-        final decoded = jsonDecode(raw);
-        if (decoded is Map) return decoded.cast<String, Object?>();
-        // A success that is not a JSON object means the address is not the
-        // Apex Books API — most likely a proxy or a captive portal answering 200
-        // with HTML. Failing here is far better than a null-pointer later.
-        throw const ServerRequestException(
-          'The server answered, but not in the shape Apex Books expects. Check the '
-          'server address in Settings.',
-        );
-      }
+          if (status >= 200 && status < 300) {
+            if (raw.trim().isEmpty) return const <String, Object?>{};
+            final decoded = jsonDecode(raw);
+            if (decoded is Map) return decoded.cast<String, Object?>();
+            // A success that is not a JSON object means the address is not the
+            // Apex Books API — most likely a proxy or a captive portal answering 200
+            // with HTML. Failing here is far better than a null-pointer later.
+            throw const ServerRequestException(
+              'The server answered, but not in the shape Apex Books expects. Check the '
+              'server address in Settings.',
+            );
+          }
 
-      if (status == 401 || status == 403) {
-        throw ServerRequestException(
-          messageFrom(raw) ??
-              'Apex Books no longer accepts this device\'s session. Sign in again, '
-                  'then retry.',
-          statusCode: status,
-          signedOut: true,
-        );
-      }
+          if (status == 401 || status == 403) {
+            throw ServerRequestException(
+              messageFrom(raw) ??
+                  'Apex Books no longer accepts this device\'s session. Sign in again, '
+                      'then retry.',
+              statusCode: status,
+              signedOut: true,
+            );
+          }
 
-      throw ServerRequestException(
-        messageFrom(raw) ?? 'The server refused the request (HTTP $status).',
-        statusCode: status,
-      );
+          throw ServerRequestException(
+            messageFrom(raw) ?? 'The server refused the request (HTTP $status).',
+            statusCode: status,
+          );
+        } finally {
+          client.close(force: true);
+        }
+      });
     } on ServerRequestException {
       rethrow;
     } on HandshakeException {
+      // Reached only when neither the platform's roots nor the bundled
+      // Let's Encrypt roots accepted the chain — a self-signed or expired
+      // certificate, not a missing root.
       throw const ServerRequestException(
         'This device does not trust the server\'s certificate. Nothing was '
         'sent.',
@@ -105,8 +124,6 @@ class ServerHttp {
       );
     } on HttpException catch (error) {
       throw ServerRequestException('The request failed: ${error.message}');
-    } finally {
-      client.close(force: true);
     }
   }
 

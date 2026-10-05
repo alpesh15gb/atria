@@ -1,6 +1,7 @@
 import 'package:atria/core/database/app_database.dart';
 import 'package:atria/core/navigation/nav_destinations.dart';
 import 'package:atria/core/state/providers.dart';
+import 'package:atria/core/theme/app_theme.dart';
 import 'package:atria/shared/widgets/adaptive_nav_shell.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -171,10 +172,17 @@ void main() {
     );
     final router = productionShapedRouter();
 
+    // Declared, not inferred: `flutter test` defaults `defaultTargetPlatform`
+    // to android, and the shell now picks the bottom bar by PLATFORM rather
+    // than by width. Left implicit this test ran against the phone bar and
+    // passed while asserting nothing about the rail.
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: MaterialApp.router(routerConfig: router),
+        child: MaterialApp.router(
+          routerConfig: router,
+          theme: AppTheme.light().copyWith(platform: TargetPlatform.windows),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -243,7 +251,12 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: MaterialApp.router(routerConfig: router),
+        child: MaterialApp.router(
+          routerConfig: router,
+          // Says what the test name says: this is the mobile bottom shell,
+          // reached by platform. The width alone no longer chooses it.
+          theme: AppTheme.light().copyWith(platform: TargetPlatform.android),
+        ),
       ),
     );
     await tester.pumpAndSettle();

@@ -29,14 +29,19 @@ void main() {
     WidgetTester tester,
     Widget child, {
     required Size size,
+    TargetPlatform platform = TargetPlatform.windows,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+    // Defaults to Windows so the desktop-spelling tests assert the desktop
+    // grid. The grid now picks sheet-vs-cards by platform, and `flutter test`
+    // defaults to android — left implicit, "a desktop-width grid is a
+    // spreadsheet" would have been measuring the phone cards at 1200dp.
     await tester.pumpWidget(
       MaterialApp(
-        theme: AppTheme.light(),
+        theme: AppTheme.light().copyWith(platform: platform),
         home: Scaffold(body: child),
       ),
     );
@@ -85,7 +90,8 @@ void main() {
   });
 
   testWidgets('a phone-width grid becomes labelled cards', (tester) async {
-    await pumpAt(tester, grid(rows: 2), size: const Size(400, 900));
+    await pumpAt(tester, grid(rows: 2), size: const Size(400, 900),
+        platform: TargetPlatform.android);
 
     // The header row is gone, so each cell has to say what it is — uppercase,
     // in the column's own words.

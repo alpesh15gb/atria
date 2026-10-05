@@ -6,6 +6,7 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../../core/domain/member_role.dart';
 import '../../core/navigation/nav_destinations.dart';
 import '../../core/responsive/breakpoints.dart';
+import '../../core/responsive/platform_ui.dart';
 import '../../core/state/member_session_controller.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_sizes.dart';
@@ -47,6 +48,17 @@ class AdaptiveNavShell extends StatelessWidget {
     // actually given — consistent with every other breakpoint in the app.
     return LayoutBuilder(
       builder: (context, constraints) {
+        // A phone gets the bottom bar at every width, including a tablet's.
+        // Only the desktop surface chooses by width, where a narrow window
+        // should still offer the rail rather than drop into a phone layout the
+        // user did not ask for.
+        if (Theme.of(context).platform.isMobileUi) {
+          return _BottomShell(
+            navigationShell: navigationShell,
+            bottomBarIndex: _bottomBarIndex,
+            onTap: _goBranch,
+          );
+        }
         final useRail = constraints.maxWidth >= Breakpoints.compact;
         if (useRail) {
           return _RailShell(

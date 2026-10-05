@@ -6,6 +6,7 @@ import '../../core/constants/units.dart';
 // Only for `UnitEntity`, the row type behind a firm-defined unit.
 import '../../core/database/app_database.dart';
 import '../../core/responsive/breakpoints.dart';
+import '../../core/responsive/platform_ui.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_sizes.dart';
 import '../../core/utils/formatters.dart';
@@ -91,7 +92,12 @@ class AtriaLineGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final wide = constraints.maxWidth >= Breakpoints.medium;
+        // A phone stacks every line as a card, whatever the window measures —
+        // nine columns squeezed into a row is the failure that made a saved
+        // invoice show only its Item column. Only the desktop surface chooses
+        // by width.
+        final wide = !Theme.of(context).platform.isMobileUi &&
+            constraints.maxWidth >= Breakpoints.medium;
         if (rows.isEmpty && emptyHint != null) {
           return _EmptyLines(hint: emptyHint!);
         }

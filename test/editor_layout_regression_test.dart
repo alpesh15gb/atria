@@ -58,13 +58,21 @@ void main() {
     ProviderContainer container,
     Widget editor, {
     required Size size,
+    TargetPlatform platform = TargetPlatform.windows,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
+    // Defaults to Windows so the "desktop sheet" assertions measure the
+    // desktop sheet. The grid now keys sheet-vs-cards on platform, and
+    // `flutter test` defaults to android, which left "grid cells are bare in
+    // the sheet" asserting against stacked cards at 1680dp.
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: MaterialApp(theme: AppTheme.light(), home: editor),
+        child: MaterialApp(
+          theme: AppTheme.light().copyWith(platform: platform),
+          home: editor,
+        ),
       ),
     );
     // Bounded pumps: the editors settle fast, but stay bounded so a hanging
@@ -234,6 +242,7 @@ void main() {
         container,
         const PartyEditorScreen(),
         size: const Size(400, 900),
+        platform: TargetPlatform.android,
       );
       final narrow = sectionRects();
       expect(
@@ -289,6 +298,7 @@ void main() {
         container,
         const SaleEditorScreen(docType: 'invoice'),
         size: const Size(400, 900),
+        platform: TargetPlatform.android,
       );
       expect(
         cellBorder().borderSide.color.a,

@@ -40,12 +40,20 @@ void main() {
     await db.close();
   });
 
-  Future<void> pump(WidgetTester tester, Widget screen) async {
+  Future<void> pump(
+      WidgetTester tester,
+      Widget screen, {
+      TargetPlatform platform = TargetPlatform.windows,
+    }) async {
+    // Defaults to Windows: the shared filter now offers a scrolling pill strip
+    // on mobile regardless of width, and `flutter test` defaults to android —
+    // so an undeclared platform would run this at the default 800x600 as a
+    // phone and find "Assets" twice (the section header and the row label).
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: AppTheme.light(),
+          theme: AppTheme.light().copyWith(platform: platform),
           home: Scaffold(body: screen),
         ),
       ),

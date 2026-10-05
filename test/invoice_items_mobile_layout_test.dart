@@ -70,15 +70,22 @@ void main() {
     ));
   }
 
-  Future<void> mount(WidgetTester tester, Size size) async {
+  Future<void> mount(
+      WidgetTester tester,
+      Size size, {
+      TargetPlatform platform = TargetPlatform.windows,
+    }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
+    // The platform is declared because the grid chooses sheet-vs-cards by
+    // platform, and `flutter test` defaults to android: a desktop-window test
+    // left implicit would be asserting against the phone card layout.
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: const MaterialApp(
-          theme: null,
-          home: SaleDetailScreen(id: 'inv-1'),
+        child: MaterialApp(
+          theme: ThemeData(platform: platform),
+          home: const SaleDetailScreen(id: 'inv-1'),
         ),
       ),
     );

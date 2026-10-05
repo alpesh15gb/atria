@@ -4,6 +4,8 @@ import '../../database/app_database.dart';
 import '../engine/report_result.dart';
 import '../engine/report_runner.dart';
 import '../engine/report_source.dart';
+import '../sources/business_status/discount_report.dart';
+import '../sources/business_status/gst_rate_report.dart';
 import '../sources/gst/gstr1.dart';
 import '../sources/gst/gstr2a_reconciliation.dart';
 import '../sources/gst/gstr3b.dart';
@@ -246,17 +248,17 @@ class ReportCatalogue {
       'Bank Statement',
       ReportCategory.businessStatus,
     ),
-    _placeholder(
-      'discount_report',
-      'Discount Report',
-      ReportCategory.businessStatus,
-    ),
+    discountReport,
   ];
 
   // ---- Taxes (6) ----
+  //
+  // GST Rate Report reads the rates actually charged on filed documents rather
+  // than the rate configured on each item — that is the rate for the *next*
+  // invoice, so reading it would erase every month sold at the old one.
   static final List<ReportDefinition> _taxes = [
     _placeholder('gst_report', 'GST Report', ReportCategory.taxes),
-    _placeholder('gst_rate_report', 'GST Rate Report', ReportCategory.taxes),
+    gstRateReport,
     _placeholder('form_27eq', 'Form No. 27EQ', ReportCategory.taxes),
     _placeholder('tcs_receivable', 'TCS Receivable', ReportCategory.taxes),
     _placeholder('tds_payable', 'TDS Payable', ReportCategory.taxes),

@@ -1,9 +1,8 @@
 # Project State
 
-_Last updated: 2026-10-05 (**reporting build, Phase 4c Item/Stock shipped** —
-26 of 47 reports done; suite 990 / 0 failed; the Print button fixed; Android +
-Windows debug builds green; Phases 0–3 shipped; the earlier six-phase build is
-complete)_
+_Last updated: 2026-10-06 (**reporting build, Phase 4d GST shipped** — 32 of
+47 reports done; suite 1032 / 0 failed; Android debug APK green; the stalled
+session recovered and the mobile platform gate + TLS roots landed)_
 
 ## Current objective
 
@@ -21,21 +20,48 @@ Six phases, full plan in
 | 1 | schema v11: costing, godown, party groups | **shipped** (`7da4eea`, `9931129`) |
 | 2 | schema v12: bank accounts, loans, TDS metadata | **shipped** (`ce845e1`) |
 | 3 | the framework (spec / engine / view / export / catalogue) | **shipped** (`2b483a4`) |
-| 4 | the 47 reports, one commit per category | **4a + 4b + 4c shipped**; next 4d GST (6) |
+| 4 | the 47 reports, one commit per category | **4a–4e shipped**; next **4f Expense + Order + Loan (6)** |
 | 5 | retire the dashboard to the menu + Overview | — |
 
-**Next exact action: Phase 4d — the six GST reports** (GSTR-1, GSTR-2A
-Reconciliation, GSTR-3B, GSTR-9, Sale Summary By HSN, SAC Report). GSTR-1 and
-3B reuse `GstReturnBuilder`; GSTR-9 is new. Read `report_gst_test.dart`'s
-predecessors in `test/report_transaction_test.dart` for the fixture idiom —
-sources go in `lib/core/reports/sources/gst/`, register in
-`ReportCatalogue._gst`, and the two return-shaped ones get
-`ReportLayout.document` views in `lib/features/reports/documents/`.
+**Next exact action: Phase 4f — Expense (3) + S/P Order (2) + Loan (1).**
+`Expense`, `Expense Category Report`, `Expense Item Report`, `Sale/Purchase
+Orders`, `Sale/Purchase Order Item`, `Loan Statement`. All six are still
+placeholders. `ReportCatalogue._expense` / `._order` / `._loan`.
 
-Also asked 2026-10-05: a **comparison against the top accounting apps**
-(research complete, **not yet written up to the user** — see the caveat below),
-**Android + Windows builds** (both green), and a **real check of the printing
-option** (found broken; fixed).
+What 4f needs that the earlier categories did not:
+
+- **`expenses.itemId` is the interesting column** (v12). It exists so Expense
+  Item Report can answer "what did I spend on this item" across purchases *and*
+  expenses without matching on a typed description — "Petrol 20 Apr" and
+  "Petrol, 20/4" are the same expense and no string comparison knows that.
+  Expenses with a null `itemId` must still appear, grouped under their category.
+- **Loan Statement** reads `loans` + `loan_transactions` (v12). Note
+  `LoanTransactions.principalAmount` is separate from `amount`: interest does not
+  reduce principal, and an interest-only repayment leaves principal at zero.
+  That is exactly what separates "paying off the loan" from "paying this month's
+  interest", so the statement needs both columns.
+- **Sale/Purchase Orders**: a purchase order is **not** a bill and a sales order
+  is not money, so neither may reach a stock or P&L figure. `kSalesDocTypes` /
+  `kPurchaseDocTypes` deliberately exclude them — a report that ignores that
+  disagrees with the Trial Balance by every pending order.
+
+### Two reports deliberately NOT built, and why
+
+Both are placeholders on purpose. Do not "fix" them by wiring an existing column:
+
+- **TDS Receivable.** `sales_invoices.tcs` is tax the firm *collected from* a
+  customer (it is added to `grandTotal`), so it is the TCS report and nothing
+  else. Tax a customer deducted *from us* is a different fact on a different line
+  of the return, and **no column stores it**. Needs schema v13. It was written
+  once, found to be byte-for-byte the TCS report, and deleted.
+- **GST Report.** It is the monthly GST summary; the report that answers that
+  question already exists as GSTR 3B. Shipping a second one under this name would
+  be two documents with one meaning.
+
+Also open, carried from 2026-10-05 and still owed: a **comparison against the
+top accounting apps** (research complete, **never written up** — see the caveat
+below) and a **manual pass on real hardware** (nothing has been clicked on a
+device).
 
 **Comparison caveat to pass on, not launder:** the research agent's WebSearch
 returned empty for every query in its environment, so every fact comes from a
@@ -46,6 +72,27 @@ has been defunct since 1 Jul 2023, Posist became Restroworks (restaurant-only),
 `vyaparapp.com` and `busyaccountingsoftware.com` are parked domains (real sites
 are `vyaparapp.in` and `busy.in`). The real set is **TallyPrime, Vyapar, Zoho
 Books, Marg, Busy, Khatabook.**
+
+## The session that died, and what it left behind (2026-10-06)
+
+A previous agent was mid-edit on the mobile UI split when it crashed
+(`half baked.txt` is its transcript). Two things came out of the recovery
+commit `53b2ba2`, and both matter for what comes next:
+
+- **The platform gate is half-landed.** `adaptive_nav_shell`,
+  `atria_line_grid` and `atria_list_toolbar` now choose by platform as well as
+  width, on the seam from `844c313`. Making them platform-aware exposed **seven
+  tests that had been asserting desktop widgets while `flutter test` ran them
+  as android** — the runner defaults `defaultTargetPlatform` to android, so
+  they passed and meant nothing. All seven now declare their platform through
+  `ThemeData`. Expect this class of failure whenever a shared widget starts
+  keying on platform: grep the width-based tests before trusting a green run.
+- **The bundled Let's Encrypt roots landed** (`lib/core/api/le_trust_store.dart`,
+  `assets/certs/`). Requests still try the platform store first; the bundled
+  roots are a fallback after a `HandshakeException`, so nothing the platform
+  refuses becomes trusted. `test/le_trust_store_live_test.dart` is tagged
+  `live-tls` and **excluded from default runs** — run it deliberately with
+  `flutter test --tags live-tls` after touching the API layer's TLS handling.
 
 ### The earlier six-phase build — complete
 
@@ -63,9 +110,16 @@ Books, Marg, Busy, Khatabook.**
 ## Current implementation state
 
 - `flutter analyze lib/ test/` → clean.
-- `flutter test` → **948 passed / 0 failed** (723 baseline + 30 Phase 0 +
-  25 Phase 1 + 1 backup-integrity + 3 Phase 2 + 69 Phase 3 + 54 Phase 4a
-  transaction + 10 Phase 4a documents + 31 Phase 4b party + 2 print).
+- `flutter test` → **1079 passed / 0 failed** (1003 before Phase 4d; +29 GST, +17
+  Business Status, +14 Bank Statement, +14 Taxes, +2 framework restatements).
+  `test/le_trust_store_live_test.dart` is excluded by tag and does not count.
+- Android debug APK green as of the last commit (`flutter build apk --debug`
+  needs `JAVA_HOME="C:\Program Files\Android\Android Studio\jbr"` first).
+- `flutter` is **not on PATH** in a fresh shell — it lives at `C:\flutter\bin`.
+  Prepend it: `$env:Path += ";C:\flutter\bin"`. Python (used by
+  `tools/swipe_to_vyb.py`) is at
+  `%LOCALAPPDATA%\Programs\Python\Python312\python.exe` and is also off PATH;
+  the `python` on PATH is the Microsoft Store stub and reports "not found".
 - **Both debug builds green, 2026-10-05.** `flutter build apk --debug` needs
   `export JAVA_HOME="C:\Program Files\Android\Android Studio\jbr"` first →
   `build/app/outputs/flutter-apk/app-debug.apk`. `flutter build windows --debug`

@@ -208,12 +208,130 @@ so nothing ships as a stub.
               reads them, but there is no transfer entry UI. The test writes
               movements straight to the table and says so — the missing piece
               is the screen, not the report.
-      - [ ] **4d GST (6).** GSTR-1/3B reuse `GstReturnBuilder`; GSTR-9 is new.
-            **Next.**
-      - [ ] **4e Business Status + Taxes (8)** — 27EQ needs v12.
-      - [ ] **4f Expense + Order + Loan (6)**.
+      - [x] **4d GST (6).** All six shipped. GSTR-1 / GSTR-3B / GSTR-9 read
+            `GstReturnBuilder` — the same code that generates the portal JSON, so
+            screen and upload agree by construction rather than by two
+            implementations coinciding. GSTR-9 had no builder and sums the
+            year's monthly 3Bs, because an annual return is the filed returns
+            added up, not a second opinion about the year. Sale Summary By HSN
+            and SAC Report read line rows. `test/report_gst_test.dart` (29).
+            Suite **1032 / 0 failed**, Android debug APK green.
+            - **The GST rate is derived from each line's own tax, never the item
+              master.** An inclusive line and a discount both move the rate a
+              line was actually taxed at; the master holds the rate for the
+              *next* invoice, so reading it rewrites the history of everything
+              filed at the old one. `Decimal /` returns a `Rational` whose bare
+              `toDecimal()` throws on a non-terminating fraction — convert at
+              scale 6, round HALF_UP once.
+            - **A credit note and a debit note are negative.** Both are stored
+              with positive tax columns; the sign belongs to the doc type.
+              Summing either as stored overstates outward supply and input
+              credit, and the portal computes the liability from the figure
+              filed.
+            - **An unregistered firm files no return**, so every GST source
+              returns no rows and says why. Most firms here are in that
+              position, and a return-shaped document that reads like a filed
+              liability is worse than an empty screen.
+            - **Six defects found and fixed, each revert-proven by in-place
+              mutation** (the sources were untracked, so git stash could not
+              reach them):
+              - GSTR-1 invented a Table 7 document count. The portal aggregates
+                Table 7 by place and rate, so there is none — the cell is a dash
+                now, because a zero would claim nothing was sold.
+              - GSTR-1 filed the invoice's face value as the taxable value,
+                inflating Table 4 by exactly the tax charged. It sums item rows.
+              - The 2A file was keyed by firm alone, so a clean April would be
+                reconciled against May's file. Keyed per return period; the test
+                imports May, asks for April, and asserts April finds nothing
+                while May finds its own.
+              - GSTR-9 ignored `direction`, so a reduction stored as a positive
+                amount was *added* to the figure it corrected.
+              - Every GST report defaulted the nullable window differently, so
+                an open-ended window read a different period per report.
+                `windowFrom` / `windowTo` in `gst/gst_common.dart` decide once.
+      - [ ] **4e Business Status + Taxes (8)** — 2 of 8 shipped.
+            - [x] **Discount Report** (Business Status) and **GST Rate Report**
+                  (Taxes) — `e7d5e3f`. Sources in
+                  `lib/core/reports/sources/business_status/`;
+                  `test/report_business_status_test.dart` (17). Suite
+                  **1049 / 0 failed**.
+                  - **Both read what was filed, not what is configured.** The
+                    rate comes from each line's own tax; `items.gstRate` is the
+                    rate for the *next* invoice, so reading it would erase every
+                    month sold at the old one.
+                  - **The invoice allowance's per-line share is recovered from
+                    the books**, as `item_wise_discount` already does. A test
+                    splits a ₹10 allowance across three equal lines and asserts
+                    the shares sum to exactly 10 — largest remainder gives
+                    3.33/3.33/3.34, and any straight division produces a
+                    different set, which is exactly where the reader's own
+                    `gross − discount == net` check would fail by a paisa.
+                  - **Two defects, each proven by mutating the source in place:**
+                    a **percentage discount reported as zero** (the stored
+                    `discountAmount` column holds only the amount half;
+                    `discountPercent` is separate, so the report said "no
+                    discount given" about an invoice showing ₹500 off — the line
+                    discount now comes from `GstEngine.computeLine`, the same
+                    call the tax was computed from), and the **rate report merged
+                    services into goods** by reading the HSN rather than
+                    `items.isService`.
+            - [x] **Bank Statement** (`76655a0`) — the last of Business Status,
+                  so that category is finished. `test/report_bank_statement_test.dart`
+                  (14). **The opening balance is derived, not assumed**:
+                  `bank_accounts.currentBalance` is the balance *now* and
+                  already contains the period, so the report subtracts the
+                  period's movements back out to reach the opening. Adding
+                  instead of subtracting is a report whose last line is
+                  `currentBalance` **plus** the period — out by exactly the
+                  activity the reader came to check, and the tests caught it on
+                  the first run with the fixture asserting the right answer.
+                  Cash in hand is a real `BankAccounts.type` row and is listed
+                  beside the bank accounts; an uncleared cheque is not money; an
+                  account with no movement still gets a row.
+            - [x] **TDS Payable, Form No. 27EQ, TCS Receivable** (`841cf3e`) —
+                  `test/report_taxes_test.dart` (14). Suite **1079 / 0 failed**.
+                  - **The write path was missing and had to be built first.**
+                    `purchase_bills.deducteePan` / `tdsSection` /
+                    `tdsSectionRate` have existed since v12 and **nothing wrote
+                    them** — a column that passes a schema test and means nothing.
+                    `PurchaseDraft` now carries all three; `save` stamps them,
+                    taking the PAN from the supplier's party when the caller does
+                    not supply it (that is where the purchase editor has it), and
+                    **only when a deduction was actually made**.
+                  - **Every field is a snapshot and is read as one.** The amount
+                    is the stored `tds`, never the rate re-multiplied — what was
+                    deducted is a function of that bill's taxable value.
+                  - **27EQ aggregates the way the form is filed** — one line per
+                    deductee per section, where TDS Payable is one row per bill.
+                    Keyed on PAN + section, not the party id.
+                  - A missing PAN or section reads **"Not recorded"** rather than
+                    blank: a quarter filed without one of those lines is a short
+                    return, and the reader must see it is *their* missing field.
+            - [ ] **GST Report** and **TDS Receivable** stay placeholders
+                  **on purpose.** `sales_invoices.tcs` is tax collected *from* a
+                  customer, so it is the TCS report and nothing else; tax a
+                  customer deducted *from us* is a different fact on a different
+                  line of the return and **no column stores it** (needs schema
+                  v13). TDS Receivable was written once, found to be
+                  byte-for-byte the TCS report, and deleted — two
+                  identically-worded reports reading one column is worse than an
+                  honest empty one. **Do not "fix" either by wiring an existing
+                  column.** GST Report is the monthly GST summary and GSTR 3B
+                  already answers it.
+      - [ ] **4f Expense (3) + S/P Order (2) + Loan (1)** — **next**, all six
+            still placeholders. `expenses.itemId` exists so Expense Item Report
+            can span purchases *and* expenses without matching a typed
+            description; null-`itemId` expenses must still appear. Loan
+            Statement needs `principalAmount` **and** `amount` — interest does
+            not reduce principal, which is what separates paying off the loan
+            from paying this month's interest. A purchase order is not a bill and
+            a sales order is not money: `kSalesDocTypes` / `kPurchaseDocTypes`
+            exclude them deliberately, and a report that ignores that disagrees
+            with the Trial Balance by every pending order.
 - [ ] **Phase 5 — retire the dashboard** to the menu + Overview entry.
       `gst_reports_screen.dart` **stays**; `/gst-reports` keeps a `redirect`.
+      Also registers the two new document-shaped GST reports in
+      `lib/features/reports/document_registry.dart`.
 
 ## The agreed six-phase build (2026-10-04)
 
@@ -307,6 +425,22 @@ new tests proven to fail against reverted code) before its commit.
 
 ## Open
 
+- [ ] **A test that asserts a desktop widget under `flutter test` proves
+      nothing.** The runner defaults `defaultTargetPlatform` to **android**, so
+      any width-based assertion in a test that has not declared its platform is
+      exercising the phone widget and passing anyway. Seven such tests existed
+      and were found only when the shared widgets started keying on platform
+      (`53b2ba2`). Every widget test that says "desktop" now sets
+      `theme: AppTheme.light().copyWith(platform: TargetPlatform.windows)`;
+      tests whose subject *is* the phone layout say `android` explicitly.
+      **This recurs whenever a shared widget starts consulting platform.**
+- [ ] **`test/le_trust_store_live_test.dart` is excluded from default runs**
+      (`live-tls` tag, needs the internet and hits production). Run it
+      deliberately with `flutter test --tags live-tls` after any change to the
+      API layer's TLS handling. It also needs `openssl` on PATH, which Git for
+      Windows does not provide — it ships one under `usr/bin` — so the test
+      looks it up in the usual install locations and skips with a reason rather
+      than failing as a broken trust store.
 - [ ] **Confirm the sync fix against the real server.** The line-item loss is
       fixed and regression-tested against a faithful fake (`ec7df48`), but the
       device that reported it still needs a real `.vyb` re-import + sync +

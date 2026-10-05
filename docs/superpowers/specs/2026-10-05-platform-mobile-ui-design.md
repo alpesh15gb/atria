@@ -219,13 +219,32 @@ used to guess at what an image shows.
 
 ### Still not built, from the images above
 
-- The 560dp content cap exists (`PlatformUi.contentMaxWidth`) and is **never
-  called**. `AtriaContentWidth` reads only the desktop cap, so a 1260dp Android
-  tablet still stretches phone cards across the full width — the exact row this
-  spec set out to fix. A helper that exists and does nothing is the same failure
-  as a column that exists and is never written.
-- No FAB, no bottom sheets, no mobile dashboard composition, and the export menu
-  has not been narrowed.
+Nothing. All of it shipped in `2e3386e` and `ff17d25`:
+
+- The 560dp content cap is **wired**, in `AtriaContentWidth` and applied by the
+  **shell** (so every branch gets it, not just the three screens that used the
+  widget). Editors and detail routes are exempt — the invoice line grid is the
+  one screen that wants the width.
+- `MobileFab` — rounded square, renders nothing on desktop.
+- `MobileCreateGrid` + `MobileQuickAccessGrid`, both four across, mounted under
+  the figures on the phone dashboard only. The tiles are **spelled out**, not
+  sliced off `atriaCreateActions`: the desktop order is QuickBooks' and its first
+  eight have no purchase in them. Quick Access is the app's own destinations, not
+  the reference's — four of its eight are e-way bills, e-invoicing, GST filing
+  and bank reconciliation, none of which exist here.
+- `CornerRibbon` + `RibbonCard` — the warning block the spec missed.
+- The filter pills carry the count badge on the selected one and are filled
+  solid on a phone, tinted on desktop.
+- The export menu narrows on mobile: Excel, plus the portal payload for a return
+  that has an upload. `writePortalPayload` in `report_view_page.dart`.
+- The **Select Business** sheet: avatar, name, GSTIN, `Edit Company` / `Share`,
+  a selected ring, and a centred `+ Add new Business`.
+
+**Still not built:** bottom-sheet pickers inside the mobile editors. The reference
+uses full-width `⊕ Select Customer` rows rather than dropdowns; Apex's editors
+still open their pickers as dialogs on a phone. That is the largest remaining gap
+between Apex and the reference on a phone, and it touches the sale, purchase and
+expense editors, so it is worth doing properly rather than as a side-effect.
 
 ## Resolved decisions (2026-10-05)
 

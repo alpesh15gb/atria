@@ -425,15 +425,28 @@ new tests proven to fail against reverted code) before its commit.
 
 ## Open
 
+- [ ] **Mobile: bottom-sheet pickers in the editors.** The reference uses
+      full-width `⊕ Select Customer` / `⊕ Select Products` rows under grey section
+      headings rather than dropdowns; Apex's sale, purchase and expense editors
+      still open dialogs on a phone. The largest remaining gap between Apex and
+      the reference on a handset, and it touches three editors, so it wants doing
+      properly rather than as a side-effect.
 - [ ] **A test that asserts a desktop widget under `flutter test` proves
       nothing.** The runner defaults `defaultTargetPlatform` to **android**, so
       any width-based assertion in a test that has not declared its platform is
-      exercising the phone widget and passing anyway. Seven such tests existed
-      and were found only when the shared widgets started keying on platform
-      (`53b2ba2`). Every widget test that says "desktop" now sets
+      exercising the phone widget and passing anyway. This has now bitten this
+      repo **three times**: seven tests in `53b2ba2`, two more in
+      `settings_widescreen_test.dart`, and the mobile work above. Every widget
+      test that says "desktop" sets
       `theme: AppTheme.light().copyWith(platform: TargetPlatform.windows)`;
       tests whose subject *is* the phone layout say `android` explicitly.
-      **This recurs whenever a shared widget starts consulting platform.**
+- [ ] **A test that re-pumps with a different `ThemeData` needs
+      `pumpAndSettle`, not `pumpWidget`.** `MaterialApp` **animates** a theme
+      change, so a second `pumpWidget` renders one frame of the *previous* theme.
+      A test that pumped the phone platform and then the desktop one read the
+      phone's colours twice and concluded the platform gate did nothing — a test
+      shaped exactly like one checking the gate. `test/mobile_list_grammar_test.dart`
+      documents this at its `pumpAt` helper.
 - [ ] **`test/le_trust_store_live_test.dart` is excluded from default runs**
       (`live-tls` tag, needs the internet and hits production). Run it
       deliberately with `flutter test --tags live-tls` after any change to the

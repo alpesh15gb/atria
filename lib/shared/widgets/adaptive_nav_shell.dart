@@ -10,6 +10,7 @@ import '../../core/responsive/platform_ui.dart';
 import '../../core/state/member_session_controller.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_sizes.dart';
+import 'atria_content_width.dart';
 import 'atria_create_menu.dart';
 import 'atria_top_bar.dart';
 
@@ -53,10 +54,17 @@ class AdaptiveNavShell extends StatelessWidget {
         // should still offer the rail rather than drop into a phone layout the
         // user did not ask for.
         if (Theme.of(context).platform.isMobileUi) {
+          // **The content cap wraps the branch navigators**, not each screen.
+          // Capping inside `AtriaContentWidth` only reached the three screens
+          // that already used it; the shell is the one place every branch
+          // passes through, so a tablet gets a centred phone column everywhere
+          // rather than on the settings screens alone. It is a no-op at phone
+          // widths, where 560dp is wider than the window.
           return _BottomShell(
             navigationShell: navigationShell,
             bottomBarIndex: _bottomBarIndex,
             onTap: _goBranch,
+            capContent: true,
           );
         }
         final useRail = constraints.maxWidth >= Breakpoints.compact;
@@ -131,11 +139,20 @@ class _BottomShell extends ConsumerWidget {
     required this.navigationShell,
     required this.bottomBarIndex,
     required this.onTap,
+    this.capContent = false,
   });
 
   final StatefulNavigationShell navigationShell;
   final int bottomBarIndex;
   final ValueChanged<int> onTap;
+
+  /// Centre the branches in a phone-width column.
+  ///
+  /// True only for the shell that the mobile branch chose. The desktop path also
+  /// lands in a `_BottomShell` when a window is narrow, and a narrow desktop
+  /// window is a squeezed *desktop* — capping it to 560 would break the layout
+  /// rather than rescue it.
+  final bool capContent;
 
   static bool _isEditorOrDetailRoute(String path) {
     if (path.endsWith('/new')) return true;
@@ -162,6 +179,10 @@ class _BottomShell extends ConsumerWidget {
     }
 
     if (path != null && _isEditorOrDetailRoute(path)) {
+      // Editors and detail pages are already full-bleed single-column reading
+      // surfaces, and an editor's line grid is exactly what must **not** be
+      // squeezed into a 560dp column on a tablet — it is the one screen with
+      // enough content to want the width.
       return navigationShell;
     }
 
@@ -173,9 +194,13 @@ class _BottomShell extends ConsumerWidget {
       body: Column(
         children: [
           const AtriaTopBar(),
-          // The shell carries the branch navigators — the list screens and
+          // The shell carries the branch navigators - the list screens and
           // everything pushed on top of them.
-          Expanded(child: navigationShell),
+          Expanded(
+            child: capContent
+                ? AtriaContentWidth(child: navigationShell)
+                : navigationShell,
+          ),
         ],
       ),
       bottomNavigationBar: NavigationBar(

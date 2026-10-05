@@ -157,6 +157,76 @@ are the ones that must be found by audit, not assumption.
 **Verification is revert-proofing.** Each fix is reverted in place and the
 failure observed before it is kept, per the project's established practice.
 
+## What the screenshots actually show (re-read 2026-10-06, first-hand)
+
+The table above and the decisions below were written by reading these images at
+a distance. Re-reading them directly, several things were **wrong or missing**,
+and they are corrected here rather than left to be discovered mid-build.
+
+**The bottom nav is five items: Home · Bills · Products · Parties · More.** A
+filled icon plus a bold label when selected. Correct in the original table.
+
+**The list card leads with the name and puts the figures right, not the
+figures on their own row.** Products: name left, price right-bold, quantity
+above it in grey. Bills: party name left, amount right-bold, document number on
+the second line.
+
+**Warning states are a corner ribbon, not an inline chip.** "Overdue by 211
+days" sits on the card's top-right edge in an amber block; "Qty: -3.00 UNT" in
+red. The ribbon overhangs the card's rounding, which is what makes it read as
+attached to the card rather than floating inside it. An inline chip is a
+different shape and the original spec did not mention it.
+
+**The status pills carry a count badge.** "All Transactions ①" — the selected
+pill is filled blue and the count sits in a white circle. Five pills in a
+scrolling strip, cut off at the right edge, which is the answer a 360dp screen
+needs and is exactly what `wide: false` already does.
+
+**The filter row is `Filter` on the left, sort name on the right** — both with
+their own affordance, and the sort name is tappable ("Default").
+
+**The summary card sits above the pills**: a `Total Amount ⌄` with its figure on
+the left and `Pending` with a red figure on the right, with the search field and
+the date pill sharing the card above them. Pending is red because pending money
+is money the firm does not have.
+
+**The empty state is prose plus one blue text link**, not a button: "You've seen
+all This Year transactions. To view others, pick new dates." → `Select Date
+Range`. It explains *why* the list is empty before offering the way out.
+
+**The FAB is a rounded square, bottom-right, above the nav bar.** Blue, `+`.
+
+**Section headers are small grey caps** — `PREFERENCES`, `APPEARANCE`,
+`LAYOUT`, `HEADER & FOOTER` — above a grouped card of rows. Each row is title +
+description on the left and a chevron or a value on the right. This is the
+settings-list grammar, and it is reusable for anything grouped.
+
+**The editor's pickers are full-width rows with a `⊕` and a blue label**, not
+dropdowns: `⊕ Select Customer`, `⊕ Select Products`, under a grey section
+heading (`Customer`, `Products`, `Addresses`, `More`). `More` is a collapsible
+card of rows — Bank/signature — that is open in the reference.
+
+**The Select Business sheet** is: title, then one row per firm with a circular
+avatar, the firm name, its GSTIN, `Edit Company` / `Share` in blue, and a
+selected-radio at the right; then `+ Add new Business` centred in blue. It opens
+from the firm name in the header.
+
+**25 files are in `mobile reference/`, not the 20 this spec claimed**, and at
+least four are byte-identical duplicates of others. `reports (1).jpg` is the
+Sales/Bills list, not a reports menu, and `reports (2).jpg` is a Document
+Settings screen — the filenames do not describe their contents and must not be
+used to guess at what an image shows.
+
+### Still not built, from the images above
+
+- The 560dp content cap exists (`PlatformUi.contentMaxWidth`) and is **never
+  called**. `AtriaContentWidth` reads only the desktop cap, so a 1260dp Android
+  tablet still stretches phone cards across the full width — the exact row this
+  spec set out to fix. A helper that exists and does nothing is the same failure
+  as a column that exists and is never written.
+- No FAB, no bottom sheets, no mobile dashboard composition, and the export menu
+  has not been narrowed.
+
 ## Resolved decisions (2026-10-05)
 
 ### 1. Which figure leads a report card — `emphasise`, not a heuristic

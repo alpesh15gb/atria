@@ -128,7 +128,12 @@ void main() {
           UncontrolledProviderScope(
             container: container,
             child: MaterialApp(
-              theme: AppTheme.light(),
+              // Declared: `flutter test` defaults `defaultTargetPlatform` to
+               // android, and the content cap is now chosen by platform — so
+               // without this a 1920dp *desktop* claim is measured against the
+               // 560dp phone column and passes for the wrong reason.
+               theme: AppTheme.light()
+                   .copyWith(platform: TargetPlatform.windows),
               home: Scaffold(body: screen.$2),
             ),
           ),

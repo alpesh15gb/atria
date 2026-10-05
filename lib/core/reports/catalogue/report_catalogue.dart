@@ -4,6 +4,12 @@ import '../../database/app_database.dart';
 import '../engine/report_result.dart';
 import '../engine/report_runner.dart';
 import '../engine/report_source.dart';
+import '../sources/gst/gstr1.dart';
+import '../sources/gst/gstr2a_reconciliation.dart';
+import '../sources/gst/gstr3b.dart';
+import '../sources/gst/gstr9.dart';
+import '../sources/gst/sac_report.dart';
+import '../sources/gst/sale_summary_by_hsn.dart';
 import '../sources/item_stock/item_category_pnl.dart';
 import '../sources/item_stock/item_detail.dart';
 import '../sources/item_stock/item_report_by_party.dart';
@@ -200,40 +206,22 @@ class ReportCatalogue {
   ];
 
   // ---- GST (6) ----
+  //
+  // The third category built for real. GSTR-1, 3B and 9 read
+  // `GstReturnBuilder`, which is also what generates the portal JSON — so what
+  // the screen shows and what gets uploaded are the same numbers by
+  // construction, not by two implementations happening to agree.
   static final List<ReportDefinition> _gst = [
-    _placeholder(
-      'gstr1',
-      'GSTR 1',
-      ReportCategory.gst,
-      layout: ReportLayout.document,
-    ),
+    gstr1,
     // The reference menu calls this GSTR 2. GSTR-2 is auto-populated by the
     // portal from suppliers' returns — no application can produce it. This slot
     // ships as GSTR-2A Reconciliation, which is real work the app already does,
     // and the screen says so rather than printing a fake return.
-    _placeholder(
-      'gstr2a_reconciliation',
-      'GSTR-2A Reconciliation',
-      ReportCategory.gst,
-    ),
-    _placeholder(
-      'gstr3b',
-      'GSTR 3B',
-      ReportCategory.gst,
-      layout: ReportLayout.document,
-    ),
-    _placeholder(
-      'gstr9',
-      'GSTR 9',
-      ReportCategory.gst,
-      layout: ReportLayout.document,
-    ),
-    _placeholder(
-      'sale_summary_by_hsn',
-      'Sale Summary By HSN',
-      ReportCategory.gst,
-    ),
-    _placeholder('sac_report', 'SAC Report', ReportCategory.gst),
+    gstr2aReconciliation,
+    gstr3b,
+    gstr9,
+    saleSummaryByHsn,
+    sacReport,
   ];
 
   // ---- Item/Stock (11) ----

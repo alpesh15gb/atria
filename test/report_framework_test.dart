@@ -121,18 +121,21 @@ void main() {
       // count alone, and would catch a report quietly claiming to be built.
       //
       // **Adding a category means adding it here.** The list is deliberately the
-      // union of the two finished categories rather than a number: a number goes
-      // stale silently, a name does not.
+      // union of the four finished categories rather than a number: a number
+      // goes stale silently, a name does not.
       final finished = {
         ...ReportCatalogue.inCategory(ReportCategory.transaction),
         ...ReportCatalogue.inCategory(ReportCategory.party),
         ...ReportCatalogue.inCategory(ReportCategory.itemStock),
+        // GST, as of Phase 4d. Its two return-shaped reports read
+        // GstReturnBuilder rather than the books directly.
+        ...ReportCatalogue.inCategory(ReportCategory.gst),
       };
       expect(
         ReportCatalogue.implemented.map((d) => d.spec.id).toSet(),
         finished.map((d) => d.spec.id).toSet(),
       );
-      expect(ReportCatalogue.implemented, hasLength(26));
+      expect(ReportCatalogue.implemented, hasLength(32));
     });
   });
 

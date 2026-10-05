@@ -14,6 +14,9 @@ import '../sources/gst/gstr9.dart';
 import '../sources/gst/sac_report.dart';
 import '../sources/gst/sale_summary_by_hsn.dart';
 import '../sources/item_stock/item_category_pnl.dart';
+import '../sources/taxes/form_27eq.dart';
+import '../sources/taxes/tcs_receivable.dart';
+import '../sources/taxes/tds_payable.dart';
 import '../sources/item_stock/item_detail.dart';
 import '../sources/item_stock/item_report_by_party.dart';
 import '../sources/item_stock/item_wise_discount.dart';
@@ -253,12 +256,20 @@ class ReportCatalogue {
   // GST Rate Report reads the rates actually charged on filed documents rather
   // than the rate configured on each item — that is the rate for the *next*
   // invoice, so reading it would erase every month sold at the old one.
+  //
+  // **TDS Receivable is still a placeholder, and the reason is the schema.**
+  // `sales_invoices.tcs` is tax the firm *collected from* a customer — it is
+  // added to the invoice's grand total — so it is the TCS Receivable report and
+  // nothing else. "Tax a customer deducted from us" is a different fact, lives on
+  // a different line of the return, and **no column anywhere stores it**. Wiring
+  // the report to `tcs` would produce two identically-worded reports reading the
+  // same number, which is worse than an honest empty one. It needs schema v13.
   static final List<ReportDefinition> _taxes = [
     _placeholder('gst_report', 'GST Report', ReportCategory.taxes),
     gstRateReport,
-    _placeholder('form_27eq', 'Form No. 27EQ', ReportCategory.taxes),
-    _placeholder('tcs_receivable', 'TCS Receivable', ReportCategory.taxes),
-    _placeholder('tds_payable', 'TDS Payable', ReportCategory.taxes),
+    form27eq,
+    tcsReceivable,
+    tdsPayable,
     _placeholder('tds_receivable', 'TDS Receivable', ReportCategory.taxes),
   ];
 

@@ -131,17 +131,21 @@ void main() {
         // GstReturnBuilder rather than the books directly.
         ...ReportCatalogue.inCategory(ReportCategory.gst),
         // Business Status in full (Bank Statement + Discount Report), and
-        // GST Rate Report from Taxes — deliberately **not** the whole Taxes
-        // category, whose other five are still placeholders and would be
-        // claimed as built by naming it.
+        // the four Taxes reports that have a real source — deliberately
+        // **named**, not the whole category: GST Report and TDS Receivable
+        // are still placeholders, and claiming the category would say they
+        // are built.
         ...ReportCatalogue.inCategory(ReportCategory.businessStatus),
         ReportCatalogue.byId('gst_rate_report')!,
+        ReportCatalogue.byId('form_27eq')!,
+        ReportCatalogue.byId('tcs_receivable')!,
+        ReportCatalogue.byId('tds_payable')!,
       };
       expect(
         ReportCatalogue.implemented.map((d) => d.spec.id).toSet(),
         finished.map((d) => d.spec.id).toSet(),
       );
-      expect(ReportCatalogue.implemented, hasLength(35));
+      expect(ReportCatalogue.implemented, hasLength(38));
     });
   });
 

@@ -108,6 +108,27 @@ class PurchaseDraft {
   /// TDS percentage deducted at source on this bill. Null/zero means none.
   final Decimal? tdsRate;
 
+  /// The deductee's PAN, snapshotted onto the bill.
+  ///
+  /// **Taken from the party when the caller does not supply it**, because a
+  /// bill entered through the purchase editor has the supplier on the line and
+  /// their PAN on the party — and a TDS bill without it cannot produce a 26Q.
+  /// The snapshot is still the value of record: editing the party's PAN
+  /// afterwards must not rewrite what a February bill was filed under.
+  final String? deducteePan;
+
+  /// The TDS section — 192, 194, 194H, 195 and the rest.
+  ///
+  /// Snapshotted rather than derived, because the section depends on what the
+  /// payment was *for*, and a business legitimately pays the same supplier
+  /// under two sections in one year.
+  final String? tdsSection;
+
+  /// The rate the deduction was worked out at, beside [tdsRate] so a partly
+  /// exempt bill can say so. Free real: the sections carry different rates, and
+  /// one column would have to be the common denominator.
+  final double tdsSectionRate;
+
   /// Resolved values. `Money.zero` isn't a compile-time constant, so the fields
   /// are nullable and default to zero here for readers that need a [Decimal].
   Decimal get invoiceDiscountPercentValue =>
@@ -142,6 +163,9 @@ class PurchaseDraft {
     this.shippingCharge,
     this.otherCharges,
     this.tdsRate,
+    this.deducteePan,
+    this.tdsSection,
+    this.tdsSectionRate = 0,
     this.applyRoundOff = true,
     this.notes,
     this.sequence = 0,
@@ -265,6 +289,18 @@ class PurchaseRepository with SyncQueueMixin {
         cess: Value(result.cessTotal.toDouble()),
         tds: Value(tds.toDouble()),
         tdsRate: Value((draft.tdsRate ?? Money.zero).toDouble()),
+        // **Only snapshotted when TDS was actually deducted.** Writing the PAN
+        // and the section onto a bill with no deduction would put a 26Q line in
+        // the report for a bill that never had tax withheld from it — a
+        // declaration of a deduction that did not happen.
+        deducteePan: Value(
+          tds > Money.zero
+              ? await _deducteePan(draft)
+              : null,
+        ),
+        tdsSection: Value(tds > Money.zero ? draft.tdsSection : null),
+        tdsSectionRate:
+            Value(tds > Money.zero ? draft.tdsSectionRate : 0.0),
         roundOff: Value(result.roundOff.toDouble()),
         grandTotal: Value(grandTotal.toDouble()),
         notes: Value(draft.notes),
@@ -352,7 +388,27 @@ class PurchaseRepository with SyncQueueMixin {
     return (await getById(draft.id))!;
   }
 
-  Future<PurchaseBillEntity?> getById(String id) async {
+  /// The deductee's PAN for a TDS bill: the caller's, or the supplier's.
+///
+/// **The party's PAN is the fallback because that is where the editor has it.**
+/// A bill typed through the purchase screen names the supplier, and their PAN is
+/// on the party row — so a TDS bill entered the ordinary way would otherwise
+/// have no PAN and produce an unusable 26Q. Null is still a real answer: a
+/// supplier who has not given one is a supplier whose 26Q line has to say so,
+/// and inventing a PAN for them is exactly the mistake the column's own
+/// comment warns against.
+Future<String?> _deducteePan(PurchaseDraft draft) async {
+  final explicit = (draft.deducteePan ?? '').trim();
+  if (explicit.isNotEmpty) return explicit;
+  final partyId = draft.partyId;
+  if (partyId == null) return null;
+  final party = await (db.select(db.parties)
+        ..where((p) => p.id.equals(partyId)))
+      .getSingleOrNull();
+  return (party?.pan ?? '').trim().isEmpty ? null : party!.pan!.trim();
+}
+
+Future<PurchaseBillEntity?> getById(String id) async {
     final query = db.select(db.purchaseBills)
       ..where((t) => t.id.equals(id) & t.firmId.equals(firmId));
     return query.getSingleOrNull();

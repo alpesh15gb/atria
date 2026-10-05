@@ -17,11 +17,26 @@ import '../../core/utils/formatters.dart';
 
 /// One option in an [AtriaSegmentedFilter].
 class AtriaSegment<T> {
-  const AtriaSegment({required this.value, required this.label, this.icon});
+  const AtriaSegment({
+    required this.value,
+    required this.label,
+    this.icon,
+    this.count,
+  });
 
   final T value;
   final String label;
   final IconData? icon;
+
+  /// How many rows this segment holds, shown as a badge beside the label.
+  ///
+  /// **The reference puts the count on the pill, not above the list**: "All
+  /// Transactions ①" with the digit in a circle. A reader filtering a long list
+  /// is asking "is anything behind this filter", and the number answers it where
+  /// the question is asked. It is drawn only when the pill is **selected**,
+  /// because once you have tapped a filter the count of everything else is
+  /// noise competing with the label.
+  final int? count;
 }
 
 /// The pill's own chrome, as named constants.
@@ -74,6 +89,9 @@ class AtriaSegmentedFilter<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Read once and passed to both pill sites: the phone's filled treatment and
+    // the scrolling decision must not be able to disagree about the platform.
+    final isMobile = Theme.of(context).platform.isMobileUi;
     // QBO's filter row is a set of hairline-bordered pills sitting directly on
     // the page — there is no grey track behind them any more.
     return LayoutBuilder(
@@ -109,6 +127,7 @@ class AtriaSegmentedFilter<T> extends StatelessWidget {
                             segment: segment,
                             selected: segment.value == value,
                             onTap: () => onChanged(segment.value),
+                            isMobile: isMobile,
                           ),
                         ),
                     ],
@@ -131,6 +150,7 @@ class AtriaSegmentedFilter<T> extends StatelessWidget {
                             segment: segments[i],
                             selected: segments[i].value == value,
                             onTap: () => onChanged(segments[i].value),
+                            isMobile: isMobile,
                           ),
                         ),
                       ),
@@ -195,20 +215,40 @@ class _Pill<T> extends StatelessWidget {
     required this.segment,
     required this.selected,
     required this.onTap,
+    required this.isMobile,
   });
 
   final AtriaSegment<T> segment;
   final bool selected;
   final VoidCallback onTap;
 
+  /// Whether to paint the reference's phone treatment.
+  ///
+  /// A parameter rather than a read of the platform, because this widget is
+  /// constructed in two places inside one `build` and the decision has to be the
+  /// same in both — and because the *scrolling* choice already keys on width, so
+  /// a phone is the case where the two agree.
+  final bool isMobile;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final radius = BorderRadius.circular(AppRadius.pill);
-    final fg = selected ? scheme.primary : scheme.onSurface;
+
+    // **The selected pill is filled on a phone and tinted on desktop.** The
+    // reference's is a solid blue pill with white text; the desktop row of
+    // tinted pills reads better against a wide table and is the form every
+    // desktop screenshot in this app already uses.
+    final filled = selected && isMobile;
+    final fg = filled
+        ? scheme.onPrimary
+        : (selected ? scheme.primary : scheme.onSurface);
+    final badge = segment.count != null && selected ? segment.count! : null;
 
     return Material(
-      color: selected ? scheme.primaryContainer : scheme.surface,
+      color: filled
+          ? scheme.primary
+          : (selected ? scheme.primaryContainer : scheme.surface),
       borderRadius: radius,
       child: InkWell(
         onTap: onTap,
@@ -251,9 +291,55 @@ class _Pill<T> extends StatelessWidget {
                       ?.copyWith(fontWeight: FontWeight.w700, color: fg),
                 ),
               ),
+              if (badge != null) ...[
+                const SizedBox(width: 6),
+                _CountBadge(count: badge, onFilled: filled),
+              ],
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The digit beside a selected pill's label.
+///
+/// **A circle, not a pill**, because the reference draws it that way and a
+/// capsule badge on a pill-shaped control reads as a second control. White on
+/// the filled pill, primary-tinted on the desktop's tinted one.
+class _CountBadge extends StatelessWidget {
+  const _CountBadge({required this.count, required this.onFilled});
+
+  final int count;
+
+  /// True when the pill behind it is the solid phone treatment, which decides
+  /// whether the badge has to invert.
+  final bool onFilled;
+
+  static const double _size = 18;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: _size,
+      height: _size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: onFilled ? scheme.onPrimary : scheme.primary,
+      ),
+      child: Text(
+        '$count',
+        // One digit at this size, and a three-figure count is not a thing a
+        // pill badge can carry — it would clip to a shape that says nothing.
+        maxLines: 1,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: onFilled ? scheme.primary : scheme.onPrimary,
+              fontWeight: FontWeight.w800,
+              fontSize: 10,
+            ),
       ),
     );
   }

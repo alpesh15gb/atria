@@ -144,7 +144,7 @@ class MobileCreateGrid extends StatelessWidget {
   }
 }
 
-/// The tile grid itself, shared by `Create` and `Quick Access`.
+//// The tile grid itself, shared by `Create` and `Quick Access`.
 class _TileGrid extends StatelessWidget {
   const _TileGrid({required this.entries});
 
@@ -175,14 +175,18 @@ class _TileGrid extends StatelessWidget {
           crossAxisCount: columns,
           mainAxisSpacing: 14,
           crossAxisSpacing: 2,
-          // Tall enough for the glyph plus a two-line label. The reference's
-          // labels wrap ("Delivery Challan") and a fixed square crops them.
-          childAspectRatio: 0.92,
+          // **Taller than it is wide, deliberately.** The cell has to hold a
+          // 44dp glyph, a 7dp gap and a two-line label — about 83dp — and a
+          // square cell cannot. At 0.92 the shortfall was under a pixel at 1.0×
+          // and became a visible overflow at 1.3×, which is the ordinary reading
+          // size on a phone this app will actually be used on. 0.78 gives the
+          // two lines room at 1.5× and still reads as a tile rather than a
+          // column.
+          childAspectRatio: 0.78,
         ),
-        itemBuilder: (context, index) {
-          final entry = entries[index];
-          return _CreateTile(action: entry);
-        },
+        itemBuilder: (context, index) => _CreateTile(
+          action: entries[index],
+        ),
       ),
     );
   }
@@ -205,6 +209,7 @@ class _CreateTile extends StatelessWidget {
       borderRadius: AppRadius.mdAll,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Container(
             width: 44,
@@ -224,14 +229,22 @@ class _CreateTile extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 7),
-          Text(
-            action.label,
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w500,
-                ),
+          // **Flexible, and flexible *after* the glyph.** The Column is
+          // `MainAxisSize.min` inside a grid cell of fixed height, so a label
+          // that grows — two lines, or two lines at 1.5× text scale — has
+          // nowhere to go and overflows the cell. Giving the text the flexible
+          // slot makes it ellipsise instead, which is the degradation the rest
+          // of this file is built around.
+          Flexible(
+            child: Text(
+              action.label,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w500,
+                  ),
+            ),
           ),
         ],
       ),

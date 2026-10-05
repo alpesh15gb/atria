@@ -1,14 +1,22 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:open_filex/open_filex.dart';
 
+import '../../core/database/app_database.dart';
 import '../../core/reports/catalogue/report_catalogue.dart';
 import '../../core/reports/engine/report_providers.dart';
 import '../../core/reports/engine/report_result.dart';
 import '../../core/reports/export/report_export_service.dart';
 import '../../core/reports/export/report_pdf_builder.dart';
+import '../../core/reports/gst_export_service.dart';
+import '../../core/reports/gst_return_builder.dart';
 import '../../core/reports/spec/report_spec.dart';
+import '../../core/reports/window/report_window.dart';
+import '../../core/responsive/platform_ui.dart';
 import '../../core/services/csv_export.dart';
+import '../../core/state/providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_sizes.dart';
@@ -304,19 +312,46 @@ class _ExportButton extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // **The menu narrows by platform.** On a phone the choices are Excel and —
+    // for a GST return — the portal payload. CSV, PDF and Print stay on desktop:
+    // a PDF is a desktop artefact here, and the print spool is the one the user
+    // would reach for at a desk rather than on a counter. Offering all four on a
+    // phone gives four ways to do the same job and no way to upload a return,
+    // which is the thing a person holding a handset actually came for.
+    final isMobile = Theme.of(context).platform.isMobileUi;
+    // Keyed on the catalogue id, not on a spec object: `ReportQuery` carries an
+    // id and a window, and a `const` spec cannot be looked up synchronously
+    // from one. `gstr1` and `gstr3b` are the two returns with an upload.
+    const portalReturns = {'gstr1', 'gstr3b'};
+    final hasPortalUpload = portalReturns.contains(query.reportId);
     return PopupMenuButton<_ExportFormat>(
       icon: const Icon(Icons.ios_share),
       tooltip: 'Export',
       onSelected: (format) => _run(context, ref, format),
-      itemBuilder: (context) => const [
-        PopupMenuItem(value: _ExportFormat.csv, child: Text('Export as CSV')),
-        PopupMenuItem(
-          value: _ExportFormat.excel,
-          child: Text('Export as Excel'),
-        ),
-        PopupMenuItem(value: _ExportFormat.pdf, child: Text('Export as PDF')),
-        PopupMenuItem(value: _ExportFormat.print, child: Text('Print')),
-      ],
+      itemBuilder: (context) => isMobile
+          ? [
+              const PopupMenuItem(
+                value: _ExportFormat.excel,
+                child: Text('Export as Excel'),
+              ),
+              // The portal payload, not a generic JSON dump of the report's
+              // columns: what the GST portal accepts is `GstReturnBuilder`'s own
+              // return, and a report-shaped JSON would be rejected on upload.
+              if (hasPortalUpload)
+                const PopupMenuItem(
+                  value: _ExportFormat.portalJson,
+                  child: Text('Download for GST portal'),
+                ),
+            ]
+          : const [
+              PopupMenuItem(value: _ExportFormat.csv, child: Text('Export as CSV')),
+              PopupMenuItem(
+                value: _ExportFormat.excel,
+                child: Text('Export as Excel'),
+              ),
+              PopupMenuItem(value: _ExportFormat.pdf, child: Text('Export as PDF')),
+              PopupMenuItem(value: _ExportFormat.print, child: Text('Print')),
+            ],
     );
   }
 
@@ -326,6 +361,17 @@ class _ExportButton extends ConsumerWidget {
     _ExportFormat format,
   ) async {
     final messenger = ScaffoldMessenger.maybeOf(context);
+    // Read once, here, and passed down: the portal payload needs the database and
+    // the firm, and the report result carries neither — it is a computed result,
+    // not a handle on the books it came from.
+    final firmId = ref.read(activeFirmIdProvider);
+    if (firmId == null) {
+      messenger?.showSnackBar(
+        const SnackBar(content: Text('No business is open.')),
+      );
+      return;
+    }
+    final db = ref.watch(appDatabaseProvider);
     final async = ref.read(reportResultProvider(query));
 
     // Nothing to export from a report that failed or has not loaded. Saying so
@@ -353,6 +399,12 @@ class _ExportButton extends ConsumerWidget {
         // Print goes through the spool, not the filesystem — it has no file to
         // open afterwards, so the snackbar is the whole interaction.
         _ExportFormat.print => null,
+        _ExportFormat.portalJson => await writePortalPayload(
+            db,
+            firmId,
+            query.reportId,
+            result.window,
+          ),
       };
 
       if (format == _ExportFormat.print) {
@@ -380,4 +432,59 @@ class _ExportButton extends ConsumerWidget {
   }
 }
 
-enum _ExportFormat { csv, excel, pdf, print }
+/// The portal payload for whichever return this report is.
+///
+/// Routed on the report's own id, because the portal has a different document per
+/// return and a GSTR-3B payload offered where a GSTR-1 was expected is rejected
+/// on upload with no useful message. Built from `GstReturnBuilder` — the same
+/// code the screen's figures came from, so the file the reader uploads is the
+/// report they just looked at.
+Future<File?> writePortalPayload(
+  AppDatabase db,
+  String firmId,
+  String reportId,
+  ReportWindow window,
+) async {
+  final from = window.from ?? DateTime(2000, 1, 1);
+  final to = window.to ?? DateTime.now().add(const Duration(days: 1));
+  final service = GstExportService();
+  final dir = switch (reportId) {
+    'gstr1' => await service.exportGstr1(
+        await GstReturnBuilder(db, firmId).buildGstr1(from: from, to: to),
+      ),
+    'gstr3b' => await service.exportGstr3b(
+        await buildGstr3b(db, firmId, from: from, to: to),
+      ),
+    _ => null,
+  };
+  if (dir == null) return null;
+  // The export service returns the directory it wrote into; the payload is the
+  // JSON it just wrote. Picked by extension and then by name rather than by
+  // "newest", because a clock difference between two writes in the same call is
+  // not a thing to depend on.
+  final files = dir
+      .listSync()
+      .whereType<File>()
+      .where((f) => f.path.endsWith('.json'))
+      .toList()
+    ..sort((a, b) => a.path.compareTo(b.path));
+  return files.isEmpty ? null : files.first;
+}
+
+enum _ExportFormat {
+  csv,
+  excel,
+  pdf,
+  print,
+
+  /// The GST portal's own upload payload, from `GstReturnBuilder`.
+  ///
+  /// **Not a JSON dump of the report.** What the portal accepts is a purpose-built
+  /// return, and the builder already produces one — a report-shaped JSON with
+  /// whatever columns a given report happened to have would be rejected on
+  /// upload, and the reader would have no way to tell that from a network
+  /// failure. Desktop keeps CSV/Excel/PDF/Print and does not offer this: the
+  /// portal flow is the one a person does from a phone, and the desktop's four
+  /// are the ones a person does at a desk.
+  portalJson,
+}

@@ -13,7 +13,9 @@ import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../shared/widgets/atria_avatar.dart';
+import '../../core/responsive/platform_ui.dart';
 import '../../shared/widgets/atria_create_menu.dart';
+import '../../shared/widgets/mobile_create_grid.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/money_text.dart';
 import '../../shared/widgets/status_chip.dart';
@@ -47,6 +49,29 @@ class DashboardScreen extends ConsumerStatefulWidget {
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen>
     with WidgetsBindingObserver {
+  /// The phone's **Quick Access** tiles.
+  ///
+  /// Reports and Payments are here because they are what a shopkeeper opens
+  /// between serving two customers, and neither is a tap away on the bottom bar —
+  /// that has Home, Bills, Products, Parties, More. Stock sits behind Items, so
+  /// it is the one destination duplicated here.
+  ///
+  /// **Not the reference's Quick Access.** Four of its eight tiles are e-way
+  /// bills, e-invoicing, GST filing and bank reconciliation, none of which this
+  /// app has. Copying the row and blanking half of it would leave a grid of gaps
+  /// on the busiest screen in the app.
+  static const List<({String route, String label, IconData icon})> _quickAccess =
+      [
+    (route: '/reports', label: 'Reports', icon: Icons.insights_outlined),
+    (route: '/payments', label: 'Payments', icon: Icons.receipt_long_outlined),
+    (route: '/stock', label: 'Stock', icon: Icons.inventory_2_outlined),
+    (route: '/items', label: 'Products', icon: Icons.category_outlined),
+    (route: '/parties?type=customer', label: 'Parties', icon: Icons.groups_outlined),
+    (route: '/ledger', label: 'Ledger', icon: Icons.menu_book_outlined),
+    (route: '/settings', label: 'Settings', icon: Icons.settings_outlined),
+    (route: '/purchase?type=bill', label: 'Purchases', icon: Icons.shopping_cart_outlined),
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -212,6 +237,24 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                       // get-things-done checklist last.
                       _HeroCard(firm: firm, reports: reports, from: from),
                       const SizedBox(height: 16),
+                      // **The two tile grids, phone only.**
+                      //
+                      // The reference's home puts `Create` and `Quick Access`
+                      // directly under the sales/purchases figure, and this is
+                      // the one place the mobile dashboard is genuinely
+                      // different from the desktop one rather than a reflow of
+                      // it. Desktop has neither: its create actions live in the
+                      // chrome and the rail, and a 1920px strip of eight icons
+                      // is decoration. Each widget renders nothing off-mobile, so
+                      // the desktop tree is unchanged by being named here.
+                      if (Theme.of(context).platform.isMobileUi) ...[
+                        const MobileCreateGrid(),
+                        const SizedBox(height: 16),
+                        MobileQuickAccessGrid(
+                          entries: _quickAccess,
+                        ),
+                        const SizedBox(height: 20),
+                      ],
                       _KpiGrid(reports: reports, from: from),
                       const SizedBox(height: 20),
                       if (constraints.maxWidth >= Breakpoints.medium)
@@ -278,8 +321,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                     Padding(
                       padding: const EdgeInsets.only(left: 16, bottom: 8),
                       child: Text(
-                        'Your businesses',
-                        style: Theme.of(sheetContext).textTheme.titleMedium,
+                        // The reference's title, verbatim: "Select Business"
+                        // says what the sheet does, where "Your businesses"
+                        // describes what is in it.
+                        'Select Business',
+                        style: Theme.of(sheetContext).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
                       ),
                     ),
                     if (firmsAsync.isLoading && firms.isEmpty)
@@ -299,46 +346,52 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                         child: Text('No businesses yet.'),
                       )
                     else
-                      RadioGroup<String>(
-                        groupValue: activeId,
-                        onChanged: (value) {
-                          if (value == null) return;
-                          sheetRef
-                              .read(activeFirmIdProvider.notifier)
-                              .select(value);
-                          sheetRef
-                              .read(firmRepositoryProvider)
-                              .setDefault(value);
-                          Navigator.of(sheetContext).pop();
-                        },
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            for (final f in firms)
-                              RadioListTile<String>(
-                                value: f.id,
-                                title: Text(f.name),
-                                subtitle: Text(
-                                  (f.gstin ?? 'Unregistered').toUpperCase(),
-                                  style: Theme.of(sheetContext)
-                                      .textTheme
-                                      .bodySmall,
-                                ),
-                              ),
-                          ],
-                        ),
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          for (final f in firms)
+                            _SelectBusinessRow(
+                              firm: f,
+                              selected: f.id == activeId,
+                              // Only the row itself selects. Wrapping the whole
+                              // row in a `Radio` would make "Edit Company" and
+                              // "Share" taps switch business *and* push a page,
+                              // which is the kind of thing that loses a form.
+                              onSelect: () {
+                                sheetRef
+                                    .read(activeFirmIdProvider.notifier)
+                                    .select(f.id);
+                                sheetRef
+                                    .read(firmRepositoryProvider)
+                                    .setDefault(f.id);
+                                Navigator.of(sheetContext).pop();
+                              },
+                              onEdit: () {
+                                Navigator.of(sheetContext).pop();
+                                context.push('/settings/firm');
+                              },
+                              onShare: () {
+                                Navigator.of(sheetContext).pop();
+                                context.push('/settings/firm');
+                              },
+                            ),
+                        ],
                       ),
                     const SizedBox(height: 8),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: FilledButton.tonalIcon(
+                    // **A centred text action, not a filled button.** The
+                    // reference's is `+ Add new Business` in blue with no
+                    // background — a full-width tonal button would claim to be
+                    // the sheet's primary action, and it is not: the sheet's job
+                    // is to change which business you are in, and this is a way
+                    // out of it.
+                    Center(
+                      child: TextButton.icon(
                         onPressed: () {
                           Navigator.of(sheetContext).pop();
                           context.push('/onboarding/firm-setup');
                         },
-                        icon: const Icon(Icons.add),
-                        label: const Text('Add another business'),
+                        icon: const Icon(Icons.add, size: 20),
+                        label: const Text('Add new Business'),
                       ),
                     ),
                   ],
@@ -348,6 +401,138 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
           },
         );
       },
+    );
+  }
+}
+
+/// One row of the **Select Business** sheet, as in the reference.
+///
+/// Avatar, name, GSTIN, `Edit Company` / `Share`, and a selected-radio at the
+/// right. The radio is decorative here rather than the control: the whole row
+/// selects, and a tap that has to find a 20dp target to do the obvious thing is
+/// worse on a phone than one that works where you pressed.
+class _SelectBusinessRow extends StatelessWidget {
+  const _SelectBusinessRow({
+    required this.firm,
+    required this.selected,
+    required this.onSelect,
+    required this.onEdit,
+    required this.onShare,
+  });
+
+  final FirmEntity firm;
+  final bool selected;
+  final VoidCallback onSelect;
+  final VoidCallback onEdit;
+  final VoidCallback onShare;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final gstin = (firm.gstin ?? '').trim();
+    return InkWell(
+      onTap: onSelect,
+      borderRadius: AppRadius.mdAll,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: scheme.primaryContainer,
+              child: Text(
+                // The initial, so two businesses whose names start the same are
+                // told apart at a glance.
+                firm.name.isEmpty ? '?' : firm.name[0].toUpperCase(),
+                style: TextStyle(
+                  color: scheme.onPrimaryContainer,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    firm.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                  Text(
+                    gstin.isEmpty ? 'Unregistered' : gstin.toUpperCase(),
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: scheme.onSurfaceVariant),
+                  ),
+                  // **Only for an unregistered firm.** The reference prints a
+                  // GSTIN line; a firm without one would otherwise have a
+                  // blank row where everyone else has a registration, which
+                  // reads as a rendering fault rather than a fact.
+                  if (gstin.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        _InlineAction(label: 'Edit Company', onTap: onEdit),
+                        const SizedBox(width: 16),
+                        _InlineAction(label: 'Share', onTap: onShare),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            // The selected mark. A ring with a dot, rather than a Radio, so it
+            // reads as a selection indicator and not as a fifth tappable control.
+            Container(
+              width: 22,
+              height: 22,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  width: 2,
+                  color: selected ? scheme.primary : scheme.outline,
+                ),
+              ),
+              child: selected
+                  ? Icon(Icons.circle, size: 12, color: scheme.primary)
+                  : null,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A blue text action inside a business row.
+class _InlineAction extends StatelessWidget {
+  const _InlineAction({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      // A tap target of the text itself, as in the reference — but at least a
+      // full 24dp tall so it is not a 14dp target on a phone.
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 5),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.primary,
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+          ),
+        ),
+      ),
     );
   }
 }

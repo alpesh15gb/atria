@@ -2,6 +2,7 @@ import 'package:decimal/decimal.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/reports/engine/report_result.dart';
+import '../../core/responsive/platform_ui.dart';
 import '../../core/reports/spec/report_spec.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
@@ -51,9 +52,14 @@ class ReportDataTable extends StatelessWidget {
     if (columns.isEmpty) return const SizedBox.shrink();
     return LayoutBuilder(
       builder: (context, constraints) {
+        // A phone gets the cards, whatever the window happens to measure —
+        // including a tablet, and including a desktop window resized narrow
+        // is never this platform's problem. Only the desktop surface chooses
+        // by width, where a squeezed table is a real possibility.
+        //
         // The table needs roughly 90dp per column before it stops being
-        // readable; below that the cards are the better answer, and they are
-        // the answer a phone gets regardless.
+        // readable; below that the cards are the better answer.
+        if (Theme.of(context).platform.isMobileUi) return _cardList(context);
         final wide = constraints.maxWidth >= columns.length * 90.0;
         return wide ? _wideTable(context) : _cardList(context);
       },

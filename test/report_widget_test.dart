@@ -83,18 +83,32 @@ void main() {
     'unit': 'pcs',
   });
 
+  /// Pumps [ReportDataTable] on an explicitly chosen platform.
+  ///
+  /// The platform is a parameter because `flutter test` defaults
+  /// `defaultTargetPlatform` to **android**, and the renderer now chooses
+  /// table-vs-cards by platform rather than by width. Left implicit, every
+  /// desktop assertion in this file quietly ran the mobile card path — the
+  /// tests passed, and meant nothing. Defaulting to Windows keeps each test
+  /// asserting what its name says.
+  ///
+  /// The platform is set through [ThemeData] rather than
+  /// `debugDefaultTargetPlatformOverride`, because the renderer reads
+  /// `Theme.of(context).platform` and an override that outlives a test body
+  /// trips a flutter_test assertion.
   Future<void> pumpTable(
     WidgetTester tester,
     ReportResult result, {
     List<ReportColumn>? columns,
     Size size = const Size(1400, 900),
+    TargetPlatform platform = TargetPlatform.windows,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
       MaterialApp(
-        theme: AppTheme.light(),
+        theme: AppTheme.light().copyWith(platform: platform),
         home: Scaffold(
           body: ReportDataTable(
             result: result,
@@ -206,7 +220,12 @@ void main() {
   });
 
   group('narrow vs wide', () {
-    testWidgets('a phone drops the wideOnly columns', (tester) async {
+    // Named for what it now proves: a NARROW WINDOW ON THE DESKTOP. The mobile
+    // phone path is a platform decision, not a width one, and is covered in
+    // platform_ui_test.dart.
+    testWidgets('a narrow desktop window drops the wideOnly columns', (
+      tester,
+    ) async {
       await pumpTable(
         tester,
         fold([row('A', Decimal.fromInt(1))]),
@@ -225,6 +244,21 @@ void main() {
     testWidgets('a wide window keeps them', (tester) async {
       await pumpTable(tester, fold([row('A', Decimal.fromInt(1))]));
       expect(find.text('Unit'), findsWidgets);
+    });
+
+    // The case that had no coverage before the platform split: a phone keeps
+    // the columns the caller chose regardless of how wide the window is, so a
+    // large tablet does not hand a 9-column table to someone holding a phone.
+    testWidgets('a phone keeps its cards even in a wide window', (tester) async {
+      await pumpTable(
+        tester,
+        fold([row('A', Decimal.fromInt(1))]),
+        columns: spec.narrowColumns,
+        size: const Size(1400, 900),
+        platform: TargetPlatform.android,
+      );
+      expect(find.byType(CustomScrollView), findsNothing);
+      expect(find.text('A'), findsWidgets);
     });
   });
 

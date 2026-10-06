@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/responsive/breakpoints.dart';
+import '../../core/responsive/platform_ui.dart';
 import '../../core/theme/app_sizes.dart';
 
 /// Actions the [EditorShell] action bar offers.
@@ -55,7 +56,9 @@ class EditorShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final wide = MediaQuery.sizeOf(context).width >= Breakpoints.compact;
+    final wide =
+        !Theme.of(context).platform.isMobileUi &&
+        MediaQuery.sizeOf(context).width >= Breakpoints.compact;
     final showHint = hint != null && wide;
     return Scaffold(
       appBar: _EditorAppBar(title: title, actions: actions, wide: wide),
@@ -105,7 +108,8 @@ class EditorBottomBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (MediaQuery.sizeOf(context).width >= Breakpoints.compact) {
+    if (!Theme.of(context).platform.isMobileUi &&
+        MediaQuery.sizeOf(context).width >= Breakpoints.compact) {
       return const SizedBox.shrink();
     }
     final scheme = Theme.of(context).colorScheme;
@@ -230,12 +234,18 @@ class EditorAppBar extends StatelessWidget implements PreferredSizeWidget {
   Widget build(BuildContext context) {
     // Same rule as [EditorShell]: on a phone the Save button belongs in
     // [EditorBottomBar], which the screen supplies as its bottomNavigationBar.
-    final wide = MediaQuery.sizeOf(context).width >= Breakpoints.compact;
+    final wide =
+        !Theme.of(context).platform.isMobileUi &&
+        MediaQuery.sizeOf(context).width >= Breakpoints.compact;
 
     return AppBar(
       leading: IconButton(
         tooltip: 'Exit',
-        icon: const Icon(Icons.close_rounded),
+        icon: Icon(
+          Theme.of(context).platform.isMobileUi
+              ? Icons.arrow_back_rounded
+              : Icons.close_rounded,
+        ),
         onPressed: saving ? null : () => Navigator.of(context).maybePop(),
       ),
       title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -291,7 +301,11 @@ class _EditorAppBar extends StatelessWidget implements PreferredSizeWidget {
     return AppBar(
       leading: IconButton(
         tooltip: 'Exit',
-        icon: const Icon(Icons.close_rounded),
+        icon: Icon(
+          Theme.of(context).platform.isMobileUi
+              ? Icons.arrow_back_rounded
+              : Icons.close_rounded,
+        ),
         onPressed: actions.saving
             ? null
             : () => Navigator.of(context).maybePop(),

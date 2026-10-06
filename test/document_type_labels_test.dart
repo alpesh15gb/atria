@@ -47,7 +47,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: AppTheme.light(),
+          theme: AppTheme.light().copyWith(platform: TargetPlatform.windows),
           home: Scaffold(body: SalesListScreen(initialType: docType)),
         ),
       ),
@@ -61,7 +61,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: AppTheme.light(),
+          theme: AppTheme.light().copyWith(platform: TargetPlatform.windows),
           home: Scaffold(body: PurchaseListScreen(initialType: docType)),
         ),
       ),

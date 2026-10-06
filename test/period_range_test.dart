@@ -216,8 +216,8 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
-      // The pill row scrolls on a phone; the Custom pill sits at its end.
-      await tester.ensureVisible(find.text('Custom'));
+      // Mobile uses one compact Date select rather than all period pills.
+      await tester.tap(find.byTooltip('Date'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Custom'));
       await tester.pumpAndSettle();

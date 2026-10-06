@@ -12,7 +12,6 @@ import 'app_typography.dart';
 class AppTheme {
   AppTheme._();
 
-
   /// The lift on every floating panel: menus, popovers, and the pickers that
   /// borrow their surface. Material's own default for a menu is 8, which reads
   /// as a different product beside the app's hairline cards.
@@ -72,6 +71,116 @@ class AppTheme {
 
     return _base(scheme, Brightness.light);
   }
+
+  /// The screenshot-inspired phone palette. Desktop themes above are untouched.
+  static ThemeData mobile({bool dark = true}) {
+    final base = dark ? AppTheme.dark() : AppTheme.light();
+    const blue = Color(0xFF5263E5);
+    final scheme = base.colorScheme.copyWith(
+      primary: blue,
+      onPrimary: Colors.white,
+      primaryContainer: dark
+          ? const Color(0xFF333B65)
+          : const Color(0xFFE8EBFF),
+      onPrimaryContainer: dark
+          ? const Color(0xFFDDE1FF)
+          : const Color(0xFF303FA0),
+      secondary: blue,
+      surface: dark ? const Color(0xFF2B2B2D) : Colors.white,
+      onSurface: dark ? const Color(0xFFE6E6E8) : const Color(0xFF252528),
+      onSurfaceVariant: dark
+          ? const Color(0xFFADADB1)
+          : const Color(0xFF69696F),
+      surfaceContainerHighest: dark
+          ? const Color(0xFF333335)
+          : const Color(0xFFF0F1F5),
+      outline: dark ? const Color(0xFF3B3B3E) : const Color(0xFFE5E5EB),
+    );
+    final radius = BorderRadius.circular(10);
+    return base.copyWith(
+      colorScheme: scheme,
+      scaffoldBackgroundColor: dark
+          ? const Color(0xFF1E1F21)
+          : const Color(0xFFF6F6F8),
+      canvasColor: scheme.surface,
+      appBarTheme: base.appBarTheme.copyWith(
+        backgroundColor: scheme.surface,
+        foregroundColor: scheme.onSurface,
+        titleTextStyle: base.textTheme.titleMedium?.copyWith(
+          color: scheme.onSurface,
+          fontWeight: FontWeight.w600,
+        ),
+        iconTheme: IconThemeData(color: scheme.onSurface, size: 22),
+        actionsIconTheme: IconThemeData(color: scheme.onSurface, size: 22),
+      ),
+      cardTheme: base.cardTheme.copyWith(
+        color: scheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: radius),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: blue,
+          foregroundColor: Colors.white,
+          minimumSize: const Size(0, 48),
+          shape: RoundedRectangleBorder(borderRadius: radius),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(foregroundColor: blue),
+      ),
+      inputDecorationTheme: base.inputDecorationTheme.copyWith(
+        fillColor: scheme.surface,
+        hintStyle: base.textTheme.bodyMedium?.copyWith(
+          color: scheme.onSurfaceVariant,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: radius,
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: radius,
+          borderSide: const BorderSide(color: blue),
+        ),
+      ),
+      navigationBarTheme: base.navigationBarTheme.copyWith(
+        backgroundColor: scheme.surface,
+        height: 62,
+        indicatorColor: Colors.transparent,
+        labelTextStyle: WidgetStateProperty.resolveWith(
+          (states) => base.textTheme.labelSmall?.copyWith(
+            fontSize: 10,
+            color: states.contains(WidgetState.selected)
+                ? scheme.onSurface
+                : scheme.onSurfaceVariant,
+          ),
+        ),
+        iconTheme: WidgetStateProperty.resolveWith(
+          (states) => IconThemeData(
+            size: 22,
+            color: states.contains(WidgetState.selected)
+                ? scheme.onSurface
+                : scheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+      bottomSheetTheme: base.bottomSheetTheme.copyWith(
+        backgroundColor: dark ? const Color(0xFF1E1F21) : Colors.white,
+      ),
+      dialogTheme: base.dialogTheme.copyWith(backgroundColor: scheme.surface),
+      progressIndicatorTheme: ProgressIndicatorThemeData(color: blue, circularTrackColor: scheme.primaryContainer),
+      switchTheme: SwitchThemeData(
+        thumbColor: const WidgetStatePropertyAll(Colors.white),
+        trackColor: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.selected) ? blue : scheme.outline),
+      ),
+      extensions: [atriaMobileColors(dark)],
+    );
+  }
+
+  static AtriaColorsExtension atriaMobileColors(bool dark) =>
+      (dark ? _darkExt : _lightExt).copyWith(
+        brandGradientStart: const Color(0xFF5263E5),
+        brandGradientEnd: const Color(0xFF3848C0),
+      );
 
   static ThemeData dark() {
     final scheme = const ColorScheme(
@@ -166,10 +275,7 @@ class AppTheme {
         // fell back to Material's 24px default while the rest of the app sat
         // at 16-18. The audit counted 146 icons at the wrong size because of
         // it — every AppBar action on every editor and settings screen.
-        iconTheme: IconThemeData(
-          size: AppIconSize.md,
-          color: scheme.onSurface,
-        ),
+        iconTheme: IconThemeData(size: AppIconSize.md, color: scheme.onSurface),
         actionsIconTheme: IconThemeData(
           size: AppIconSize.md,
           color: scheme.onSurface,
@@ -206,9 +312,7 @@ class AppTheme {
           backgroundColor: isLight ? AppColors.primaryDark : scheme.primary,
           foregroundColor: scheme.onPrimary,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          shape: const RoundedRectangleBorder(
-            borderRadius: AppRadius.smAll,
-          ),
+          shape: const RoundedRectangleBorder(borderRadius: AppRadius.smAll),
           textStyle: AppTypography.textTheme.labelLarge?.copyWith(
             fontWeight: FontWeight.w700,
           ),
@@ -219,9 +323,7 @@ class AppTheme {
           minimumSize: const Size(0, 40),
           elevation: 0,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          shape: const RoundedRectangleBorder(
-            borderRadius: AppRadius.smAll,
-          ),
+          shape: const RoundedRectangleBorder(borderRadius: AppRadius.smAll),
           textStyle: AppTypography.textTheme.labelLarge,
         ),
       ),
@@ -229,9 +331,7 @@ class AppTheme {
         style: OutlinedButton.styleFrom(
           minimumSize: const Size(0, 40),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          shape: const RoundedRectangleBorder(
-            borderRadius: AppRadius.smAll,
-          ),
+          shape: const RoundedRectangleBorder(borderRadius: AppRadius.smAll),
           side: BorderSide(color: scheme.outline),
           textStyle: AppTypography.textTheme.labelLarge,
         ),
@@ -240,26 +340,20 @@ class AppTheme {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: isLight ? AppColors.link : const Color(0xFF6FB8E8),
-          shape: const RoundedRectangleBorder(
-            borderRadius: AppRadius.smAll,
-          ),
+          shape: const RoundedRectangleBorder(borderRadius: AppRadius.smAll),
           textStyle: AppTypography.textTheme.labelLarge,
         ),
       ),
       iconButtonTheme: IconButtonThemeData(
         style: IconButton.styleFrom(
-          shape: const RoundedRectangleBorder(
-            borderRadius: AppRadius.smAll,
-          ),
+          shape: const RoundedRectangleBorder(borderRadius: AppRadius.smAll),
         ),
       ),
       // Inputs
       inputDecorationTheme: _inputDecoration(scheme, isLight),
       // Lists
       listTileTheme: ListTileThemeData(
-        shape: const RoundedRectangleBorder(
-          borderRadius: AppRadius.mdAll,
-        ),
+        shape: const RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
         // Colors are EXPLICIT: these raw styles replace the Material 3
         // defaults wholesale, and colorless styles left titles/subtitles
@@ -337,9 +431,7 @@ class AppTheme {
         elevation: 0,
         backgroundColor: scheme.surface,
         surfaceTintColor: Colors.transparent,
-        shape: const RoundedRectangleBorder(
-          borderRadius: AppRadius.mdAll,
-        ),
+        shape: const RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
         titleTextStyle: AppTypography.textTheme.headlineMedium,
         contentTextStyle: AppTypography.textTheme.bodyMedium,
       ),
@@ -348,7 +440,9 @@ class AppTheme {
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(AppRadius.lg),
+          ),
         ),
         showDragHandle: true,
         dragHandleColor: scheme.outline,
@@ -383,8 +477,10 @@ class AppTheme {
         minExtendedWidth: 240,
         labelType: NavigationRailLabelType.all,
         selectedIconTheme: IconThemeData(color: scheme.primary, size: 22),
-        unselectedIconTheme:
-            IconThemeData(color: scheme.onSurfaceVariant, size: 22),
+        unselectedIconTheme: IconThemeData(
+          color: scheme.onSurfaceVariant,
+          size: 22,
+        ),
         selectedLabelTextStyle: AppTypography.textTheme.labelMedium?.copyWith(
           color: scheme.primary,
         ),
@@ -398,9 +494,7 @@ class AppTheme {
         contentTextStyle: AppTypography.textTheme.bodyMedium?.copyWith(
           color: isLight ? Colors.white : AppColors.darkInk,
         ),
-        shape: const RoundedRectangleBorder(
-          borderRadius: AppRadius.smAll,
-        ),
+        shape: const RoundedRectangleBorder(borderRadius: AppRadius.smAll),
         elevation: 0,
       ),
       floatingActionButtonTheme: FloatingActionButtonThemeData(
@@ -410,9 +504,7 @@ class AppTheme {
         highlightElevation: 6,
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
-        shape: const RoundedRectangleBorder(
-          borderRadius: AppRadius.smAll,
-        ),
+        shape: const RoundedRectangleBorder(borderRadius: AppRadius.smAll),
       ),
       progressIndicatorTheme: ProgressIndicatorThemeData(
         color: scheme.primary,
@@ -434,9 +526,7 @@ class AppTheme {
       // instead of Material's 2px — a 2px radius beside a 4px one reads as a
       // rendering slip, not a choice.
       checkboxTheme: CheckboxThemeData(
-        shape: const RoundedRectangleBorder(
-          borderRadius: AppRadius.xsAll,
-        ),
+        shape: const RoundedRectangleBorder(borderRadius: AppRadius.xsAll),
         side: BorderSide(color: AppColors.outlineStrong, width: 1.5),
       ),
       radioTheme: RadioThemeData(
@@ -461,16 +551,15 @@ class AppTheme {
         thickness: const WidgetStatePropertyAll(8),
         radius: const Radius.circular(4),
         thumbColor: WidgetStateProperty.resolveWith(
-          (states) => states.contains(WidgetState.dragged) ||
+          (states) =>
+              states.contains(WidgetState.dragged) ||
                   states.contains(WidgetState.hovered)
               ? scheme.onSurfaceVariant
               : AppColors.outlineStrong,
         ),
       ),
       expansionTileTheme: ExpansionTileThemeData(
-        shape: const RoundedRectangleBorder(
-          borderRadius: AppRadius.mdAll,
-        ),
+        shape: const RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
         collapsedShape: const RoundedRectangleBorder(
           borderRadius: AppRadius.mdAll,
         ),
@@ -513,22 +602,23 @@ class AppTheme {
         ),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       ),
-      extensions: [
-        isLight ? _lightExt : _darkExt,
-      ],
+      extensions: [isLight ? _lightExt : _darkExt],
     );
   }
 
   static InputDecorationTheme _inputDecoration(
-      ColorScheme scheme, bool isLight) {
+    ColorScheme scheme,
+    bool isLight,
+  ) {
     // QBO fields are white boxes with a hairline edge — the page is what is
     // grey, never the input.
     final fill = isLight ? AppColors.surface : AppColors.darkSurfaceVariant;
     return InputDecorationTheme(
       filled: true,
       fillColor: fill,
-      hintStyle: AppTypography.textTheme.bodyMedium
-          ?.copyWith(color: scheme.onSurfaceVariant),
+      hintStyle: AppTypography.textTheme.bodyMedium?.copyWith(
+        color: scheme.onSurfaceVariant,
+      ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       enabledBorder: OutlineInputBorder(
         borderRadius: AppRadius.xsAll,
@@ -653,8 +743,7 @@ class AtriaColorsExtension extends ThemeExtension<AtriaColorsExtension> {
   /// test or an isolated overlay — instead of throwing. Any Apex Books screen is
   /// always under [AppTheme], so this only guards the edge.
   static AtriaColorsExtension of(BuildContext context) =>
-      Theme.of(context).extension<AtriaColorsExtension>() ??
-      AppTheme._lightExt;
+      Theme.of(context).extension<AtriaColorsExtension>() ?? AppTheme._lightExt;
 
   @override
   AtriaColorsExtension copyWith({
@@ -701,14 +790,19 @@ class AtriaColorsExtension extends ThemeExtension<AtriaColorsExtension> {
 
   @override
   AtriaColorsExtension lerp(
-      covariant ThemeExtension<AtriaColorsExtension>? other, double t) {
+    covariant ThemeExtension<AtriaColorsExtension>? other,
+    double t,
+  ) {
     if (other is! AtriaColorsExtension) return this;
     return AtriaColorsExtension(
       success: Color.lerp(success, other.success, t)!,
       onSuccess: Color.lerp(onSuccess, other.onSuccess, t)!,
       successSurface: Color.lerp(successSurface, other.successSurface, t)!,
-      onSuccessSurface:
-          Color.lerp(onSuccessSurface, other.onSuccessSurface, t)!,
+      onSuccessSurface: Color.lerp(
+        onSuccessSurface,
+        other.onSuccessSurface,
+        t,
+      )!,
       danger: Color.lerp(danger, other.danger, t)!,
       onDanger: Color.lerp(onDanger, other.onDanger, t)!,
       dangerSurface: Color.lerp(dangerSurface, other.dangerSurface, t)!,
@@ -716,16 +810,33 @@ class AtriaColorsExtension extends ThemeExtension<AtriaColorsExtension> {
       warning: Color.lerp(warning, other.warning, t)!,
       onWarning: Color.lerp(onWarning, other.onWarning, t)!,
       warningSurface: Color.lerp(warningSurface, other.warningSurface, t)!,
-      onWarningSurface: Color.lerp(onWarningSurface, other.onWarningSurface, t)!,
+      onWarningSurface: Color.lerp(
+        onWarningSurface,
+        other.onWarningSurface,
+        t,
+      )!,
       positive: Color.lerp(positive, other.positive, t)!,
       negative: Color.lerp(negative, other.negative, t)!,
-      brandGradientStart:
-          Color.lerp(brandGradientStart, other.brandGradientStart, t)!,
-      brandGradientEnd: Color.lerp(brandGradientEnd, other.brandGradientEnd, t)!,
-      saffronGradientStart:
-          Color.lerp(saffronGradientStart, other.saffronGradientStart, t)!,
-      saffronGradientEnd:
-          Color.lerp(saffronGradientEnd, other.saffronGradientEnd, t)!,
+      brandGradientStart: Color.lerp(
+        brandGradientStart,
+        other.brandGradientStart,
+        t,
+      )!,
+      brandGradientEnd: Color.lerp(
+        brandGradientEnd,
+        other.brandGradientEnd,
+        t,
+      )!,
+      saffronGradientStart: Color.lerp(
+        saffronGradientStart,
+        other.saffronGradientStart,
+        t,
+      )!,
+      saffronGradientEnd: Color.lerp(
+        saffronGradientEnd,
+        other.saffronGradientEnd,
+        t,
+      )!,
     );
   }
 }

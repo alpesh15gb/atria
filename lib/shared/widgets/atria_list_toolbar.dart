@@ -96,14 +96,14 @@ class AtriaSegmentedFilter<T> extends StatelessWidget {
     // the page — there is no grey track behind them any more.
     return LayoutBuilder(
       builder: (context, constraints) {
-        final inset =
-            padding.resolve(Directionality.of(context)).horizontal;
+        final inset = padding.resolve(Directionality.of(context)).horizontal;
         final viewport = constraints.maxWidth;
 
         // Unbounded means a caller parked the strip inside a horizontal
         // scroll view and never sized it; equal-width [Expanded] pills cannot
         // lay themselves out there, so the scrolling form is the only answer.
-        final scrolls = scrollable ||
+        final scrolls =
+            scrollable ||
             !viewport.isFinite ||
             !_fits(context, viewport - inset);
 
@@ -120,9 +120,7 @@ class AtriaSegmentedFilter<T> extends StatelessWidget {
                     children: [
                       for (final segment in segments)
                         Padding(
-                          padding: const EdgeInsets.only(
-                            right: _pillScrollGap,
-                          ),
+                          padding: const EdgeInsets.only(right: _pillScrollGap),
                           child: _Pill<T>(
                             segment: segment,
                             selected: segment.value == value,
@@ -176,9 +174,8 @@ class AtriaSegmentedFilter<T> extends StatelessWidget {
   /// thing this class exists to avoid.
   bool _fits(BuildContext context, double available) {
     if (segments.isEmpty) return true;
-    final style = Theme.of(context).textTheme.labelMedium?.copyWith(
-          fontWeight: FontWeight.w700,
-        );
+    final style = Theme.of(context).textTheme.labelMedium
+        ?.copyWith(fontWeight: FontWeight.w700);
     final painter = TextPainter(
       textDirection: Directionality.of(context),
       textScaler: MediaQuery.textScalerOf(context),
@@ -187,14 +184,13 @@ class AtriaSegmentedFilter<T> extends StatelessWidget {
     // The share each pill gets: the strip, less the gaps between pills. The
     // scrolling form's gaps live in each pill's padding; here they are taken
     // off the width before it is divided.
-    final share = (available - _pillScrollGap * (segments.length - 1)) /
-        segments.length;
+    final share =
+        (available - _pillScrollGap * (segments.length - 1)) / segments.length;
     var widest = 0.0;
     for (final segment in segments) {
       painter.text = TextSpan(text: segment.label, style: style);
       painter.layout();
-      final needed =
-          painter.width + _pillChrome(hasIcon: segment.icon != null);
+      final needed = painter.width + _pillChrome(hasIcon: segment.icon != null);
       if (needed > widest) widest = needed;
     }
     painter.dispose();
@@ -336,10 +332,10 @@ class _CountBadge extends StatelessWidget {
         // pill badge can carry — it would clip to a shape that says nothing.
         maxLines: 1,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: onFilled ? scheme.primary : scheme.onPrimary,
-              fontWeight: FontWeight.w800,
-              fontSize: 10,
-            ),
+          color: onFilled ? scheme.primary : scheme.onPrimary,
+          fontWeight: FontWeight.w800,
+          fontSize: 10,
+        ),
       ),
     );
   }
@@ -492,7 +488,8 @@ class AtriaFilterBar extends StatelessWidget {
         // A phone gets the scrolling pill strip at every width — that is the
         // reference's answer, and a set of five status pills laid out in a row
         // on a 360dp screen leaves room for one and a half.
-        final wide = !Theme.of(context).platform.isMobileUi &&
+        final wide =
+            !Theme.of(context).platform.isMobileUi &&
             constraints.maxWidth >= Breakpoints.compact;
         return _FilterBarScope(
           wide: wide,
@@ -586,7 +583,9 @@ class AtriaAdaptiveFilter<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final wide = _FilterBarScope.maybeWide(context);
-    if (wide != false) {
+    // Dates stay one compact select on the phone, rather than a row for every
+    // named period. The reference places this beside its search field.
+    if (wide != false || (Theme.of(context).platform.isMobileUi && label == 'Date')) {
       return AtriaFilterSelect<T>(
         label: label,
         segments: segments,
@@ -597,7 +596,12 @@ class AtriaAdaptiveFilter<T> extends StatelessWidget {
     return AtriaSegmentedFilter<T>(
       segments: [
         for (final s in segments)
-          AtriaSegment<T>(value: s.value, label: s.label, icon: s.icon ?? icon),
+          AtriaSegment<T>(
+            value: s.value,
+            label: s.label,
+            icon: s.icon ?? icon,
+            count: s.count,
+          ),
       ],
       value: value,
       onChanged: onChanged,
@@ -657,7 +661,7 @@ class AtriaFilterSelect<T> extends StatelessWidget {
           ),
       ],
       child: Container(
-        height: 34,
+        height: Theme.of(context).platform.isMobileUi ? 48 : 34,
         padding: const EdgeInsets.only(left: 10, right: 6),
         decoration: BoxDecoration(
           color: scheme.surface,
@@ -671,7 +675,7 @@ class AtriaFilterSelect<T> extends StatelessWidget {
               Icon(current.icon, size: 16, color: scheme.onSurfaceVariant),
               const SizedBox(width: 6),
             ],
-            Text(
+            if (!Theme.of(context).platform.isMobileUi) Text(
               '$label:  ',
               style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),

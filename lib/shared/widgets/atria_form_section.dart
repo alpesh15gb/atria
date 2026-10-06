@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../core/responsive/breakpoints.dart';
+import '../../core/responsive/platform_ui.dart';
 import '../../core/theme/app_radius.dart';
 
 /// One titled block of an editor form.
@@ -266,7 +267,8 @@ class AtriaEditorForm extends StatelessWidget {
         final width = constraints.maxWidth;
         // A phone has no width to share between the subject block and the
         // dates, and a maximised window has plenty for both.
-        final wide = width >= Breakpoints.medium;
+        final mobile = Theme.of(context).platform.isMobileUi;
+        final wide = !mobile && width >= Breakpoints.medium;
         final gutter = width < Breakpoints.compact
             ? 16.0
             : width >= Breakpoints.large
@@ -285,7 +287,11 @@ class AtriaEditorForm extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (header != null && headerTrailing == null)
+                  if (mobile && headerTrailing != null) ...[
+                    headerTrailing!,
+                    const SizedBox(height: 18),
+                    ?header,
+                  ] else if (header != null && headerTrailing == null)
                     header!
                   else if (header != null && wide)
                     Row(

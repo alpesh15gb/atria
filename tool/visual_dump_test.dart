@@ -10,6 +10,7 @@
 // show actual glyphs instead of the solid boxes `matchesGoldenFile` produces
 // when no font is registered.
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:atria/app.dart';
 import 'package:atria/core/database/app_database.dart';
@@ -19,10 +20,37 @@ import 'package:atria/core/services/demo_seeder.dart';
 import 'package:atria/core/state/providers.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:printing/printing.dart';
+import 'package:printing/src/method_channel.dart';
+import 'package:printing/src/interface.dart';
+
+class _LocalRaster extends PdfRaster {
+  _LocalRaster(super.width, super.height, super.pixels, this.png);
+  final Uint8List png;
+  @override
+  Future<Uint8List> toPng() async => png;
+}
+
+class PrintingPlatformReplacement extends MethodChannelPrinting {
+  static void install() => PrintingPlatform.instance = PrintingPlatformReplacement();
+  int _job = 0;
+  @override
+  Future<PrintingInfo> info() async => const PrintingInfo(canRaster: true);
+  @override
+  Stream<PdfRaster> raster(Uint8List document, List<int>? pages, double dpi) async* {
+    final base = 'build/mobile-review/raster-${_job++}';
+    File('$base.pdf').writeAsBytesSync(document);
+    final result = Process.runSync('C:/Users/Administrator/AppData/Local/Programs/Python/Python312/python.exe', ['tool/rasterize_preview.py', '$base.pdf', '$base.rgba', '${dpi / 72}']);
+    if (result.exitCode != 0) throw StateError('PDF raster failed: ${result.stderr}');
+    final size = jsonDecode(File('$base.rgba.json').readAsStringSync()) as Map;
+    yield _LocalRaster(size['width'] as int, size['height'] as int, File('$base.rgba').readAsBytesSync(), File('$base.rgba.png').readAsBytesSync());
+  }
+}
 
 const Size kDesktop = Size(1440, 900);
 const Size kPhone = Size(412, 892);
@@ -82,9 +110,9 @@ void main() {
     await _loadFont('Inter', ['assets/fonts/Inter[opsz,wght].ttf']);
     await _loadFont('MaterialIcons', [_materialIconsPath()]);
     const phosphor = 'third_party/phosphor_flutter/lib/fonts';
-    await _loadFont('PhosphorRegular', ['$phosphor/Phosphor.ttf']);
-    await _loadFont('PhosphorFill', ['$phosphor/Phosphor-Fill.ttf']);
-    await _loadFont('PhosphorBold', ['$phosphor/Phosphor-Bold.ttf']);
+    await _loadFont('packages/phosphor_flutter/PhosphorRegular', ['$phosphor/Phosphor.ttf']);
+    await _loadFont('packages/phosphor_flutter/PhosphorFill', ['$phosphor/Phosphor-Fill.ttf']);
+    await _loadFont('packages/phosphor_flutter/PhosphorBold', ['$phosphor/Phosphor-Bold.ttf']);
 
     // One seeded database for every capture: the demo books give the screens
     // something real to show (invoices, bills, parties, stock, expenses).
@@ -127,6 +155,28 @@ void main() {
     await container.read(activeFirmIdProvider.notifier).select(firmId);
     await container.read(appInitializationProvider.future);
 
+    PrintingPlatformReplacement.install();
+    // Use a real local PDF renderer at the native plugin boundary. No fake
+    // invoice image: the bytes produced by the app are what get rasterised.
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('net.nfet.printing'),
+      (call) async {
+        if (call.method == 'printingInfo') return {'canRaster': true};
+        if (call.method != 'rasterPdf') return null;
+        final args = call.arguments as Map;
+        final job = args['job'];
+        final base = 'build/mobile-review/raster-$job';
+        final pdf = File('$base.pdf')..writeAsBytesSync(args['doc'] as Uint8List);
+        final result = Process.runSync('C:/Users/Administrator/AppData/Local/Programs/Python/Python312/python.exe', ['tool/rasterize_preview.py', pdf.path, '$base.rgba', '${args['scale']}']);
+        if (result.exitCode != 0) throw StateError('PDF raster failed: ${result.stderr}');
+        final size = jsonDecode(File('$base.rgba.json').readAsStringSync()) as Map;
+        final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        const codec = StandardMethodCodec();
+        await messenger.handlePlatformMessage('net.nfet.printing', codec.encodeMethodCall(MethodCall('onPageRasterized', {'job': job, 'width': size['width'], 'height': size['height'], 'image': File('$base.rgba').readAsBytesSync()})), (_) {});
+        await messenger.handlePlatformMessage('net.nfet.printing', codec.encodeMethodCall(MethodCall('onPageRasterEnd', {'job': job})), (_) {});
+        return null;
+      },
+    );
     // SettingsScreen awaits PackageInfo.fromPlatform().
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
@@ -157,6 +207,8 @@ void main() {
     String route, {
     Size size = kDesktop,
   }) async {
+    debugDefaultTargetPlatformOverride = size == kPhone ? TargetPlatform.android : TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -174,15 +226,21 @@ void main() {
     router = _container!.read(appRouterProvider);
     router.go(route);
     await _pumpFrames(tester, frames: 12);
+    if (route.contains('section=templates')) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(seconds: 2)));
+      await _pumpFrames(tester, frames: 8);
+      expect(find.byType(Image), findsWidgets, reason: 'the template capture must show rendered PDF pages, not a loading placeholder');
+    }
 
     await expectLater(
       find.byType(MaterialApp),
-      matchesGoldenFile('../build/visual/$name.png'),
+      matchesGoldenFile('../build/visual/${const String.fromEnvironment('CAPTURE_PREFIX')}$name.png'),
     );
 
     // Unmount so the next capture starts from a clean tree.
     await tester.pumpWidget(const SizedBox.shrink());
     await _pumpFrames(tester, frames: 2);
+    debugDefaultTargetPlatformOverride = null;
   }
 
   final t = Timeout(Duration(minutes: 3));
@@ -428,6 +486,14 @@ void main() {
 
   testWidgets('phone-reports', (w) async {
     await shoot(w, 'phone_reports', '/reports', size: kPhone);
+  }, timeout: t);
+
+  testWidgets('phone-templates', (w) async {
+    await shoot(w, 'phone_templates', '/settings/firm?section=templates', size: kPhone);
+  }, timeout: t);
+
+  testWidgets('phone-bank', (w) async {
+    await shoot(w, 'phone_bank', '/settings/firm?section=bank', size: kPhone);
   }, timeout: t);
 
   testWidgets('phone-settings', (w) async {

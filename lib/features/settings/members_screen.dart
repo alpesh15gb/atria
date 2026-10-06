@@ -8,6 +8,7 @@ import '../../core/database/repositories/members_repository.dart';
 import '../../core/domain/member_role.dart';
 import '../../core/state/member_session_controller.dart';
 import '../../core/state/providers.dart';
+import '../../core/responsive/platform_ui.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/confirm_destructive.dart';
 
@@ -33,6 +34,23 @@ class MembersScreen extends ConsumerWidget {
       );
     }
 
+    if (Theme.of(context).platform.isMobileUi) {
+      return DefaultTabController(length: 2, child: Scaffold(
+        appBar: AppBar(title: const Text('Users & Roles'), bottom: members.maybeWhen(data: (rows) => TabBar(tabs: [Tab(text: 'Active (${rows.where((m) => m.isActive).length})'), Tab(text: 'Inactive (${rows.where((m) => !m.isActive).length})')]), orElse: () => const TabBar(tabs: [Tab(text: 'Active'), Tab(text: 'Inactive')]))),
+        body: Column(children: [
+          Padding(padding: const EdgeInsets.all(14), child: _featureToggle(context, ref, firmId, enabled)),
+          Expanded(child: members.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (e, _) => Center(child: Text('Could not load members: $e')),
+            data: (rows) => TabBarView(children: [for (final active in [true, false]) rows.where((m) => m.isActive == active).isEmpty
+              ? Center(child: Text(active ? 'No active users yet' : 'No inactive users yet'))
+              : ListView(padding: const EdgeInsets.all(14), children: [for (final member in rows.where((m) => m.isActive == active)) Padding(padding: const EdgeInsets.only(bottom: 8), child: _MemberTile(member: member, onEdit: () => _editMember(context, ref, firmId, member), onDelete: () => _deleteMember(context, ref, firmId, member)))]),
+            ]),
+          )),
+        ]),
+        bottomNavigationBar: SafeArea(minimum: const EdgeInsets.all(14), child: FilledButton.icon(onPressed: enabled ? () => _editMember(context, ref, firmId, null) : null, icon: const Icon(Icons.add), label: const Text('Add User'))),
+      ));
+    }
     return Scaffold(
       appBar: AppBar(
         title: const Text('Members'),

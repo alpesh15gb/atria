@@ -12,6 +12,8 @@ import '../../core/database/repositories/firm_repository.dart';
 import '../../core/database/repositories/sales_repository.dart';
 import '../../core/engine/gst_engine.dart';
 import '../../core/state/providers.dart';
+import '../../core/responsive/platform_ui.dart';
+import '../../shared/widgets/mobile_selection_field.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_sizes.dart';
 import '../../core/utils/formatters.dart';
@@ -787,8 +789,10 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
     AtriaLineColumn('Amount', flex: 3, numeric: true),
   ];
 
+  bool _mobileManualLine = false;
+
   Widget _lineGrid() {
-    return AtriaLineGrid(
+    final grid = AtriaLineGrid(
       columns: _lineColumns,
       addLabel: 'Add lines',
       onAddRow: () => _addLine(focus: true),
@@ -798,6 +802,41 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
             cells: _lineCells(i),
             onRemove: _lines.length == 1 ? null : () => _removeLine(i),
           ),
+      ],
+    );
+    if (!Theme.of(context).platform.isMobileUi) return grid;
+    final hasProducts =
+        _mobileManualLine ||
+        _lines.any((line) => line.nameController.text.trim().isNotEmpty);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        MobileSelectionField<String>(
+          label: 'Products',
+          placeholder: 'Select Products',
+          choices: [
+            for (final item in _items)
+              MobileChoice(
+                value: item.id,
+                label: item.name,
+                subtitle: Formatters.money(Money.of(item.salePrice)),
+              ),
+          ],
+          onChanged: (id) {
+            final item = _items.firstWhere((item) => item.id == id);
+            var line = _lines
+                .where((line) => line.nameController.text.trim().isEmpty)
+                .firstOrNull;
+            if (line == null) {
+              _addLine();
+              line = _lines.last;
+            }
+            line.applyItem(item);
+            _recalc();
+          },
+          onAddNew: () => setState(() => _mobileManualLine = true),
+        ),
+        if (hasProducts) ...[const SizedBox(height: 12), grid],
       ],
     );
   }
@@ -1048,7 +1087,7 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
       child: UnsavedGuard(
         hasChanges: _dirty && !_loading,
         child: EditorShell(
-          title: _title,
+          title: Theme.of(context).platform.isMobileUi && !_isEditing ? 'Create $_docNoun' : _title,
           actions: EditorActions(
             onSave: _save,
             onSaveAndNew: _isEditing ? null : _saveAndNew,
@@ -1120,14 +1159,14 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
                       // The totals sit under the last line, right-aligned,
                       // instead of in a side rail the eye has to travel back
                       // to on every edit.
-                      totals: _totalsSection(totals),
+                      totals: Theme.of(context).platform.isMobileUi && !_mobileManualLine && !_lines.any((line) => line.nameController.text.trim().isNotEmpty) ? null : _totalsSection(totals),
                       sections: [
                         // QBO labels this block "Message on invoice", and it is
                         // visible on the page rather than hidden behind a link.
                         EditorLinkSection(
                           icon: Icons.note_add_rounded,
                           title: 'Message on invoice',
-                          initiallyOpen: true,
+                          initiallyOpen: !Theme.of(context).platform.isMobileUi,
                           builder: (_) =>
                               _NotesSection(controller: _notesController),
                         ),
@@ -1355,6 +1394,27 @@ class _PartySection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (Theme.of(context).platform.isMobileUi) {
+      return MobileSelectionField<PartyEntity>(
+        label: 'Customer',
+        placeholder: 'Select Customer',
+        value: selected,
+        choices: [
+          for (final party in parties)
+            MobileChoice(
+              value: party,
+              label: party.name,
+              subtitle: [
+                party.phone,
+                party.gstin,
+              ].whereType<String>().join(' · '),
+            ),
+        ],
+        onChanged: onChanged,
+        onAddNew: onAddNew,
+        validator: (value) => value == null ? 'Please select a customer' : null,
+      );
+    }
     return AtriaCard(
       padding: const EdgeInsets.all(16),
       child: Column(

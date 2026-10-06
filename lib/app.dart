@@ -1,6 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+
+import 'core/responsive/platform_ui.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/router/app_router.dart';
@@ -179,9 +183,18 @@ class _AtriaAppState extends ConsumerState<AtriaApp>
     return MaterialApp.router(
       title: 'Apex Books — Accounting & GST Billing',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light(),
-      darkTheme: AppTheme.dark(),
-      themeMode: themeMode,
+      theme: defaultTargetPlatform.isMobileUi
+          ? AppTheme.mobile(dark: false)
+          : AppTheme.light(),
+      darkTheme: defaultTargetPlatform.isMobileUi
+          ? AppTheme.mobile()
+          : AppTheme.dark(),
+      // System mode on a phone opens in the reference's charcoal appearance.
+      // An explicit light/dark preference is still honoured; desktop is unchanged.
+      themeMode:
+          defaultTargetPlatform.isMobileUi && themeMode == ThemeMode.system
+          ? ThemeMode.dark
+          : themeMode,
       locale: const Locale('en', 'IN'),
       supportedLocales: const [Locale('en', 'IN'), Locale('en')],
       // One router for the app's whole lifetime. The boot splash is now the

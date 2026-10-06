@@ -77,6 +77,7 @@ void main() {
     ProviderContainer container,
     Widget child, {
     Size size = const Size(360, 640),
+    TargetPlatform platform = TargetPlatform.android,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -85,7 +86,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: AppTheme.light(),
+          theme: AppTheme.light().copyWith(platform: platform),
           home: Scaffold(body: child),
         ),
       ),
@@ -154,6 +155,7 @@ void main() {
         container,
         const DashboardScreen(),
         size: const Size(1920, 1080),
+        platform: TargetPlatform.windows,
       );
       await dispose(tester, db, container);
       expect(error, isNull);
@@ -176,6 +178,7 @@ void main() {
         container,
         const SalesListScreen(),
         size: const Size(1920, 1080),
+        platform: TargetPlatform.windows,
       );
       final headerWidth = tester.getRect(find.byType(AtriaPageHeader)).width;
       await dispose(tester, db, container);

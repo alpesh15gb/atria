@@ -9,6 +9,8 @@ import '../../core/constants/payment_modes.dart';
 import '../../core/database/app_database.dart';
 import '../../core/database/repositories/firm_repository.dart';
 import '../../core/state/providers.dart';
+import '../../core/responsive/platform_ui.dart';
+import '../../shared/widgets/mobile_selection_field.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_sizes.dart';
 import '../../core/utils/formatters.dart';
@@ -427,6 +429,10 @@ class _ExpenseEditorScreenState extends ConsumerState<ExpenseEditorScreen> {
   }
 
   Widget _categorySection() {
+    if (Theme.of(context).platform.isMobileUi) {
+      final options = _isExpense ? [for (final c in ExpenseCategory.all) MobileChoice(value: c.id, label: c.label)] : [for (final c in IncomeCategory.all) MobileChoice(value: c.id, label: c.label)];
+      return MobileSelectionField<String>(label: _isExpense ? 'Expense details' : 'Income details', placeholder: 'Select Category', value: _category, choices: options, onChanged: (value) { _markDirty(); setState(() => _category = value); });
+    }
     return AtriaFormSection(
       icon: Icons.category_outlined,
       title: _isExpense ? 'Expense details' : 'Income details',

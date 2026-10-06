@@ -300,6 +300,12 @@ void main() {
         size: const Size(400, 900),
         platform: TargetPlatform.android,
       );
+      // A blank mobile document starts with the reference's product selector.
+      // Open manual entry before measuring its line cells.
+      await tester.tap(find.text('Select Products'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Add new'));
+      await tester.pumpAndSettle();
       expect(
         cellBorder().borderSide.color.a,
         greaterThan(0),

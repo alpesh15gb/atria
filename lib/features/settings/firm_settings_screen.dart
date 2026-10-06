@@ -18,6 +18,9 @@ import '../../core/database/repositories/repository_extensions.dart';
 import '../../core/engine/document_numbering.dart';
 import '../../core/services/pdf_template_style.dart';
 import '../../core/state/providers.dart';
+import '../../core/responsive/platform_ui.dart';
+import '../../shared/widgets/mobile_template_picker.dart';
+import '../../shared/widgets/editor_shell.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_sizes.dart';
 import '../../core/theme/app_theme.dart';
@@ -31,7 +34,10 @@ import '../../shared/widgets/unsaved_guard.dart';
 /// Edits the currently active firm: business profile plus invoicing
 /// configuration (prefixes, numbering, payment details).
 class FirmSettingsScreen extends ConsumerStatefulWidget {
-  const FirmSettingsScreen({super.key});
+  const FirmSettingsScreen({super.key, this.section});
+
+  /// Mobile section deep links use the same controllers and save transaction.
+  final String? section;
 
   @override
   ConsumerState<FirmSettingsScreen> createState() =>
@@ -365,7 +371,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
         hasChanges: _hasChanges,
         child: Scaffold(
       appBar: AppBar(
-        title: const Text('Firm Profile'),
+        title: Text(Theme.of(context).platform.isMobileUi ? switch (widget.section) { 'templates' => 'Templates', 'bank' => 'Bank Details', 'signature' => 'Signature', 'documents' => 'Document Settings', _ => 'Company Details' } : 'Firm Profile'),
         actions: [
           if (_saving)
             const Padding(
@@ -376,7 +382,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
             ),
-          Padding(
+          if (!Theme.of(context).platform.isMobileUi) Padding(
             padding: const EdgeInsets.only(right: 8),
             child: FilledButton.icon(
               onPressed: _saving || _firm == null ? null : _save,
@@ -391,6 +397,7 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
       // user is actively editing. The fields group themselves into two-up
       // rows via _FieldRow, so the width is used, not stretched.
       body: SafeArea(child: _body(firmAsync)),
+      bottomNavigationBar: Theme.of(context).platform.isMobileUi ? EditorBottomBar(onSave: _save, saving: _saving, saveLabel: 'Save changes') : null,
         ),
       ),
     );
@@ -406,6 +413,16 @@ class _FirmSettingsScreenState extends ConsumerState<FirmSettingsScreen> {
         title: 'No business selected',
         message: 'Choose or create a firm to edit its profile.',
       );
+    }
+    if (Theme.of(context).platform.isMobileUi && widget.section == 'templates') {
+      return Form(key: _formKey, child: MobileTemplatePicker(firm: _firm!, selected: _template, onChanged: (style) { _markDirty(); setState(() => _template = style); }));
+    }
+    if (Theme.of(context).platform.isMobileUi && widget.section != null) {
+      return Form(key: _formKey, child: ListView(padding: const EdgeInsets.all(16), children: [
+        if (widget.section == 'documents') ...[_numberingSection(), const SizedBox(height: 20), _invoiceSection()],
+        if (widget.section == 'bank') _paymentSection(),
+        if (widget.section == 'signature') _sectionCard(title: 'Authorised signatory', child: TextFormField(controller: _signatureController, decoration: const InputDecoration(labelText: 'Signature name', hintText: 'Name printed on your documents'))),
+      ]));
     }
     return Form(
       key: _formKey,

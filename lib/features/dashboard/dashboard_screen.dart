@@ -18,6 +18,7 @@ import '../../shared/widgets/atria_create_menu.dart';
 import '../../shared/widgets/mobile_create_grid.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/money_text.dart';
+import '../../shared/widgets/mobile_page.dart';
 import '../../shared/widgets/status_chip.dart';
 
 /// Every link on this page that points at a **branch root** — `/sales`,
@@ -60,16 +61,24 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
   /// bills, e-invoicing, GST filing and bank reconciliation, none of which this
   /// app has. Copying the row and blanking half of it would leave a grid of gaps
   /// on the busiest screen in the app.
-  static const List<({String route, String label, IconData icon})> _quickAccess =
-      [
+  static const List<({String route, String label, IconData icon})>
+  _quickAccess = [
     (route: '/reports', label: 'Reports', icon: Icons.insights_outlined),
     (route: '/payments', label: 'Payments', icon: Icons.receipt_long_outlined),
     (route: '/stock', label: 'Stock', icon: Icons.inventory_2_outlined),
     (route: '/items', label: 'Products', icon: Icons.category_outlined),
-    (route: '/parties?type=customer', label: 'Parties', icon: Icons.groups_outlined),
+    (
+      route: '/parties?type=customer',
+      label: 'Parties',
+      icon: Icons.groups_outlined,
+    ),
     (route: '/ledger', label: 'Ledger', icon: Icons.menu_book_outlined),
     (route: '/settings', label: 'Settings', icon: Icons.settings_outlined),
-    (route: '/purchase?type=bill', label: 'Purchases', icon: Icons.shopping_cart_outlined),
+    (
+      route: '/purchase?type=bill',
+      label: 'Purchases',
+      icon: Icons.shopping_cart_outlined,
+    ),
   ];
 
   @override
@@ -115,6 +124,28 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
     // that moment — the sheet opened EMPTY (the "company not showing" bug).
     ref.watch(allFirmsProvider);
 
+    if (Theme.of(context).platform.isMobileUi) {
+      return Scaffold(
+        body: RefreshIndicator(
+          onRefresh: () async {
+            _refresh();
+          },
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(14, 18, 14, 30),
+            children: [
+              if (reports == null)
+                const _NoFirmState()
+              else ...[
+                _MobileSnapshot(),
+                const SizedBox(height: 22),
+                const MobileCreateGrid(),
+                MobileQuickAccessGrid(entries: _quickAccess),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
     final now = DateTime.now();
     final from = DateTime(now.year, now.month, 1);
     final hour = now.hour;
@@ -250,9 +281,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
                       if (Theme.of(context).platform.isMobileUi) ...[
                         const MobileCreateGrid(),
                         const SizedBox(height: 16),
-                        MobileQuickAccessGrid(
-                          entries: _quickAccess,
-                        ),
+                        MobileQuickAccessGrid(entries: _quickAccess),
                         const SizedBox(height: 20),
                       ],
                       _KpiGrid(reports: reports, from: from),
@@ -460,13 +489,15 @@ class _SelectBusinessRow extends StatelessWidget {
                     firm.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleSmall
-                        ?.copyWith(fontWeight: FontWeight.w700),
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   Text(
                     gstin.isEmpty ? 'Unregistered' : gstin.toUpperCase(),
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: scheme.onSurfaceVariant),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
                   // **Only for an unregistered firm.** The reference prints a
                   // GSTIN line; a firm without one would otherwise have a
@@ -552,6 +583,88 @@ class _NoFirmState extends StatelessWidget {
       onAction: () => context.push('/onboarding/firm-setup'),
     );
   }
+}
+
+class _MobileSnapshot extends ConsumerStatefulWidget {
+  @override
+  ConsumerState<_MobileSnapshot> createState() => _MobileSnapshotState();
+}
+
+class _MobileSnapshotState extends ConsumerState<_MobileSnapshot> {
+  bool _year = true;
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final from = _year
+        ? DateTime(now.year, 1, 1)
+        : DateTime(now.year, now.month, 1);
+    final summary = ref.watch(_dashboardProvider(from));
+    final scheme = Theme.of(context).colorScheme;
+    return AtriaCard(
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              PopupMenuButton<bool>(
+                tooltip: 'Summary period',
+                onSelected: (year) => setState(() => _year = year),
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: true, child: Text('This Year')),
+                  PopupMenuItem(value: false, child: Text('This Month')),
+                ],
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  child: Row(
+                    children: [
+                      Text(_year ? 'This Year' : 'This Month'),
+                      const Icon(Icons.expand_more, size: 18),
+                    ],
+                  ),
+                ),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () => context.go('/sales'),
+                child: const Text('View Bills'),
+              ),
+            ],
+          ),
+          summary.when(
+            loading: () => const LinearProgressIndicator(),
+            error: (error, _) => TextButton(
+              onPressed: _retry,
+              child: const Text('Could not load totals · Retry'),
+            ),
+            data: (s) => Row(
+              children: [
+                Expanded(child: _figure('Sales', s.totalSales, scheme)),
+                const SizedBox(width: 12),
+                Expanded(child: _figure('Purchases', s.totalPurchases, scheme)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _retry() => ref.invalidate(_dashboardProvider);
+  Widget _figure(String label, Decimal value, ColorScheme scheme) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        label,
+        style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
+      ),
+      const SizedBox(height: 4),
+      MobileAmount(
+        value,
+        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+      ),
+    ],
+  );
 }
 
 /// The brand hero: gradient card with the headline sales number and the
@@ -1485,10 +1598,7 @@ class _AlertsSection extends ConsumerWidget {
             // the reader nothing.
             LayoutBuilder(
               builder: (context, constraints) {
-                final cards = [
-                  ?lowStock,
-                  ?overdue,
-                ];
+                final cards = [?lowStock, ?overdue];
                 if (cards.length < 2 ||
                     constraints.maxWidth < Breakpoints.medium) {
                   return Column(

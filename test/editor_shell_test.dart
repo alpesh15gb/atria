@@ -24,7 +24,7 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: const MaterialApp(home: SaleEditorScreen(docType: 'invoice')),
+        child: MaterialApp(theme: ThemeData(platform: TargetPlatform.windows), home: const SaleEditorScreen(docType: 'invoice')),
       ),
     );
     // Bounded pumps: the editor settles fast (no shimmer), but stay bounded.

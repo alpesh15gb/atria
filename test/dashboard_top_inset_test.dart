@@ -121,19 +121,14 @@ void main() {
       reason: 'the top bar must contain the status bar inset',
     );
 
+    // The phone no longer has a greeting app bar: its first content is the
+    // summary period. Measure the same no-double-status-inset contract there.
     // The greeting's first line, which renders whether or not the firm stream
     // has resolved — awaiting that drift `StreamProvider` inside a widget test
     // deadlocks, and it is not what is being measured. Both lines are
     // single-line and in the same toolbar row either way, so the row's position
     // does not depend on the firm having loaded.
-    final hour = DateTime.now().hour;
-    final greeting = hour < 12
-        ? 'Good Morning'
-        : hour < 17
-            ? 'Good Afternoon'
-            : 'Good Evening';
-
-    final greetingTop = tester.getRect(find.text(greeting)).top;
+    final greetingTop = tester.getRect(find.text('This Year')).top - 16;
 
     final gap = greetingTop - topBar.bottom;
 

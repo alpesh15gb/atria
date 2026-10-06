@@ -15,7 +15,9 @@ import '../../core/database/app_database.dart';
 import '../../core/database/repositories/repository_extensions.dart';
 import '../../core/database/repositories/settings_repository.dart';
 import '../../core/domain/member_role.dart';
+import '../../core/state/member_session_controller.dart';
 import '../../core/responsive/breakpoints.dart';
+import '../../core/responsive/platform_ui.dart';
 import '../../core/services/csv_export.dart';
 import '../../core/state/auth_controller.dart';
 import '../../core/state/providers.dart';
@@ -601,6 +603,38 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final firmAsync = ref.watch(activeFirmProvider);
     final themeMode = ref.watch(themeModeProvider);
 
+    if (Theme.of(context).platform.isMobileUi) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Settings'), automaticallyImplyLeading: false),
+        body: ListView(padding: const EdgeInsets.fromLTRB(14, 12, 14, 32), children: [
+          _mobileGroup('Profile', [
+            _mobileLink('Company Details', Icons.business_outlined, '/settings/firm'),
+            if (ref.watch(effectiveSessionProvider).allows(Permission.manageMasters)) _mobileLink('Users & Roles', Icons.people_outline, '/settings/members'),
+          ]),
+          _mobileGroup('Settings', [
+            _mobileLink('Document Settings', Icons.receipt_long_outlined, '/settings/firm?section=documents'),
+            _mobileLink('Invoice Templates', Icons.description_outlined, '/settings/firm?section=templates'),
+            _mobileLink('Bank', Icons.account_balance_outlined, '/settings/firm?section=bank'),
+            _mobileLink('Signature', Icons.draw_outlined, '/settings/firm?section=signature'),
+            ListTile(leading: const Icon(Icons.dark_mode_outlined), title: const Text('App Theme'), trailing: const Icon(Icons.chevron_right), onTap: () => showModalBottomSheet(context: context, builder: (_) => Padding(padding: const EdgeInsets.all(16), child: _appearanceSection(themeMode)))),
+          ]),
+          _mobileGroup('Features', [
+            _mobileLink('Reports', Icons.pie_chart_outline, '/reports'),
+            _mobileLink('Payment Reminders', Icons.notifications_outlined, '/payment-reminders'),
+            _mobileLink('Label Printers', Icons.print_outlined, '/settings/printers'),
+          ]),
+          _mobileGroup('Timelines', [
+            _mobileLink('Payments', Icons.payments_outlined, '/payments'),
+            _mobileLink('Inventory', Icons.inventory_2_outlined, '/stock'),
+            _mobileLink('Audit Log', Icons.history, '/settings/audit-log'),
+          ]),
+          _dataSection(), const SizedBox(height: 18),
+          _accountSection(), const SizedBox(height: 18),
+          _syncSection(), const SizedBox(height: 18),
+          _aboutSection(),
+        ]),
+      );
+    }
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: SafeArea(
@@ -636,6 +670,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     );
   }
+
+  Widget _mobileGroup(String title, List<Widget> rows) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    Padding(padding: const EdgeInsets.only(top: 12, bottom: 8), child: Text(title, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12))),
+    AtriaCard(padding: const EdgeInsets.symmetric(vertical: 4), child: Column(children: rows)),
+  ]);
+
+  Widget _mobileLink(String label, IconData icon, String route) => ListTile(
+    leading: Icon(icon, size: 20), title: Text(label), trailing: Icon(Icons.chevron_right, size: 18, color: Theme.of(context).colorScheme.primary),
+    onTap: () => route.startsWith('/settings/') ? context.push(route) : context.go(route),
+  );
 
   // ---- Business ----------------------------------------------------------
 

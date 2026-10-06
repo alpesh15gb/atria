@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../core/state/providers.dart';
+import '../../core/responsive/platform_ui.dart';
 import '../../core/theme/app_radius.dart';
 import 'atria_avatar.dart';
 import 'atria_global_search.dart';
@@ -38,6 +39,44 @@ class AtriaTopBar extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final firm = ref.watch(activeFirmProvider).valueOrNull;
 
+    if (Theme.of(context).platform.isMobileUi) {
+      return Material(
+        color: scheme.surface,
+        child: SafeArea(
+          bottom: false,
+          child: SizedBox(
+            height: 56,
+            child: Row(
+              children: [
+                const SizedBox(width: 12),
+                AtriaAvatar.initials(
+                  name: firm?.name ?? 'Apex Books',
+                  radius: AtriaAvatar.row,
+                ),
+                Expanded(
+                  child: _BusinessSwitcher(
+                    firmName: firm?.name ?? 'Apex Books',
+                    labelWidth: 180,
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.only(right: 8),
+                  child: Text(
+                    'apex',
+                    style: TextStyle(fontSize: 25, fontWeight: FontWeight.w800),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Search',
+                  onPressed: () => showAtriaGlobalSearch(context),
+                  icon: const Icon(Icons.search),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     return Material(
       color: scheme.surface,
       child: DecoratedBox(
@@ -63,7 +102,8 @@ class AtriaTopBar extends ConsumerWidget {
               // Fixed chrome, worst case (the popup paddings and the caret on
               // the business switcher, the gear, the account avatar, the gaps).
               final pane = leadingWidth > 0 ? leadingWidth + 12 : 132;
-              const businessChrome = 52; // popup padding + field padding + caret
+              const businessChrome =
+                  52; // popup padding + field padding + caret
               const gearAndAccount = 48 + 52 + 12; // IconButton, menu, gap
               const chrome = businessChrome + 4 + gearAndAccount;
 
@@ -88,7 +128,9 @@ class AtriaTopBar extends ConsumerWidget {
                       SizedBox(
                         width: leadingWidth,
                         child: Padding(
-                          padding: EdgeInsets.only(left: compactLeading ? 0 : 14),
+                          padding: EdgeInsets.only(
+                            left: compactLeading ? 0 : 14,
+                          ),
                           child: compactLeading
                               ? const Center(child: AtriaLogo(size: 26))
                               : const Align(

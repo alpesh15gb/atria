@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/database/app_database.dart';
 import '../../core/database/repositories/party_repository.dart';
 import '../../core/responsive/breakpoints.dart';
+import '../../core/responsive/platform_ui.dart';
 import '../../core/state/providers.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_sizes.dart';
@@ -23,8 +24,25 @@ import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/confirm_destructive.dart';
 import '../../shared/widgets/money_text.dart';
 import '../../shared/widgets/transaction_list.dart';
+import '../../shared/widgets/mobile_page.dart';
 
 enum _Filter { all, customers, suppliers }
+
+final _mobilePartyTotalsProvider = StreamProvider<(Decimal, Decimal)>((ref) async* {
+  final repo = ref.watch(partyRepositoryProvider);
+  if (repo == null) { yield (Decimal.zero, Decimal.zero); return; }
+  Future<(Decimal, Decimal)> totals() async {
+    var collect = Decimal.zero;
+    var pay = Decimal.zero;
+    for (final party in await repo.all(limit: 0)) {
+      final balance = Decimal.parse((await repo.outstandingFor(party.id)).toStringAsFixed(2));
+      if (balance > Decimal.zero) { collect += balance; } else { pay -= balance; }
+    }
+    return (collect, pay);
+  }
+  yield await totals();
+  await for (final _ in repo.watchOutstandingChanges()) { yield await totals(); }
+});
 
 /// A party's live outstanding.
 ///
@@ -136,9 +154,13 @@ class _PartiesScreenState extends ConsumerState<PartiesScreen> {
         // Desktop: Vyapar-style master-detail — party list left, the
         // selected party's transactions right (no more wasted width, no more
         // action-sheet-first navigation on a 1500px screen).
-        final masterDetail = constraints.maxWidth >= Breakpoints.medium;
+        final masterDetail =
+            !Theme.of(context).platform.isMobileUi &&
+            constraints.maxWidth >= Breakpoints.medium;
         return AtriaListPage(
           title: _filter == _Filter.suppliers ? 'Vendors' : 'Parties',
+          mobileHeader: _mobileTabs(),
+          toolbar: [if (Theme.of(context).platform.isMobileUi) _mobileTotals()],
           actions: [
             if (repo != null)
               AtriaPrimaryAction(
@@ -153,7 +175,7 @@ class _PartiesScreenState extends ConsumerState<PartiesScreen> {
           ],
           search: _searchBar,
           filters: [
-            AtriaAdaptiveFilter<_Filter>(
+            if (!Theme.of(context).platform.isMobileUi) AtriaAdaptiveFilter<_Filter>(
               label: 'Type',
               scrollable: false,
               value: _filter,
@@ -179,6 +201,35 @@ class _PartiesScreenState extends ConsumerState<PartiesScreen> {
               : _list(repo),
         );
       },
+    );
+  }
+
+  Widget _mobileTabs() {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(color: scheme.surface, child: Row(children: [
+      for (final tab in [('Customers', 'customer'), ('Vendors', 'supplier')]) Expanded(child: InkWell(onTap: () => context.go('/parties?type=${tab.$2}'), child: Container(
+        alignment: Alignment.center, height: 52,
+        decoration: BoxDecoration(border: Border(bottom: BorderSide(width: 2, color: (_filter == _Filter.suppliers) == (tab.$2 == 'supplier') ? scheme.primary : Colors.transparent))),
+        child: Text(tab.$1, style: TextStyle(color: (_filter == _Filter.suppliers) == (tab.$2 == 'supplier') ? scheme.primary : scheme.onSurfaceVariant)),
+      ))),
+    ]));
+  }
+
+  Widget _mobileTotals() {
+    final totals = ref.watch(_mobilePartyTotalsProvider);
+    return totals.when(
+      loading: () => const LinearProgressIndicator(),
+      error: (_, _) => const Text('Could not load party balances'),
+      data: (totals) => Row(children: [
+        for (final entry in [('You Collect', totals.$1, const Color(0xFF91282D)), ('You Pay', totals.$2, const Color(0xFF315E38))]) ...[
+          if (entry.$1 == 'You Pay') const SizedBox(width: 8),
+          Expanded(child: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: entry.$3, borderRadius: BorderRadius.circular(8)), child: Column(children: [
+            Text(entry.$1, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+            const SizedBox(height: 4),
+            MobileAmount(entry.$2, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+          ]))),
+        ],
+      ]),
     );
   }
 
@@ -363,7 +414,11 @@ class _PartyRow extends ConsumerWidget {
     return AtriaCard(
       onTap: onTap,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      child: _rowBody(context, outstanding),
+      child: _rowBody(
+        context,
+        outstanding,
+        compact: Theme.of(context).platform.isMobileUi,
+      ),
     );
   }
 
@@ -463,6 +518,14 @@ class _OutstandingCell extends StatelessWidget {
         final isPayable = value < -0.005;
         final settled = !isReceivable && !isPayable;
 
+        if (Theme.of(context).platform.isMobileUi && settled) {
+          return Text(
+            'No dues',
+            style: text.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          );
+        }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           mainAxisSize: MainAxisSize.min,

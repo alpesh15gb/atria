@@ -380,7 +380,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 routes: [
                   GoRoute(
                     path: 'firm',
-                    builder: (context, state) => const FirmSettingsScreen(),
+                    builder: (context, state) => FirmSettingsScreen(section: state.uri.queryParameters['section']),
                   ),
                   GoRoute(
                     path: 'backup',

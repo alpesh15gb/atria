@@ -187,13 +187,14 @@ class _BottomShell extends ConsumerWidget {
     }
 
     final scheme = Theme.of(context).colorScheme;
+    final mobile = Theme.of(context).platform.isMobileUi;
     return Scaffold(
       // The chrome band sits above the branch navigators, exactly as QBO keeps
       // its top bar above everything: the business you are in, search and the
       // account controls must not scroll away with the page.
       body: Column(
         children: [
-          const AtriaTopBar(),
+          if (!mobile || path == '/dashboard') const AtriaTopBar(),
           // The shell carries the branch navigators - the list screens and
           // everything pushed on top of them.
           Expanded(
@@ -206,24 +207,32 @@ class _BottomShell extends ConsumerWidget {
       bottomNavigationBar: NavigationBar(
         backgroundColor: scheme.surface,
         surfaceTintColor: Colors.transparent,
-        selectedIndex: bottomBarIndex,
+        selectedIndex: mobile
+            ? (bottomBarIndex < 4 ? bottomBarIndex : 4)
+            : bottomBarIndex,
         onDestinationSelected: (value) {
-          if (value == NavDestinations.bottomBarItemCount) {
+          if (value == (mobile ? 4 : NavDestinations.bottomBarItemCount)) {
             _showMoreSheet(context, ref.watch(effectiveSessionProvider));
             return;
           }
           onTap(value);
         },
         destinations: [
-          for (final d in NavDestinations.primary)
+          for (
+            var i = 0;
+            i < (mobile ? 4 : NavDestinations.primary.length);
+            i++
+          )
             NavigationDestination(
-              icon: Icon(d.icon),
-              selectedIcon: Icon(d.selectedIcon),
-              label: d.label,
+              icon: Icon(NavDestinations.primary[i].icon),
+              selectedIcon: Icon(NavDestinations.primary[i].selectedIcon),
+              label: mobile
+                  ? const ['Home', 'Bills', 'Products', 'Parties'][i]
+                  : NavDestinations.primary[i].label,
             ),
           NavigationDestination(
             icon: Icon(
-              Icons.more_horiz_rounded,
+              mobile ? Icons.grid_view_rounded : Icons.more_horiz_rounded,
               color: scheme.onSurfaceVariant,
             ),
             selectedIcon: Icon(Icons.more_horiz_rounded, color: scheme.primary),
@@ -302,7 +311,9 @@ class _BottomShell extends ConsumerWidget {
                               (e) =>
                                   e.branchIndex == null ||
                                   e.branchIndex! >=
-                                      NavDestinations.bottomBarItemCount,
+                                      (Theme.of(context).platform.isMobileUi
+                                          ? 4
+                                          : NavDestinations.bottomBarItemCount),
                             )
                             .toList();
                         if (entries.isEmpty) return const SizedBox.shrink();

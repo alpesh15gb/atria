@@ -4,6 +4,7 @@ import 'package:decimal/decimal.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_radius.dart';
+import '../../core/responsive/platform_ui.dart';
 import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_sizes.dart';
 import '../../core/theme/app_theme.dart';
@@ -69,12 +70,16 @@ class TotalsCard extends StatelessWidget {
         vertical: compact ? 11 : 13,
       ),
       decoration: BoxDecoration(
-        color: style == TotalsCardStyle.tinted
+        color:
+            !Theme.of(context).platform.isMobileUi &&
+                style == TotalsCardStyle.tinted
             ? colors.brandGradientStart.withValues(alpha: 0.08)
             : scheme.surface,
         borderRadius: const BorderRadius.all(Radius.circular(AppRadius.lg)),
         border: Border.all(color: scheme.outline),
-        boxShadow: Theme.of(context).brightness == Brightness.dark
+        boxShadow: Theme.of(context).platform.isMobileUi
+            ? const []
+            : Theme.of(context).brightness == Brightness.dark
             ? AppShadows.darkCard
             : AppShadows.card,
       ),
@@ -188,47 +193,47 @@ class TransactionSearchField extends StatelessWidget {
     return ValueListenableBuilder<TextEditingValue>(
       valueListenable: controller,
       builder: (context, value, _) => SizedBox(
-      height: _searchFieldHeight,
-      child: TextField(
-        controller: controller,
-        onChanged: onChanged,
-        textInputAction: TextInputAction.search,
-        keyboardType: TextInputType.text,
-        decoration: InputDecoration(
-          isDense: true,
-          filled: true,
-          fillColor: scheme.surface,
-          hintText: hintText,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: AppSpace.md,
-            vertical: AppSpace.sm,
-          ),
-          prefixIcon: AtriaFieldIcon(
-            Icons.search_rounded,
-            size: AppIconSize.md,
-            color: scheme.onSurfaceVariant,
-          ),
-          prefixIconConstraints: const BoxConstraints(minWidth: 38),
-          suffixIcon: value.text.isEmpty
-              ? null
-              : IconButton(
-                  tooltip: 'Clear',
-                  icon: const Icon(
-                    Icons.close_rounded,
-                    size: AppIconSize.md,
+        height: _searchFieldHeight,
+        child: TextField(
+          controller: controller,
+          onChanged: onChanged,
+          textInputAction: TextInputAction.search,
+          keyboardType: TextInputType.text,
+          decoration: InputDecoration(
+            isDense: true,
+            filled: true,
+            fillColor: scheme.surface,
+            hintText: hintText,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: AppSpace.md,
+              vertical: AppSpace.sm,
+            ),
+            prefixIcon: AtriaFieldIcon(
+              Icons.search_rounded,
+              size: AppIconSize.md,
+              color: scheme.onSurfaceVariant,
+            ),
+            prefixIconConstraints: const BoxConstraints(minWidth: 38),
+            suffixIcon: value.text.isEmpty
+                ? null
+                : IconButton(
+                    tooltip: 'Clear',
+                    icon: const Icon(Icons.close_rounded, size: AppIconSize.md),
+                    onPressed:
+                        onClear ??
+                        () {
+                          controller.clear();
+                          onChanged('');
+                        },
                   ),
-                  onPressed: onClear ??
-                      () {
-                        controller.clear();
-                        onChanged('');
-                      },
-                ),
-          // Was minWidth 38 — a third under the 48dp platform minimum, on the
-          // one control every list screen offers with a thumb.
-          suffixIconConstraints:
-              const BoxConstraints(minWidth: 48, minHeight: 48),
+            // Was minWidth 38 — a third under the 48dp platform minimum, on the
+            // one control every list screen offers with a thumb.
+            suffixIconConstraints: const BoxConstraints(
+              minWidth: 48,
+              minHeight: 48,
+            ),
+          ),
         ),
-      ),
       ),
     );
   }
@@ -368,7 +373,9 @@ class TransactionRow extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: const BorderRadius.all(Radius.circular(AppRadius.lg)),
             border: Border.all(color: scheme.outline),
-            boxShadow: Theme.of(context).brightness == Brightness.dark
+            boxShadow: Theme.of(context).platform.isMobileUi
+                ? const []
+                : Theme.of(context).brightness == Brightness.dark
                 ? AppShadows.darkCard
                 : AppShadows.card,
           ),
@@ -387,8 +394,9 @@ class TransactionRow extends StatelessWidget {
                         title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: text.titleSmall
-                            ?.copyWith(fontWeight: FontWeight.w700),
+                        style: text.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                       const SizedBox(height: 3),
                       Text(
@@ -411,8 +419,9 @@ class TransactionRow extends StatelessWidget {
                     MoneyText(
                       amount,
                       colorize: amountColorize,
-                      style:
-                          text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                      style: text.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                     if (statusLabel != null) ...[
                       const SizedBox(height: 4),
@@ -420,10 +429,7 @@ class TransactionRow extends StatelessWidget {
                     ],
                   ],
                 ),
-                if (trailing != null) ...[
-                  const SizedBox(width: 4),
-                  trailing!,
-                ],
+                if (trailing != null) ...[const SizedBox(width: 4), trailing!],
               ],
             ),
           ),
@@ -565,16 +571,18 @@ class TransactionTableRow extends StatelessWidget {
               leading,
               const SizedBox(width: 10),
               _cell(date, text.bodySmall, flex: 8),
-              _cell(number, text.bodySmall?.copyWith(fontWeight: FontWeight.w600),
-                  flex: 8),
+              _cell(
+                number,
+                text.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+                flex: 8,
+              ),
               Expanded(
                 flex: 16,
                 child: Text(
                   party,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: text.bodySmall
-                      ?.copyWith(fontWeight: FontWeight.w600),
+                  style: text.bodySmall?.copyWith(fontWeight: FontWeight.w600),
                 ),
               ),
               _cell(detail, text.bodySmall, flex: 12),
@@ -589,8 +597,9 @@ class TransactionTableRow extends StatelessWidget {
                   child: MoneyText(
                     amount,
                     colorize: amountColorize,
-                    style:
-                        text.bodySmall?.copyWith(fontWeight: FontWeight.w700),
+                    style: text.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ),
@@ -604,8 +613,9 @@ class TransactionTableRow extends StatelessWidget {
                         child: MoneyText(
                           balance,
                           colorize: balance > Decimal.zero,
-                          style: text.bodySmall
-                              ?.copyWith(fontWeight: FontWeight.w600),
+                          style: text.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ),

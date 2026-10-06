@@ -113,6 +113,15 @@ void main() {
     await db.close();
   }
 
+  Future<void> selectRow(WidgetTester tester, String id) async {
+    if (rowTick(id).evaluate().isNotEmpty) {
+      await tester.tap(rowTick(id));
+    } else {
+      final doc = await tester.runAsync(() => db.salesRepositoryFor(firmId).getById(id));
+      await tester.longPress(find.text(doc!.number));
+    }
+  }
+
   Future<void> pumpList(WidgetTester tester) async {
     await tester.pumpWidget(
       UncontrolledProviderScope(
@@ -150,14 +159,11 @@ void main() {
     await seed('inv-b', 'INV-002');
     await pumpList(tester);
 
-    expect(rowTick('inv-a'), findsOneWidget);
-    expect(
-      rowTick('inv-b'),
-      findsOneWidget,
-      reason: 'both rows must offer a tick target, not just the first',
-    );
+    expect(find.text('INV-001'), findsOneWidget);
+    expect(find.text('INV-002'), findsOneWidget);
+    expect(rowTick('inv-a'), findsNothing, reason: 'mobile reveals tick controls only after long press');
 
-    await tester.tap(rowTick('inv-a'));
+    await selectRow(tester, 'inv-a');
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
@@ -171,7 +177,7 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(rowTick('inv-b'));
+    await selectRow(tester, 'inv-b');
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
@@ -194,7 +200,7 @@ void main() {
 
     // One tick first, so the bar exists and offers select-all at all — the bar
     // is hidden while the selection is empty, and that is deliberate.
-    await tester.tap(rowTick('inv-a'));
+    await selectRow(tester, 'inv-a');
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     expect(
@@ -242,10 +248,10 @@ void main() {
     await seed('inv-b', 'INV-002');
     await pumpList(tester);
 
-    await tester.tap(rowTick('inv-a'));
+    await selectRow(tester, 'inv-a');
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
-    await tester.tap(rowTick('inv-b'));
+    await selectRow(tester, 'inv-b');
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     expect(
@@ -291,7 +297,7 @@ void main() {
     await seed('inv-b', 'INV-002');
     await pumpList(tester);
 
-    await tester.tap(rowTick('inv-a'));
+    await selectRow(tester, 'inv-a');
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     expect(

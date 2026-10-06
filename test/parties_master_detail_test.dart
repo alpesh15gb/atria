@@ -57,7 +57,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: AppTheme.light(),
+          theme: AppTheme.light().copyWith(platform: TargetPlatform.windows),
           home: const Scaffold(body: PartiesScreen()),
         ),
       ),
@@ -115,7 +115,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: AppTheme.light(),
+          theme: AppTheme.light().copyWith(platform: TargetPlatform.windows),
           home: const Scaffold(body: PartiesScreen()),
         ),
       ),

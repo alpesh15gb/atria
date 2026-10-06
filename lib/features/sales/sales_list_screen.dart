@@ -14,6 +14,8 @@ import '../../core/database/app_database.dart';
 import '../../core/database/repositories/sales_repository.dart';
 import '../../core/domain/document_status.dart';
 import '../../core/responsive/breakpoints.dart';
+import '../../core/responsive/platform_ui.dart';
+import '../../shared/widgets/mobile_page.dart';
 import '../../core/services/csv_export.dart';
 import '../../core/state/providers.dart';
 import '../../core/utils/formatters.dart';
@@ -165,6 +167,10 @@ class _SalesListScreenState extends ConsumerState<SalesListScreen> {
     // controls.
     return AtriaListPage(
       title: _pageTitle,
+      mobileHeader: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        MobileDocumentTabs(active: _docType == 'quotation' ? 'Quotations' : 'Sales'),
+        if (_docType != 'invoice' && _docType != 'quotation') Padding(padding: const EdgeInsets.fromLTRB(14, 12, 14, 0), child: Text(_pageTitle, style: Theme.of(context).textTheme.titleMedium)),
+      ]),
       actions: [
         AtriaPrimaryAction(
           label: _newLabel,
@@ -188,17 +194,18 @@ class _SalesListScreenState extends ConsumerState<SalesListScreen> {
         }),
       ),
       filters: [
-        AtriaAdaptiveFilter<String>(
-          label: 'Type',
-          segments: _typeSegments,
-          value: _docType,
-          // `go`, not `setState`: the type now lives in the URL, so switching
-          // it here has to write it back there. A local `setState` moved the
-          // screen off the rail's selection and off its own deep link, so the
-          // next router-driven rebuild snapped the heading back to the type in
-          // the address bar.
-          onChanged: (value) => context.go('/sales?type=$value'),
-        ),
+        if (!Theme.of(context).platform.isMobileUi)
+          AtriaAdaptiveFilter<String>(
+            label: 'Type',
+            segments: _typeSegments,
+            value: _docType,
+            // `go`, not `setState`: the type now lives in the URL, so switching
+            // it here has to write it back there. A local `setState` moved the
+            // screen off the rail's selection and off its own deep link, so the
+            // next router-driven rebuild snapped the heading back to the type in
+            // the address bar.
+            onChanged: (value) => context.go('/sales?type=$value'),
+          ),
         AtriaAdaptiveFilter<Period>(
           label: 'Date',
           segments: periodSegments(),
@@ -209,7 +216,7 @@ class _SalesListScreenState extends ConsumerState<SalesListScreen> {
         // Only for the document types that actually have a lifecycle to
         // filter. On invoices every row is 'confirmed', so the filter would
         // offer four segments of which three return nothing.
-        if (_statusSegments.isNotEmpty)
+        if (_statusSegments.isNotEmpty && !(Theme.of(context).platform.isMobileUi && _docType == 'invoice'))
           AtriaAdaptiveFilter<String>(
             label: 'Status',
             segments: _statusSegments,
@@ -374,7 +381,8 @@ class _SaleListState extends ConsumerState<_SaleList> {
         }
 
         return LayoutBuilder(
-          builder: (context, constraints) => constraints.isCompact
+          builder: (context, constraints) =>
+              Theme.of(context).platform.isMobileUi || constraints.isCompact
               ? _cardList(context, data, selection)
               : _tableList(context, data, selection),
         );
@@ -382,14 +390,23 @@ class _SaleListState extends ConsumerState<_SaleList> {
     );
   }
 
+  String _mobilePaymentFilter = 'all';
+
   Widget _cardList(
     BuildContext context,
     List<SalesInvoiceEntity> data,
     BulkSelection selection,
   ) {
     final stats = _statsOf(data);
+    final mobile = Theme.of(context).platform.isMobileUi;
+    final filtered = !mobile || widget.docType != 'invoice' ? data : data.where((invoice) => switch (_mobilePaymentFilter) {
+      'paid' => invoice.status != 'cancelled' && invoice.balanceDue <= .001,
+      'pending' => invoice.status != 'cancelled' && invoice.balanceDue > .001,
+      'cancelled' => invoice.status == 'cancelled',
+      _ => true,
+    }).toList();
     return ListView(
-      padding: const EdgeInsets.fromLTRB(0, 8, 0, 28),
+      padding: const EdgeInsets.fromLTRB(0, 8, 0, 96),
       children: [
         _TotalsSection(docType: widget.docType, stats: stats),
         const SizedBox(height: 8),
@@ -398,15 +415,25 @@ class _SaleListState extends ConsumerState<_SaleList> {
           noun: _resultNoun,
           filtered: widget.search.trim().isNotEmpty,
         ),
+        if (mobile && widget.docType == 'invoice') ...[
+          AtriaSegmentedFilter<String>(
+            padding: EdgeInsets.zero, scrollable: true, value: _mobilePaymentFilter,
+            segments: [AtriaSegment(value: 'all', label: 'All Transactions', count: data.length), const AtriaSegment(value: 'paid', label: 'Paid'), const AtriaSegment(value: 'pending', label: 'Pending'), const AtriaSegment(value: 'cancelled', label: 'Cancelled')],
+            onChanged: (value) => setState(() => _mobilePaymentFilter = value),
+          ),
+          const SizedBox(height: 12),
+        ],
         const SizedBox(height: 4),
         _selectionBar(data, selection),
-        for (final invoice in data)
+        if (filtered.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('No transactions in this filter'))),
+        for (final invoice in filtered)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: _SaleRow(
               invoice: invoice,
               docType: widget.docType,
               showDate: true,
+              selectionMode: selection.ids.isNotEmpty,
               selected: selection.contains(invoice.id),
               onToggleSelect: () => _toggle(invoice.id),
             ),
@@ -744,6 +771,16 @@ class _TotalsSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (docType == 'invoice') {
+      if (Theme.of(context).platform.isMobileUi) {
+        return TotalsCard(
+          compact: true,
+          title: 'Total Amount',
+          entries: [
+            TotalsEntry(label: 'Total', amount: stats.total),
+            TotalsEntry(label: 'Pending', amount: stats.balance),
+          ],
+        );
+      }
       return TotalsCard(
         compact: true,
         title: 'Total Sales Amount',
@@ -888,6 +925,7 @@ class _SaleRow extends ConsumerWidget {
     required this.invoice,
     required this.docType,
     this.showDate = false,
+    this.selectionMode = false,
     this.selected = false,
     this.onToggleSelect,
   });
@@ -895,6 +933,7 @@ class _SaleRow extends ConsumerWidget {
   final SalesInvoiceEntity invoice;
   final String docType;
   final bool showDate;
+  final bool selectionMode;
 
   /// Whether this row is ticked for a bulk action.
   final bool selected;
@@ -905,6 +944,36 @@ class _SaleRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (Theme.of(context).platform.isMobileUi) {
+      final status = _rowStatus(invoice, docType);
+      return MobileDocumentCard(
+        title: invoice.partyName ?? 'Walk-in customer',
+        number: invoice.number,
+        date: Formatters.date(invoice.invoiceDate),
+        amount: Money.of(invoice.grandTotal),
+        status: status.label,
+        statusKind: status.kind,
+        selected: selected,
+        onTap: () => context.push('/sales/detail/${invoice.id}'),
+        onLongPress: onToggleSelect,
+        selection: selectionMode
+            ? _SelectionBox(
+                selected: selected,
+                onTap: onToggleSelect!,
+                rowId: invoice.id,
+              )
+            : null,
+        menu: DocumentRowMenu(
+          docType: docType,
+          docId: invoice.id,
+          number: invoice.number,
+          status: invoice.status,
+          convertedToInvoiceId: invoice.convertedToInvoiceId,
+          paymentStatus: invoice.paymentStatus,
+          balanceDue: invoice.balanceDue,
+        ),
+      );
+    }
     return TransactionRow(
       // The card has no column grid to line up with, so it keeps its document
       // glyph and gains a checkbox beside it. The table below drops the glyph

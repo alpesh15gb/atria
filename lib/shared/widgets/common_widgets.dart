@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/responsive/platform_ui.dart';
+
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_shadows.dart';
@@ -47,7 +49,8 @@ String atriaErrorMessage(Object? error, {String? retry}) {
         'Apex Books\'s books file could not be opened. Nothing has been changed — '
         'restore a backup, or put the newer version of Apex Books back if you have '
         'just downgraded.';
-  } else if (text.contains('no such table') || text.contains('no such column')) {
+  } else if (text.contains('no such table') ||
+      text.contains('no such column')) {
     message =
         'These books were written by a different version of Apex Books. Update '
         'Apex Books and try again.';
@@ -253,10 +256,18 @@ class AtriaCard extends StatelessWidget {
             // card's boundary on every theme; [showBorder] upgrades the edge
             // to the stronger token for callers that want emphasis.
             border: Border.all(
-              color: showBorder ? AppColors.outlineStrong : scheme.outline,
+              color: Theme.of(context).platform.isMobileUi && !showBorder
+                  ? Colors.transparent
+                  : showBorder
+                  ? AppColors.outlineStrong
+                  : scheme.outline,
               width: 1,
             ),
-            boxShadow: isDark ? AppShadows.darkCard : AppShadows.card,
+            boxShadow: Theme.of(context).platform.isMobileUi
+                ? const []
+                : isDark
+                ? AppShadows.darkCard
+                : AppShadows.card,
           ),
           child: child,
         ),

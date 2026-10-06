@@ -10,6 +10,7 @@ import '../../core/constants/units.dart';
 import '../../core/database/app_database.dart';
 import '../../core/database/repositories/item_repository.dart';
 import '../../core/responsive/breakpoints.dart';
+import '../../core/responsive/platform_ui.dart';
 import '../../core/state/providers.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/utils/formatters.dart';
@@ -21,6 +22,7 @@ import '../../shared/widgets/atria_page_header.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/confirm_destructive.dart';
 import '../../shared/widgets/money_text.dart';
+import '../../shared/widgets/mobile_page.dart';
 import '../../shared/widgets/status_chip.dart';
 import '../../shared/widgets/transaction_list.dart';
 
@@ -155,7 +157,9 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
     // a sliver list because the grid size depends on the window bucket.
     return LayoutBuilder(
       builder: (context, constraints) {
-        final count = _crossAxisCount(constraints.windowSize);
+        final count = Theme.of(context).platform.isMobileUi
+            ? 1
+            : _crossAxisCount(constraints.windowSize);
         return AtriaListPage(
           title: 'Products and services',
           actions: [
@@ -174,7 +178,8 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
           ],
           body: CustomScrollView(
             slivers: [
-              SliverToBoxAdapter(child: _statsRow(context, stats)),
+              if (!Theme.of(context).platform.isMobileUi)
+                SliverToBoxAdapter(child: _statsRow(context, stats)),
               SliverToBoxAdapter(child: _searchRow(context, search, filter)),
               ..._itemSlivers(context, repo, visible, count),
             ],
@@ -501,6 +506,63 @@ class _ItemTile extends StatelessWidget {
         Formatters.percent(item.gstRate);
     final unit = Unit.symbolOf(item.unit);
 
+    if (Theme.of(context).platform.isMobileUi) {
+      return AtriaCard(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(7),
+              ),
+              child: Icon(
+                item.isService
+                    ? Icons.design_services_outlined
+                    : Icons.inventory_2_outlined,
+                size: 23,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                item.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    item.isService
+                        ? 'Service'
+                        : 'Qty: ${Formatters.qty(Money.of(item.currentStock))} $unit',
+                    style: text.labelSmall?.copyWith(
+                      color: low || item.currentStock < 0
+                          ? scheme.error
+                          : scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 7),
+                  MobileAmount(
+                    Money.of(item.salePrice),
+                    style: text.titleSmall,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return AtriaCard(
       onTap: onTap,
       onLongPress: onLongPress,

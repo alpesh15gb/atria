@@ -4,7 +4,6 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../core/responsive/platform_ui.dart';
 import '../../core/theme/app_radius.dart';
-import '../../core/theme/app_sizes.dart';
 import 'atria_create_menu.dart';
 
 /// The mobile **Create** tile grid — the reference's first row of the dashboard.
@@ -39,72 +38,72 @@ class MobileCreateGrid extends StatelessWidget {
   /// where the desktop menu says "Bill", and a tile reading "Bill" on a shop
   /// floor is a word the person using it has to translate.
   static const List<({String label, String route, IconData icon, String group})>
-      tiles = [
+  tiles = [
     (
       label: 'Invoice',
       route: '/sales/new?type=invoice',
       icon: PhosphorIconsRegular.receipt,
-      group: 'Sales'
+      group: 'Sales',
     ),
     (
       label: 'Purchase',
       route: '/purchase/new?type=bill',
       icon: PhosphorIconsRegular.shoppingCart,
-      group: 'Purchases'
+      group: 'Purchases',
     ),
     (
       label: 'Quotation',
       route: '/sales/new?type=quotation',
       icon: PhosphorIconsRegular.fileText,
-      group: 'Sales'
+      group: 'Sales',
     ),
     (
       label: 'Expenses',
       route: '/expenses/new?type=expense',
       icon: PhosphorIconsRegular.money,
-      group: 'Money'
+      group: 'Money',
     ),
     (
-      label: 'Delivery\nChellan',
+      label: 'Delivery\nChallan',
       route: '/sales/new?type=delivery_note',
       icon: PhosphorIconsRegular.truck,
-      group: 'Sales'
+      group: 'Sales',
     ),
     (
       label: 'Credit Note',
       route: '/sales/new?type=credit_note',
       icon: PhosphorIconsRegular.arrowUUpLeft,
-      group: 'Sales'
+      group: 'Sales',
     ),
     (
       label: 'Sales Order',
       route: '/sales/new?type=sales_order',
       icon: PhosphorIconsRegular.clipboardText,
-      group: 'Sales'
+      group: 'Sales',
     ),
     (
       label: 'Payment\nReceived',
       route: '/payments',
       icon: PhosphorIconsRegular.arrowsLeftRight,
-      group: 'Money'
+      group: 'Money',
     ),
     (
       label: 'Products',
       route: '/items/new',
       icon: PhosphorIconsRegular.cube,
-      group: 'Masters'
+      group: 'Masters',
     ),
     (
       label: 'Customers',
       route: '/parties/new?type=customer',
       icon: PhosphorIconsRegular.userSquare,
-      group: 'Masters'
+      group: 'Masters',
     ),
     (
       label: 'Vendors',
       route: '/parties/new?type=supplier',
       icon: PhosphorIconsRegular.userSquare,
-      group: 'Masters'
+      group: 'Masters',
     ),
   ];
 
@@ -123,20 +122,20 @@ class MobileCreateGrid extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
           child: Text(
             heading,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+            style: Theme.of(context).textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.w700),
           ),
         ),
         _TileGrid(
           entries: [
-            for (final tile in tiles)
+            for (final tile in tiles.take(7))
               AtriaCreateAction(
                 label: tile.label,
                 route: tile.route,
                 icon: tile.icon,
                 group: tile.group,
               ),
+            const AtriaCreateAction(label: 'More', route: '/create-more', icon: Icons.arrow_circle_right_outlined),
           ],
         ),
       ],
@@ -166,7 +165,7 @@ class _TileGrid extends StatelessWidget {
         color: scheme.surface,
         borderRadius: AppRadius.lgAll,
       ),
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 6),
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
       child: GridView.builder(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
@@ -182,11 +181,9 @@ class _TileGrid extends StatelessWidget {
           // size on a phone this app will actually be used on. 0.78 gives the
           // two lines room at 1.5× and still reads as a tile rather than a
           // column.
-          childAspectRatio: 0.78,
+          childAspectRatio: 0.90,
         ),
-        itemBuilder: (context, index) => _CreateTile(
-          action: entries[index],
-        ),
+        itemBuilder: (context, index) => _CreateTile(action: entries[index]),
       ),
     );
   }
@@ -200,14 +197,29 @@ class _CreateTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    if (action.route == '/create-more') {
+      return PopupMenuButton<String>(
+        tooltip: 'More create actions',
+        onSelected: (route) => route == '/payments' ? context.go(route) : context.push(route),
+        itemBuilder: (_) => [for (final tile in MobileCreateGrid.tiles.skip(7)) PopupMenuItem(value: tile.route, child: Text(tile.label.replaceAll('\n', ' ')))],
+        child: _tileBody(context),
+      );
+    }
     return InkWell(
       // `go`, not `push`: the shell's branches own navigation, and an
       // imperative push from inside one hosts the editor on the root navigator,
       // which is the bug `nav_shell_regression_test.dart` guards.
-      onTap: () => context.go(action.route),
+      onTap: () => action.route == '/payments' || !action.route.contains('/new')
+          ? context.go(action.route)
+          : context.push(action.route),
       borderRadius: AppRadius.mdAll,
-      child: Column(
+      child: _tileBody(context),
+    );
+  }
+
+  Widget _tileBody(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
         mainAxisAlignment: MainAxisAlignment.center,
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -215,7 +227,7 @@ class _CreateTile extends StatelessWidget {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+              color: Colors.transparent,
               borderRadius: AppRadius.mdAll,
             ),
             child: Icon(
@@ -224,8 +236,8 @@ class _CreateTile extends StatelessWidget {
               // Material default for a tile like this — would be the one
               // off-scale number in the file, and the scale exists so a widget
               // cannot silently invent its own.
-              size: AppIconSize.xl,
-              color: scheme.onSurface,
+              size: 28,
+              color: scheme.primary,
             ),
           ),
           const SizedBox(height: 7),
@@ -241,13 +253,11 @@ class _CreateTile extends StatelessWidget {
               textAlign: TextAlign.center,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(fontWeight: FontWeight.w500),
             ),
           ),
         ],
-      ),
     );
   }
 }
@@ -273,9 +283,8 @@ class MobileQuickAccessGrid extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(4, 18, 4, 10),
           child: Text(
             'Quick Access',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+            style: Theme.of(context).textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.w700),
           ),
         ),
         _TileGrid(

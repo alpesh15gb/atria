@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../../core/responsive/platform_ui.dart';
 import '../../core/theme/app_radius.dart';
 
 /// One entry in [AtriaCreateButton]'s menu.
@@ -220,7 +221,7 @@ class AtriaCreateButton extends StatelessWidget {
             // Same fill as the page primary action (and QBO's own hover green):
             // white on #2CA01C is 3.41:1, under WCAG AA. The brand green is
             // unchanged everywhere it marks rather than carries a label.
-            color: Theme.of(context).brightness == Brightness.light
+            color: Theme.of(context).platform.isMobileUi ? scheme.primary : Theme.of(context).brightness == Brightness.light
                 ? AppColors.primaryDark
                 : AppColors.primary,
             borderRadius: BorderRadius.circular(AppRadius.sm),

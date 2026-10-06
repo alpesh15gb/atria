@@ -8,6 +8,8 @@ import 'package:go_router/go_router.dart';
 import '../../core/database/app_database.dart';
 import '../../core/database/repositories/purchase_repository.dart';
 import '../../core/responsive/breakpoints.dart';
+import '../../core/responsive/platform_ui.dart';
+import '../../shared/widgets/mobile_page.dart';
 import '../../core/state/providers.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/money.dart';
@@ -49,10 +51,10 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
   /// whichever type the rail was first opened on — the same "everything says
   /// one type until restart" bug the Sales list had.
   String get _activeDocType => switch (widget.initialType) {
-        'debit_note' => 'debit_note',
-        'purchase_order' => 'purchase_order',
-        _ => 'bill',
-      };
+    'debit_note' => 'debit_note',
+    'purchase_order' => 'purchase_order',
+    _ => 'bill',
+  };
 
   bool get _isOrderTab => _activeDocType == 'purchase_order';
 
@@ -88,13 +90,17 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
     // inside the body, which put its heading 52px right of every other list's
     // and its action button 72px short of the right edge.
     return AtriaListPage(
+      mobileHeader: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const MobileDocumentTabs(active: 'Purchases'),
+        if (_activeDocType != 'bill') Padding(padding: const EdgeInsets.fromLTRB(14, 12, 14, 0), child: Text(_isOrderTab ? 'Purchase orders' : 'Debit notes', style: Theme.of(context).textTheme.titleMedium)),
+      ]),
       title: switch (_activeDocType) {
         'debit_note' => 'Debit notes',
         'purchase_order' => 'Purchase orders',
         _ => 'Bills',
       },
       actions: [
-        if (repo != null && _activeDocType == 'bill')
+        if (repo != null && _activeDocType == 'bill' && !Theme.of(context).platform.isMobileUi)
           // Scan sits next to Add on bills only: orders and returns are
           // constructed, not photographed.
           AtriaPrimaryAction(
@@ -102,6 +108,8 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
             icon: Icons.document_scanner_outlined,
             onPressed: () => context.push('/purchase/scan'),
           ),
+        if (repo != null && _activeDocType == 'bill' && Theme.of(context).platform.isMobileUi)
+          AtriaHeaderIconAction(icon: Icons.document_scanner_outlined, tooltip: 'Scan bill', onPressed: () => context.push('/purchase/scan')),
         if (repo != null)
           AtriaPrimaryAction(
             label: switch (_activeDocType) {
@@ -123,19 +131,20 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
         },
       ),
       filters: [
-        AtriaAdaptiveFilter<String>(
-          label: 'Type',
-          segments: const [
-            AtriaSegment(value: 'bill', label: 'Bills'),
-            AtriaSegment(value: 'purchase_order', label: 'Purchase orders'),
-            AtriaSegment(value: 'debit_note', label: 'Debit notes'),
-          ],
-          value: _activeDocType,
-          // `go`, not `setState` — the type lives in the URL, so changing it
-          // here has to write it back, or the next router-driven rebuild
-          // restores the type the rail is pointing at.
-          onChanged: (value) => context.go('/purchase?type=$value'),
-        ),
+        if (!Theme.of(context).platform.isMobileUi)
+          AtriaAdaptiveFilter<String>(
+            label: 'Type',
+            segments: const [
+              AtriaSegment(value: 'bill', label: 'Bills'),
+              AtriaSegment(value: 'purchase_order', label: 'Purchase orders'),
+              AtriaSegment(value: 'debit_note', label: 'Debit notes'),
+            ],
+            value: _activeDocType,
+            // `go`, not `setState` — the type lives in the URL, so changing it
+            // here has to write it back, or the next router-driven rebuild
+            // restores the type the rail is pointing at.
+            onChanged: (value) => context.go('/purchase?type=$value'),
+          ),
         AtriaAdaptiveFilter<Period>(
           label: 'Date',
           segments: periodSegments(),
@@ -261,7 +270,8 @@ class _PurchaseListScreenState extends ConsumerState<PurchaseListScreen> {
         }
 
         return LayoutBuilder(
-          builder: (context, constraints) => constraints.isCompact
+          builder: (context, constraints) =>
+              Theme.of(context).platform.isMobileUi || constraints.isCompact
               ? _cardList(bills, stats)
               : _tableList(bills, stats),
         );
@@ -441,6 +451,9 @@ class _PurchaseRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (Theme.of(context).platform.isMobileUi) {
+      return MobileDocumentCard(title: bill.partyName ?? 'Unknown supplier', number: bill.number, date: Formatters.date(bill.billDate), amount: Money.of(bill.grandTotal), status: _purchaseStatusLabel(bill, docType), statusKind: _purchaseStatusKind(bill, docType), onTap: () => context.push('/purchase/edit/${bill.id}?type=$docType'), menu: DocumentRowMenu(docType: docType, docId: bill.id, number: bill.number, status: bill.status, paymentStatus: bill.paymentStatus));
+    }
     return TransactionRow(
       leading: LeadingGlyph(icon: _docIcon(docType)),
       title: bill.partyName ?? 'Unknown supplier',

@@ -126,7 +126,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp.router(
-          theme: AppTheme.light(),
+          theme: AppTheme.light().copyWith(platform: TargetPlatform.windows),
           routerConfig: router,
         ),
       ),

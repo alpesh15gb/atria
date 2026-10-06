@@ -14,6 +14,8 @@ import '../../core/database/repositories/sales_repository.dart'
 import '../../core/engine/gst_engine.dart';
 import '../../core/sync/scan_seed.dart';
 import '../../core/state/providers.dart';
+import '../../core/responsive/platform_ui.dart';
+import '../../shared/widgets/mobile_selection_field.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_sizes.dart';
 import '../../core/utils/formatters.dart';
@@ -81,6 +83,7 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
   final _invoiceDiscountController = TextEditingController();
   final _shippingController = TextEditingController();
   final _otherChargesController = TextEditingController();
+
   /// TDS percentage deducted at source on this bill. Zero for none.
   final _tdsRateController = TextEditingController(text: '0');
   final _notesController = TextEditingController();
@@ -179,10 +182,12 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
     final firm = ref.read(activeFirmProvider).valueOrNull;
 
     _supplierInvoiceController.text = seed.invoiceNumber ?? '';
-    _shippingController.text =
-        seed.shippingCharge == 0 ? '' : _formatAmount(seed.shippingCharge);
-    _otherChargesController.text =
-        seed.otherCharges == 0 ? '' : _formatAmount(seed.otherCharges);
+    _shippingController.text = seed.shippingCharge == 0
+        ? ''
+        : _formatAmount(seed.shippingCharge);
+    _otherChargesController.text = seed.otherCharges == 0
+        ? ''
+        : _formatAmount(seed.otherCharges);
     if (seed.billDate != null) _billDate = seed.billDate!;
     if (seed.dueDate != null) _dueDate = seed.dueDate;
 
@@ -202,14 +207,18 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
               name: seed.supplierName!,
               type: 'supplier',
               gstin: gstin,
-              gstType:
-                  (gstin == null || gstin.isEmpty) ? 'unregistered' : 'registered',
+              gstType: (gstin == null || gstin.isEmpty)
+                  ? 'unregistered'
+                  : 'registered',
               phone: seed.supplierPhone,
               addressLine1: seed.supplierAddress,
               stateCode: seed.placeOfSupply,
             );
             if (!mounted) return;
-            final suppliers = await partyRepo.all(type: 'supplier', limit: 1000);
+            final suppliers = await partyRepo.all(
+              type: 'supplier',
+              limit: 1000,
+            );
             if (!mounted) return;
             setState(() => _suppliers = suppliers);
             _selectSupplier(created.id);
@@ -226,7 +235,8 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
     if (_selectedSupplierId == null &&
         seed.placeOfSupply != null &&
         firm != null) {
-      _isInterState = resolveGstSplit(
+      _isInterState =
+          resolveGstSplit(
             supplierState: seed.placeOfSupply,
             buyerState: firm.stateCode,
           ) ==
@@ -244,8 +254,7 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
       line.quantityController.text = Formatters.qty(Money.of(scanned.quantity));
       line.rateController.text = _formatAmount(scanned.rate);
       if (scanned.discountPercent != 0) {
-        line.discountController.text =
-            _formatAmount(scanned.discountPercent);
+        line.discountController.text = _formatAmount(scanned.discountPercent);
       }
       line.gstRate = scanned.gstRate;
       line.cessRate = scanned.cessRate;
@@ -317,8 +326,9 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
     // Firm-defined units, so a unit created in the item editor stays selectable
     // on a line — see the note on the sale editor's copy. Fetched before the
     // setState because it is async.
-    final customUnits =
-        itemRepo == null ? const <UnitEntity>[] : await itemRepo.units();
+    final customUnits = itemRepo == null
+        ? const <UnitEntity>[]
+        : await itemRepo.units();
     if (!mounted) return;
     setState(() {
       _suppliers = suppliers;
@@ -379,7 +389,8 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
     // was saved with — hardcoding true here silently re-rounded bills that
     // were saved with round-off off (the sale editor already recovers it
     // this way).
-    _applyRoundOff = bill.roundOff.abs() > 0.000001 ||
+    _applyRoundOff =
+        bill.roundOff.abs() > 0.000001 ||
         (bill.grandTotal - bill.grandTotal.round()).abs() < 0.001;
 
     for (final item in items) {
@@ -511,14 +522,14 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
     // path — reachable because the save shortcut stays live over the
     // not-found empty state — and the upsert would resurrect a binned one.
     if (_isEditing) {
-      final live = _existing == null
-          ? null
-          : await repo.getById(_existing!.id);
+      final live = _existing == null ? null : await repo.getById(_existing!.id);
       if (live == null || live.isDeleted) {
         messenger?.showSnackBar(
           const SnackBar(
-            content: Text('This bill no longer exists — it may have been '
-                'deleted. Nothing was saved.'),
+            content: Text(
+              'This bill no longer exists — it may have been '
+              'deleted. Nothing was saved.',
+            ),
           ),
         );
         return false;
@@ -544,15 +555,11 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
     try {
       final number = _isEditing
           ? _existing!.number
-          : await firmRepo.nextNumber(
-              firm,
-              switch (widget.docType) {
-                'debit_note' => DocSequence.debitNote,
-                'purchase_order' => DocSequence.purchaseOrder,
-                _ => DocSequence.purchase,
-              },
-              date: _billDate,
-            );
+          : await firmRepo.nextNumber(firm, switch (widget.docType) {
+              'debit_note' => DocSequence.debitNote,
+              'purchase_order' => DocSequence.purchaseOrder,
+              _ => DocSequence.purchase,
+            }, date: _billDate);
       final supplier = _supplierWithId(_selectedSupplierId);
       final address = [
         supplier?.addressLine1,
@@ -739,12 +746,12 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
             header: _supplierSection(),
             headerTrailing: _metaSection(),
             lines: _lineGrid(),
-            totals: _totalsSection(),
+            totals: Theme.of(context).platform.isMobileUi && !_mobileManualLine && !_lines.any((line) => line.nameController.text.trim().isNotEmpty) ? null : _totalsSection(),
             sections: [
               EditorLinkSection(
                 icon: Icons.percent_rounded,
                 title: 'Tax treatment',
-                initiallyOpen: true,
+                initiallyOpen: !Theme.of(context).platform.isMobileUi,
                 builder: (_) => _taxSection(),
               ),
               EditorLinkSection(
@@ -778,9 +785,11 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
     AtriaLineColumn('Amount', flex: 3, numeric: true),
   ];
 
+  bool _mobileManualLine = false;
+
   Widget _lineGrid() {
     final unlinked = _unlinkedStockLines;
-    return Column(
+    final grid = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         AtriaLineGrid(
@@ -791,12 +800,51 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
             for (var i = 0; i < _lines.length; i++)
               AtriaLineGridRow(
                 cells: _lineCells(i),
-                onRemove:
-                    _lines.length == 1 ? null : () => _deleteLine(_lines[i]),
+                onRemove: _lines.length == 1
+                    ? null
+                    : () => _deleteLine(_lines[i]),
               ),
           ],
         ),
         if (unlinked.isNotEmpty) _unlinkedHint(unlinked),
+      ],
+    );
+    if (!Theme.of(context).platform.isMobileUi) return grid;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        MobileSelectionField<String>(
+          label: 'Products',
+          placeholder: 'Select Products',
+          choices: [
+            for (final item in _items)
+              MobileChoice(
+                value: item.id,
+                label: item.name,
+                subtitle: Formatters.money(Money.of(item.purchasePrice)),
+              ),
+          ],
+          onChanged: (id) {
+            final item = _items.firstWhere((item) => item.id == id);
+            var line = _lines
+                .where((line) => line.nameController.text.trim().isEmpty)
+                .firstOrNull;
+            if (line == null) {
+              _addLine();
+              line = _lines.last;
+            }
+            line.applyItem(item, _formatAmount);
+            _changed();
+          },
+          onAddNew: () => setState(() => _mobileManualLine = true),
+        ),
+        if (_mobileManualLine ||
+            _lines.any(
+              (line) => line.nameController.text.trim().isNotEmpty,
+            )) ...[
+          const SizedBox(height: 12),
+          grid,
+        ],
       ],
     );
   }
@@ -815,8 +863,10 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
 
   Widget _unlinkedHint(List<_LineState> unlinked) {
     final scheme = Theme.of(context).colorScheme;
-    final names =
-        unlinked.take(3).map((l) => l.nameController.text.trim()).join(', ');
+    final names = unlinked
+        .take(3)
+        .map((l) => l.nameController.text.trim())
+        .join(', ');
     return Container(
       margin: const EdgeInsets.only(top: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -836,10 +886,8 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
               '${unlinked.length == 1 ? 'is' : 'are'} not linked to an item. '
               'They will be saved on this bill, but they will not change stock '
               '— pick the item from the Item cell to link one.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurface,
-                    height: 1.4,
-                  ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: scheme.onSurface, height: 1.4),
             ),
           ),
         ],
@@ -864,8 +912,9 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
     // incomplete line (blank name, or no quantity) is excluded from the
     // document totals, so printing an amount beside it made the rows add up to
     // more than the bill is worth.
-    final lineTotals =
-        line.isValid ? GstEngine.computeLine(line.toTaxLine(), _split) : null;
+    final lineTotals = line.isValid
+        ? GstEngine.computeLine(line.toTaxLine(), _split)
+        : null;
 
     return [
       ItemTypeAheadField(
@@ -1034,6 +1083,28 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
 
   Widget _supplierSection() {
     final supplier = _supplierWithId(_selectedSupplierId);
+    if (Theme.of(context).platform.isMobileUi) {
+      return MobileSelectionField<String>(
+        label: 'Supplier',
+        placeholder: 'Select Supplier',
+        value: _selectedSupplierId,
+        choices: [
+          for (final party in _suppliers)
+            MobileChoice(
+              value: party.id,
+              label: party.name,
+              subtitle: [
+                party.phone,
+                party.gstin,
+              ].whereType<String>().join(' · '),
+            ),
+        ],
+        onChanged: _selectSupplier,
+        onAddNew: _addNewSupplier,
+        validator: (value) =>
+            value == null ? 'Select a supplier, or add a new one' : null,
+      );
+    }
     return AtriaFormSection(
       icon: Icons.storefront_outlined,
       title: 'Supplier',
@@ -1213,10 +1284,7 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
           suffixIcon: onClear == null
               ? null
               : IconButton(
-                  icon: const Icon(
-                    Icons.close_rounded,
-                    size: AppIconSize.md,
-                  ),
+                  icon: const Icon(Icons.close_rounded, size: AppIconSize.md),
                   tooltip: 'Clear',
                   onPressed: onClear,
                 ),
@@ -1348,11 +1416,7 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
 /// change to the shared type-ahead widget.
 class _CatalogueSuggestion extends ItemSuggestion {
   _CatalogueSuggestion(this.item)
-      : super(
-          name: item.name,
-          salePrice: item.purchasePrice,
-          unit: item.unit,
-        );
+    : super(name: item.name, salePrice: item.purchasePrice, unit: item.unit);
 
   final ItemEntity item;
 }

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../core/responsive/breakpoints.dart';
+import '../../core/responsive/platform_ui.dart';
+import 'mobile_page.dart';
 import '../../core/theme/app_sizes.dart';
 import 'atria_list_toolbar.dart';
 import 'atria_page_header.dart';
@@ -43,6 +45,7 @@ class AtriaListPage extends StatelessWidget {
     this.toolbar = const [],
     this.body,
     this.slivers,
+    this.mobileHeader,
   }) : assert(
          body == null || slivers == null,
          'Give AtriaListPage either a body or slivers, not both.',
@@ -76,9 +79,44 @@ class AtriaListPage extends StatelessWidget {
   ///
   /// Requires a bounded height — see the class doc.
   final List<Widget>? slivers;
+  final Widget? mobileHeader;
 
   @override
   Widget build(BuildContext context) {
+    if (Theme.of(context).platform.isMobileUi) {
+      final date = filters.whereType<AtriaAdaptiveFilter>().where((filter) => filter.label == 'Date').firstOrNull;
+      final remaining = filters.where((filter) => filter != date).toList();
+      return MobileListPage(
+        title: title,
+        header: mobileHeader,
+        actions: actions,
+        body: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (search != null && date != null) Row(children: [Expanded(child: search!), const SizedBox(width: 6), date]) else ?search,
+              if (date != null && search == null) date,
+              if (mobileHeader != null)
+                if (actions.whereType<AtriaHeaderIconAction>().isNotEmpty) Row(mainAxisAlignment: MainAxisAlignment.end, children: actions.whereType<AtriaHeaderIconAction>().toList()),
+              if (remaining.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 10, bottom: 8),
+                  child: AtriaFilterBar(
+                    filters: remaining,
+                    padding: EdgeInsets.zero,
+                  ),
+                ),
+              for (final row in toolbar)
+                Padding(padding: const EdgeInsets.only(bottom: 10), child: row),
+              Expanded(
+                child: body ?? CustomScrollView(slivers: slivers ?? const []),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.isCompact;

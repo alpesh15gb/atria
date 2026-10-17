@@ -31,7 +31,13 @@ const ReportSpec tcsReceivableSpec = ReportSpec(
   id: 'tcs_receivable',
   title: 'TCS Receivable',
   category: 'Taxes',
-  groupBy: ReportGroupBy.category,
+  // **No grouping.** This declared `ReportGroupBy.category`, but a TCS row is
+  // date / number / party / gstin / rate / taxable / tcs — there is no
+  // `category` cell, and the default key reader for a missing cell is the
+  // literal string `"?"`. So every TCS invoice in the period collapsed into one
+  // band headed `?` with a Subtotal beneath it. A register of individual
+  // collections is a flat list, which is what `tds_payable` and `form_27eq`
+  // already are.
   sort: ReportSort(columnKey: 'tcs', descending: true),
   columns: [
     ReportColumn(key: 'date', label: 'Date', flex: 2),
@@ -39,7 +45,11 @@ const ReportSpec tcsReceivableSpec = ReportSpec(
     ReportColumn(key: 'party', label: 'Customer', flex: 3, emphasise: true),
     ReportColumn(key: 'gstin', label: 'GSTIN', flex: 2),
     ReportColumn(key: 'rate', label: 'TCS rate', kind: ReportValueKind.rate),
-    ReportColumn(key: 'taxable', label: 'Taxable value', kind: ReportValueKind.money),
+    ReportColumn(
+      key: 'taxable',
+      label: 'Taxable value',
+      kind: ReportValueKind.money,
+    ),
     ReportColumn(
       key: 'tcs',
       label: 'TCS collected',
@@ -72,18 +82,20 @@ Future<List<ReportRow>> tcsReceivableRows(
   ReportWindow window,
   Map<String, Object?> filters,
 ) async {
-  final docs = await (db.select(db.salesInvoices)
-        ..where((d) =>
-            d.firmId.equals(firmId) &
-            d.docType.isIn(kSalesDocTypes) &
-            ReportFilters.isLive(status: d.status, isDeleted: d.isDeleted) &
-            ReportFilters.within(d.invoiceDate, window) &
-            // Greater-than-zero rather than "not equal to 0": a stored
-            // floating-point zero is the same absence of tax as the literal one,
-            // and comparing a `real` for equality is how a four-paisa residue
-            // ends up on a line of a government return.
-            d.tcs.isBiggerThanValue(0)))
-      .get();
+  final docs =
+      await (db.select(db.salesInvoices)..where(
+            (d) =>
+                d.firmId.equals(firmId) &
+                d.docType.isIn(kSalesDocTypes) &
+                ReportFilters.isLive(status: d.status, isDeleted: d.isDeleted) &
+                ReportFilters.within(d.invoiceDate, window) &
+                // Greater-than-zero rather than "not equal to 0": a stored
+                // floating-point zero is the same absence of tax as the literal one,
+                // and comparing a `real` for equality is how a four-paisa residue
+                // ends up on a line of a government return.
+                d.tcs.isBiggerThanValue(0),
+          ))
+          .get();
   if (docs.isEmpty) return const [];
 
   return [
@@ -107,6 +119,6 @@ Future<List<ReportRow>> tcsReceivableRows(
 /// A function, not a string — the source's `notes` slot is
 /// `List<String> Function(ReportResult)`.
 List<String> _tcsReceivableNotes(ReportResult result) => [
-      'Reads sales invoices and credit notes in the window. Only documents that '
+  'Reads sales invoices and credit notes in the window. Only documents that '
       'actually collected tax at source are listed.',
-    ];
+];

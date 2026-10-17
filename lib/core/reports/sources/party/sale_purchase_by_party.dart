@@ -52,7 +52,11 @@ const ReportSpec salePurchaseByPartySpec = ReportSpec(
       kind: ReportValueKind.money,
       flex: 2,
     ),
-    ReportColumn(key: 'saleTax', label: 'Sale tax', kind: ReportValueKind.money),
+    ReportColumn(
+      key: 'saleTax',
+      label: 'Sale tax',
+      kind: ReportValueKind.money,
+    ),
     ReportColumn(key: 'saleDiscount', label: 'Sale discount', wideOnly: true),
     ReportColumn(
       key: 'purchaseValue',
@@ -172,7 +176,8 @@ _discountsByParty(
   final salesQuery = db.selectOnly(invoices)
     ..addColumns([invoices.partyId, invoices.docType, saleDiscount])
     ..where(
-      liveSalesIn(window, firmId, invoices) & partyScope(invoices.partyId, selected),
+      liveSalesIn(window, firmId, invoices) &
+          partyScope(invoices.partyId, selected),
     )
     ..groupBy([invoices.partyId, invoices.docType]);
 
@@ -191,7 +196,8 @@ _discountsByParty(
   for (final row in await salesQuery.get()) {
     final id = row.read(invoices.partyId);
     if (id == null) continue;
-    sales[id] = (sales[id] ?? Decimal.zero) +
+    sales[id] =
+        (sales[id] ?? Decimal.zero) +
         Decimal.fromInt(signFor('${row.read(invoices.docType)}')) *
             dec(row.read(saleDiscount) ?? 0);
   }
@@ -199,7 +205,8 @@ _discountsByParty(
   for (final row in await purchaseQuery.get()) {
     final id = row.read(bills.partyId);
     if (id == null) continue;
-    purchases[id] = (purchases[id] ?? Decimal.zero) +
+    purchases[id] =
+        (purchases[id] ?? Decimal.zero) +
         Decimal.fromInt(signFor('${row.read(bills.docType)}')) *
             dec(row.read(purchaseDiscount) ?? 0);
   }

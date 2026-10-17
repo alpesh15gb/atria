@@ -103,11 +103,12 @@ class ReportExportService {
   Future<File> writeExcel(ReportResult result, Directory dir) async {
     final spec = result.spec;
     final excel = Excel.createExcel();
-    final sheet = excel[spec.title];
     final defaultName = excel.getDefaultSheet();
     if (defaultName != null && defaultName != spec.title) {
       excel.rename(defaultName, spec.title);
     }
+    excel.setDefaultSheet(spec.title);
+    final sheet = excel[spec.title];
 
     var r = 0;
     void text(int col, String value, {bool bold = false}) {
@@ -230,7 +231,7 @@ class ReportExportService {
   Future<File> writeCsv(ReportResult result, Directory dir) async {
     final file = File('${dir.path}/${fileStem(result)}.csv');
     await file.writeAsString(
-      '﻿${toCsv(result)}',
+      '\uFEFF${toCsv(result)}',
       encoding: utf8,
       flush: true,
     );

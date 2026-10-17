@@ -53,7 +53,9 @@ class _PartyEditorScreenState extends ConsumerState<PartyEditorScreen> {
   Object? _loadError;
 
   bool _dirty = false;
-  void _markDirty() => _dirty = true;
+  void _markDirty() {
+    if (!_dirty && mounted) setState(() => _dirty = true);
+  }
 
   String _type = 'customer';
   String _gstType = 'unregistered';

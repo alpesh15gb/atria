@@ -91,8 +91,12 @@ Future<List<ReportRow>> spByItemCategoryRows(
 ) async {
   final selected = selectedItemId(filters);
   final trading = await tradingByItem(db, firmId, window, selected: selected);
-  final movements =
-      await movementsByItem(db, firmId, window, selected: selected);
+  final movements = await movementsByItem(
+    db,
+    firmId,
+    window,
+    selected: selected,
+  );
   final items = await itemsById(db, firmId, trading.keys.toList());
   final categories = await itemCategoryNames(db, firmId, items);
 

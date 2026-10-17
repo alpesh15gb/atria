@@ -230,7 +230,8 @@ class Formatters {
 class IndianAmountInputFormatter extends TextInputFormatter {
   final int decimals;
 
-  IndianAmountInputFormatter({this.decimals = 2});
+  final bool signed;
+  IndianAmountInputFormatter({this.decimals = 2, this.signed = false});
 
   @override
   TextEditingValue formatEditUpdate(
@@ -238,8 +239,8 @@ class IndianAmountInputFormatter extends TextInputFormatter {
     final raw = newValue.text.replaceAll(RegExp(r'[^\d.]'), '');
     if (raw.isEmpty) {
       return TextEditingValue(
-        text: '',
-        selection: const TextSelection.collapsed(offset: 0),
+        text: signed && newValue.text.trim() == '-' ? '-' : '',
+        selection: TextSelection.collapsed(offset: signed && newValue.text.trim() == '-' ? 1 : 0),
       );
     }
 
@@ -257,12 +258,14 @@ class IndianAmountInputFormatter extends TextInputFormatter {
       decPart = decPart.substring(0, decimals);
     }
     final grouped = Formatters.indianGroup(intPart);
-    final text = decPart.isEmpty && raw.contains('.')
+    final magnitude = decPart.isEmpty && raw.contains('.')
         ? '$grouped.'
         : decPart.isEmpty
             ? grouped
             : '$grouped.$decPart';
 
+    final text = signed && newValue.text.trimLeft().startsWith('-')
+        ? '-$magnitude' : magnitude;
     return TextEditingValue(
       text: text,
       selection: TextSelection.collapsed(offset: text.length),

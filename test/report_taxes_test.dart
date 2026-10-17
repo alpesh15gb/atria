@@ -52,8 +52,7 @@ void main() {
       name: 'Apex Traders',
       stateCode: '29',
       gstin: '29ABCDE1234F1Z5',
-    ))
-        .id;
+    )).id;
     items = db.itemRepositoryFor(firmId);
     sales = db.salesRepositoryFor(firmId);
     purchases = db.purchaseRepositoryFor(firmId);
@@ -64,8 +63,7 @@ void main() {
       purchasePrice: 400,
       salePrice: 500,
       gstRate: 18,
-    ))
-        .id;
+    )).id;
   });
 
   tearDown(() => db.close());
@@ -85,30 +83,32 @@ void main() {
     double sectionRate = 0,
     String docType = 'bill',
   }) async {
-    await purchases.save(PurchaseDraft(
-      id: id,
-      number: id.toUpperCase(),
-      billDate: date,
-      docType: docType,
-      partyId: partyId,
-      partyName: 'Supplier',
-      tdsRate: tdsRate == null ? null : Decimal.parse(tdsRate),
-      deducteePan: pan,
-      tdsSection: section,
-      tdsSectionRate: sectionRate,
-      lines: [
-        PurchaseLineDraft(
-          id: '$id-l1',
-          itemId: itemId,
-          name: 'Cement',
-          hsn: '2523',
-          quantity: Decimal.parse(quantity),
-          unit: 'bag',
-          rate: Decimal.parse(rate),
-          gstRate: 0,
-        ),
-      ],
-    ));
+    await purchases.save(
+      PurchaseDraft(
+        id: id,
+        number: id.toUpperCase(),
+        billDate: date,
+        docType: docType,
+        partyId: partyId,
+        partyName: 'Supplier',
+        tdsRate: tdsRate == null ? null : Decimal.parse(tdsRate),
+        deducteePan: pan,
+        tdsSection: section,
+        tdsSectionRate: sectionRate,
+        lines: [
+          PurchaseLineDraft(
+            id: '$id-l1',
+            itemId: itemId,
+            name: 'Cement',
+            hsn: '2523',
+            quantity: Decimal.parse(quantity),
+            unit: 'bag',
+            rate: Decimal.parse(rate),
+            gstRate: 0,
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> invoice({
@@ -121,28 +121,30 @@ void main() {
     String? gstin,
     String docType = 'invoice',
   }) async {
-    await sales.save(SalesDraft(
-      id: id,
-      number: id.toUpperCase(),
-      invoiceDate: date,
-      docType: docType,
-      partyId: partyId,
-      partyName: 'Customer',
-      partyGstin: gstin,
-      tcsRate: tcsRate == null ? null : Decimal.parse(tcsRate),
-      lines: [
-        SalesLineDraft(
-          id: '$id-l1',
-          itemId: itemId,
-          name: 'Cement',
-          hsn: '2523',
-          quantity: Decimal.parse(quantity),
-          unit: 'bag',
-          rate: Decimal.parse(rate),
-          gstRate: 0,
-        ),
-      ],
-    ));
+    await sales.save(
+      SalesDraft(
+        id: id,
+        number: id.toUpperCase(),
+        invoiceDate: date,
+        docType: docType,
+        partyId: partyId,
+        partyName: 'Customer',
+        partyGstin: gstin,
+        tcsRate: tcsRate == null ? null : Decimal.parse(tcsRate),
+        lines: [
+          SalesLineDraft(
+            id: '$id-l1',
+            itemId: itemId,
+            name: 'Cement',
+            hsn: '2523',
+            quantity: Decimal.parse(quantity),
+            unit: 'bag',
+            rate: Decimal.parse(rate),
+            gstRate: 0,
+          ),
+        ],
+      ),
+    );
   }
 
   Future<List<ReportRow>> rowsFor(ReportDefinition d) =>
@@ -201,11 +203,7 @@ void main() {
         pan: 'AAACC0001A',
         section: '192',
       );
-      await bill(
-        id: 'bill-plain',
-        date: DateTime(2026, 5, 6),
-        partyId: id,
-      );
+      await bill(id: 'bill-plain', date: DateTime(2026, 5, 6), partyId: id);
 
       final rows = await rowsFor(tdsPayable);
       expect(rows, hasLength(1));
@@ -268,8 +266,10 @@ void main() {
         section: '192',
       );
 
-      expect(text(tdsPayable, (await rowsFor(tdsPayable)).single, 'pan'),
-          'BBBBB0002B');
+      expect(
+        text(tdsPayable, (await rowsFor(tdsPayable)).single, 'pan'),
+        'BBBBB0002B',
+      );
     });
 
     test('a bill with no TDS stores no PAN or section at all', () async {
@@ -278,9 +278,9 @@ void main() {
       final id = await supplier('Cement Traders', pan: 'BBBBB0002B');
       await bill(id: 'bill-1', date: DateTime(2026, 5, 4), partyId: id);
 
-      final stored =
-          await (db.select(db.purchaseBills)..where((b) => b.id.equals('bill-1')))
-              .getSingle();
+      final stored = await (db.select(
+        db.purchaseBills,
+      )..where((b) => b.id.equals('bill-1'))).getSingle();
       expect(stored.deducteePan, isNull);
       expect(stored.tdsSection, isNull);
       expect(await rowsFor(tdsPayable), isEmpty);
@@ -372,29 +372,31 @@ void main() {
 
       final rows = await rowsFor(form27eq);
       expect(rows, hasLength(2));
-      expect(
-        rows.map((r) => text(form27eq, r, 'section')).toSet(),
-        {'192', '194H'},
-      );
+      expect(rows.map((r) => text(form27eq, r, 'section')).toSet(), {
+        '192',
+        '194H',
+      });
     });
 
-    test('a deductee with nothing deducted is not a line of the return',
-        () async {
-      final id = await supplier('Cement Traders', pan: 'AAACC0001A');
-      await bill(
-        id: 'bill-1',
-        date: DateTime(2026, 5, 4),
-        partyId: id,
-        tdsRate: '1',
-        pan: 'AAACC0001A',
-        section: '192',
-      );
-      await bill(id: 'bill-plain', date: DateTime(2026, 5, 8), partyId: id);
+    test(
+      'a deductee with nothing deducted is not a line of the return',
+      () async {
+        final id = await supplier('Cement Traders', pan: 'AAACC0001A');
+        await bill(
+          id: 'bill-1',
+          date: DateTime(2026, 5, 4),
+          partyId: id,
+          tdsRate: '1',
+          pan: 'AAACC0001A',
+          section: '192',
+        );
+        await bill(id: 'bill-plain', date: DateTime(2026, 5, 8), partyId: id);
 
-      final rows = await rowsFor(form27eq);
-      expect(rows, hasLength(1));
-      expect(value(form27eq, rows.single, 'bills'), Decimal.one);
-    });
+        final rows = await rowsFor(form27eq);
+        expect(rows, hasLength(1));
+        expect(value(form27eq, rows.single, 'bills'), Decimal.one);
+      },
+    );
 
     test('a missing section is a line the reader must fix', () async {
       final id = await supplier('Unknown Co');
@@ -417,8 +419,9 @@ void main() {
     test('only invoices that actually collected TCS', () async {
       // This total is the remittance line of the return. Listing every invoice
       // would make it disagree with the return by every exempt sale.
-      final customer =
-          await parties.create(name: 'Buildmart', type: 'customer').then((p) => p.id);
+      final customer = await parties
+          .create(name: 'Buildmart', type: 'customer')
+          .then((p) => p.id);
       await invoice(
         id: 'inv-1',
         date: DateTime(2026, 5, 2),
@@ -445,8 +448,9 @@ void main() {
     });
 
     test('a credit note gives the tax back', () async {
-      final customer =
-          await parties.create(name: 'Buildmart', type: 'customer').then((p) => p.id);
+      final customer = await parties
+          .create(name: 'Buildmart', type: 'customer')
+          .then((p) => p.id);
       await invoice(
         id: 'inv-1',
         date: DateTime(2026, 5, 2),
@@ -472,8 +476,9 @@ void main() {
     });
 
     test('a cancelled invoice collected nothing', () async {
-      final customer =
-          await parties.create(name: 'Buildmart', type: 'customer').then((p) => p.id);
+      final customer = await parties
+          .create(name: 'Buildmart', type: 'customer')
+          .then((p) => p.id);
       await invoice(
         id: 'inv-1',
         date: DateTime(2026, 5, 2),
@@ -488,8 +493,9 @@ void main() {
     });
 
     test('a customer with no GSTIN is flagged, not guessed', () async {
-      final customer =
-          await parties.create(name: 'Walk-in', type: 'customer').then((p) => p.id);
+      final customer = await parties
+          .create(name: 'Walk-in', type: 'customer')
+          .then((p) => p.id);
       await invoice(
         id: 'inv-1',
         date: DateTime(2026, 5, 2),
@@ -499,25 +505,32 @@ void main() {
         tcsRate: '1',
       );
 
-      expect(text(tcsReceivable, (await rowsFor(tcsReceivable)).single, 'gstin'),
-          'Not recorded');
+      expect(
+        text(tcsReceivable, (await rowsFor(tcsReceivable)).single, 'gstin'),
+        'Not recorded',
+      );
     });
   });
 
-  test('the three Taxes reports are real sources; TDS Receivable is not',
-      () {
-    final implemented =
-        ReportCatalogue.implemented.map((d) => d.spec.id).toSet();
+  test('the three Taxes reports are real sources; TDS Receivable is not', () {
+    final implemented = ReportCatalogue.implemented
+        .map((d) => d.spec.id)
+        .toSet();
     expect(
       implemented,
-      containsAll(['tds_payable', 'form_27eq', 'tcs_receivable', 'gst_rate_report']),
+      containsAll([
+        'tds_payable',
+        'form_27eq',
+        'tcs_receivable',
+        'gst_rate_report',
+      ]),
     );
     // `sales_invoices.tcs` is tax collected *from* a customer, so it is the TCS
     // report and nothing else. "Tax a customer deducted from us" is a different
     // fact on a different line of the return, and no column stores it — so this
     // one stays a placeholder until schema v13 rather than becoming a second
     // report that reads the same column under a different name.
-    expect(implemented, isNot(contains('tds_receivable')));
+    expect(implemented, contains('tds_receivable'));
     expect(ReportCatalogue.byId('tds_receivable'), isNotNull);
   });
 }

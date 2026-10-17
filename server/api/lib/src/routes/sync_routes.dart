@@ -122,12 +122,23 @@ void addSyncRoutes(
         limit = parsed;
       }
 
-      final result = await repository.pullChanges(
+      final waitRaw = request.url.queryParameters['waitSeconds'] ?? '0';
+      final waitSeconds = int.tryParse(waitRaw);
+      if (waitSeconds == null || waitSeconds < 0 || waitSeconds > 20) {
+        throw const ApiException.badRequest('"waitSeconds" must be between 0 and 20.');
+      }
+      var result = await repository.pullChanges(
         userId: principal.userId,
         firmId: firmId,
         afterSeq: afterSeq,
         limit: limit,
       );
+      final deadline = DateTime.now().add(Duration(seconds: waitSeconds));
+      while (result.changes.isEmpty && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        result = await repository.pullChanges(userId: principal.userId,
+          firmId: firmId, afterSeq: afterSeq, limit: limit);
+      }
       return jsonResponse(result.toJson());
     }),
   );

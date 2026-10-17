@@ -102,11 +102,13 @@ Future<List<ReportRow>> form27eqRows(
   ReportWindow window,
   Map<String, Object?> filters,
 ) async {
-  final bills = await (db.select(db.purchaseBills)
-        ..where((d) =>
-            tdsScope(window, firmId, db.purchaseBills) &
-            TdsCommon.hasTds(db.purchaseBills)))
-      .get();
+  final bills =
+      await (db.select(db.purchaseBills)..where(
+            (d) =>
+                tdsScope(window, firmId, db.purchaseBills) &
+                TdsCommon.hasTds(db.purchaseBills),
+          ))
+          .get();
   if (bills.isEmpty) return const [];
 
   final names = <String, String>{
@@ -115,11 +117,13 @@ Future<List<ReportRow>> form27eqRows(
   };
   final missing = <String>{
     for (final bill in bills)
-      if (bill.partyId != null && !names.containsKey(bill.partyId)) bill.partyId!,
+      if (bill.partyId != null && !names.containsKey(bill.partyId))
+        bill.partyId!,
   };
   if (missing.isNotEmpty) {
-    final parties =
-        await (db.select(db.parties)..where((p) => p.id.isIn(missing))).get();
+    final parties = await (db.select(
+      db.parties,
+    )..where((p) => p.id.isIn(missing))).get();
     for (final party in parties) {
       names[party.id] = party.name;
     }
@@ -171,6 +175,6 @@ String _sectionOf(String key) => key.split('|').last;
 /// A function, not a string — the source's `notes` slot is
 /// `List<String> Function(ReportResult)`.
 List<String> _form27eqNotes(ReportResult result) => [
-      'Aggregates the period\'s bills into the form\'s own unit: one line per '
+  'Aggregates the period\'s bills into the form\'s own unit: one line per '
       'deductee per section.',
-    ];
+];

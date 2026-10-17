@@ -1,4 +1,5 @@
 import 'package:atria/core/database/app_database.dart';
+import 'package:atria/core/engine/document_numbering.dart';
 import 'package:atria/core/reports/catalogue/report_catalogue.dart';
 import 'package:atria/core/reports/engine/report_result.dart';
 import 'package:atria/core/reports/engine/report_source.dart';
@@ -79,8 +80,27 @@ Future<List<ReportRow>> gstr9Rows(
   // The cap is not a limit on the report — it is a guard. Past 24 months this
   // is not an annual return whatever the arithmetic says, and the reader gets
   // the 24 months that exist rather than a table nobody can file.
-  final from0 = windowFrom(window);
+  //
+  // **GSTR-9 is an ANNUAL return, so it never runs off the end of one financial
+  // year.** Two things went wrong without that:
+  //
+  //  * On "All Time" the lower bound is `windowFrom`'s `DateTime(2000, 1, 1)`
+  //    default, so the loop walked forward from January 2000 and the 24-month
+  //    cap handed back **2000-01 … 2001-12**. A firm founded in 2020 got an
+  //    annual return of zeros for two years it never existed, and six years of
+  //    trade silently omitted.
+  //  * On the default "This FY" window (Apr–Mar) the end bound is 31 Mar of the
+  //    *following* year, so the loop produced **future months** — harmless
+  //    today because they are empty, but it means the month count quoted to the
+  //    reader was always 12 no matter how little of the year had happened.
+  //
+  // Both are the same defect: an annual return bounded by a report window that
+  // was never an annual period.
   final to0 = windowTo(window);
+  final fy = FinancialYear.forDate(to0);
+  final from0 = windowFrom(window).isBefore(fy.start)
+      ? fy.start
+      : windowFrom(window);
   final months = <({DateTime from, DateTime to})>[];
   var cursor = DateTime(from0.year, from0.month);
   while (!cursor.isAfter(to0) && months.length < 24) {
@@ -107,7 +127,8 @@ Future<List<ReportRow>> gstr9Rows(
       to: month.to,
     );
     outwardTaxable += report.outwardTaxable;
-    outwardTax += report.outwardIgst +
+    outwardTax +=
+        report.outwardIgst +
         report.outwardCgst +
         report.outwardSgst +
         report.outwardCess;
@@ -121,11 +142,7 @@ Future<List<ReportRow>> gstr9Rows(
 
   final rows = <ReportRow>[
     _row('4', 'Taxable value of outward supplies', outwardTaxable),
-    _row(
-      '4A',
-      'Tax on outward supplies',
-      outwardTax,
-    ),
+    _row('4A', 'Tax on outward supplies', outwardTax),
     _row('4B1', 'Taxable value of zero-rated supplies', zeroRated),
     _row('4B2', 'Taxable value of nil-rated / exempt supplies', nilRated),
     _row('4C', 'Tax on inward supplies liable to reverse charge', Decimal.zero),
@@ -136,17 +153,24 @@ Future<List<ReportRow>> gstr9Rows(
   // the fact, and printing the corrected figure as its own row without the
   // adjustment beside it makes the difference unexplainable.
   for (final entry in adjustments.entries) {
-    rows.add(_row(
-      entry.key,
-      'Adjustment — ${entry.value.description}',
-      entry.value.amount,
-    ));
+    rows.add(
+      _row(
+        entry.key,
+        'Adjustment — ${entry.value.description}',
+        entry.value.amount,
+      ),
+    );
   }
 
   rows.add(_row('6A', 'Input tax credit available', itcAvailable));
   rows.add(_row('6B', 'Input tax credit reversed', -itcReversed));
-  rows.add(_row('6C', 'Net input tax credit available (6A less 6B)',
-      itcAvailable - itcReversed));
+  rows.add(
+    _row(
+      '6C',
+      'Net input tax credit available (6A less 6B)',
+      itcAvailable - itcReversed,
+    ),
+  );
 
   return rows;
 }
@@ -162,14 +186,25 @@ Future<Map<String, ({String description, Decimal amount})>> _adjustmentsFor(
   String firmId,
   ReportWindow window,
 ) async {
-  final rows = await (db.select(db.gstr9Adjustments)
-        ..where((a) =>
-            a.firmId.equals(firmId) &
-            a.financialYearStart.isBetweenValues(
-              windowFrom(window),
-              windowTo(window),
-            )))
-      .get();
+  // `financialYearStart` is **the financial year the adjustment belongs to**,
+  // stored as that year's start date (2026-04-01) — not a transaction date. It
+  // was compared against the report's own arbitrary window, so it only matched
+  // when the window happened to begin on or before 1 April and end on or after
+  // it. Choose "This Quarter" or any custom month and every correction vanished
+  // from Tables 4/6/8/9 with nothing on screen saying so — the filed figures
+  // without the adjustments beside them, which is precisely the difference the
+  // reader cannot explain.
+  //
+  // So the adjustment is selected by the **return's own year**, derived from the
+  // window's end, exactly as the monthly figures above are.
+  final fy = FinancialYear.forDate(windowTo(window));
+  final rows =
+      await (db.select(db.gstr9Adjustments)..where(
+            (a) =>
+                a.firmId.equals(firmId) &
+                a.financialYearStart.isBetweenValues(fy.start, fy.end),
+          ))
+          .get();
 
   final byTable = <String, ({String description, Decimal amount})>{};
   for (final row in rows) {
@@ -185,14 +220,14 @@ Future<Map<String, ({String description, Decimal amount})>> _adjustmentsFor(
 }
 
 ReportRow _row(String table, String description, Decimal amount) => ReportRow({
-      'table': table,
-      'description': description,
-      'amount': amount,
-    }, label: '$table $description');
+  'table': table,
+  'description': description,
+  'amount': amount,
+}, label: '$table $description');
 
 /// A function, not a string — the source's `notes` slot is
 /// `List<String> Function(ReportResult)`.
 List<String> _gstr9Notes(ReportResult result) => [
-      'Each monthly figure is recomputed by GstReturnBuilder over that month. '
+  'Each monthly figure is recomputed by GstReturnBuilder over that month. '
       'Adjustments come from the GSTR-9 adjustments table for the financial year.',
-    ];
+];

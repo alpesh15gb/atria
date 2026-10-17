@@ -41,6 +41,9 @@ class BankAccounts extends Table {
   /// Cached from the payment and journal ledger. See the class note.
   RealColumn get currentBalance => real().withDefault(const Constant(0))();
 
+  /// Balance before recorded payments. Synced independently of derived totals.
+  RealColumn get openingBalance => real().withDefault(const Constant(0))();
+
   /// The ledger account this bank feeds, so a payment can post to the right
   /// place without the operator picking an account on every entry. Null means
   /// the default cash/bank account for the firm.

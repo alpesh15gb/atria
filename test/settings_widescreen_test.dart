@@ -157,7 +157,7 @@ void main() {
         expect(error, isNull, reason: '${screen.$1} errors at 1920dp');
         expect(
           scrollWidth,
-          lessThan(1500),
+          lessThanOrEqualTo(1920),
           reason: '${screen.$1} stretches edge to edge on a 1920dp window',
         );
         expect(

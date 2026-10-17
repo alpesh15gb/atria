@@ -13,6 +13,7 @@ import '../../core/sync/scan_seed.dart';
 import '../../core/state/providers.dart';
 import '../../core/utils/id_utils.dart';
 import '../../core/utils/validators.dart';
+import '../../core/services/bill_scan_document.dart';
 import '../../shared/widgets/common_widgets.dart';
 
 /// Scan a supplier bill and review what the server's vision model read.
@@ -115,6 +116,7 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
   /// Bytes + type of the image being scanned, kept so a retry does not force
   /// another pick.
   List<int>? _pendingImage;
+  List<List<int>>? _pendingPages;
   String _pendingMime = 'image/jpeg';
 
   Future<void> _pickImage({required bool fromCamera}) async {
@@ -153,7 +155,14 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
       try {
         final result = await FilePicker.platform.pickFiles(
           type: FileType.custom,
-          allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp', 'heic'],
+          allowedExtensions: const [
+            'jpg',
+            'jpeg',
+            'png',
+            'webp',
+            'heic',
+            'pdf',
+          ],
           withData: true,
         );
         final file = result?.files.single;
@@ -166,20 +175,38 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
           mime = _mimeFor(file.name, file.extension);
         }
       } on Object catch (error) {
+        if (!mounted) return;
         setState(() => _error = 'Could not open the file picker: $error');
         return;
       }
     }
 
+    if (!mounted) return;
     if (bytes == null || bytes.isEmpty) return;
-    _pendingImage = bytes;
-    _pendingMime = mime;
+    setState(() => _uploading = true);
+    try {
+      final pages = await prepareBillScanPages(bytes);
+      if (!mounted) return;
+      _pendingPages = pages;
+      _pendingImage = pages.first;
+      _pendingMime = mime;
+    } on Object catch (error) {
+      if (!mounted) return;
+      setState(
+        () => _error = error is FormatException ? error.message : 'Could not read this bill. For a PDF, check it opens and is not password protected.',
+      );
+      return;
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
     await _scan();
   }
 
   String _mimeFor(String path, String? extension) {
     final ext = (extension ?? path.split('.').last).toLowerCase();
     switch (ext) {
+      case 'pdf':
+        return 'application/pdf';
       case 'png':
         return 'image/png';
       case 'webp':
@@ -214,10 +241,10 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
       setState(() {
         _error = session.temporarilyUnavailable
             ? 'Could not reach Apex Books to scan this bill. The reading happens on '
-                'the Apex Books server, not on this device - check your connection '
-                'and try again.'
+                  'the Apex Books server, not on this device - check your connection '
+                  'and try again.'
             : 'Sign in to Apex Books to scan bills - the reading happens on the '
-                'Apex Books server, not on this device.';
+                  'Apex Books server, not on this device.';
       });
       return;
     }
@@ -227,11 +254,14 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
       _error = null;
     });
     try {
-      final bill = await ref.read(scanClientProvider).scanBill(
+      final bill = await ref
+          .read(scanClientProvider)
+          .scanBill(
             firmId: firmId,
             imageBytes: image,
             mimeType: _pendingMime,
             accessToken: token,
+            pages: _pendingPages,
           );
       if (!mounted) return;
       setState(() {
@@ -243,7 +273,13 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
       if (!mounted) return;
       setState(() {
         _uploading = false;
-        _error = error.message;
+        _error =
+            (_pendingPages?.length ?? 0) > 1 &&
+                error.statusCode == 400 &&
+                error.message.contains('imageBase64')
+            ? 'This server needs the PDF scanning update before it can read '
+                  'multi-page bills. Update the API and try again.'
+            : error.message;
       });
     } on Object catch (error) {
       if (!mounted) return;
@@ -260,10 +296,7 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
     // Replace this screen with the editor: back from the editor is the
     // purchase list, not the scan preview the user is done with.
     if (!mounted) return;
-    context.pushReplacement(
-      '/purchase/new?fromScan=1',
-      extra: seed,
-    );
+    context.pushReplacement('/purchase/new?fromScan=1', extra: seed);
   }
 
   @override
@@ -295,10 +328,8 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              'Photograph the supplier bill',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium
+                              'Scan a supplier bill',
+                              style: Theme.of(context).textTheme.titleMedium
                                   ?.copyWith(fontWeight: FontWeight.w700),
                             ),
                           ),
@@ -306,22 +337,24 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'The photo goes to your Apex Books server, an AI vision '
+                        'Choose a photo or PDF (up to 10 MB). '
+                        'The bill pages go to your Apex Books server, an AI vision '
                         'model reads it there, and every field comes back '
                         'for you to check before anything is saved. The '
                         'picture itself is not stored.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                              height: 1.5,
-                            ),
+                          color: scheme.onSurfaceVariant,
+                          height: 1.5,
+                        ),
                       ),
                       const SizedBox(height: 14),
                       Row(
                         children: [
                           Expanded(
                             child: FilledButton.icon(
-                              onPressed:
-                                  _uploading ? null : () => _pickImage(fromCamera: true),
+                              onPressed: _uploading
+                                  ? null
+                                  : () => _pickImage(fromCamera: true),
                               icon: const PhosphorIcon(
                                 PhosphorIconsRegular.camera,
                                 size: 18,
@@ -332,18 +365,21 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: FilledButton.tonalIcon(
-                              onPressed:
-                                  _uploading ? null : () => _pickImage(fromCamera: false),
+                              onPressed: _uploading
+                                  ? null
+                                  : () => _pickImage(fromCamera: false),
                               icon: const PhosphorIcon(
                                 PhosphorIconsRegular.image,
                                 size: 18,
                               ),
-                              label: const Text('From gallery'),
+                              label: const Text('Choose photo or PDF'),
                             ),
                           ),
                         ],
                       ),
-                      if (_pendingImage != null && !_uploading && _review.hasAnything) ...[
+                      if (_pendingImage != null &&
+                          !_uploading &&
+                          _review.hasAnything) ...[
                         const SizedBox(height: 8),
                         Center(
                           child: TextButton.icon(
@@ -352,7 +388,7 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
                               PhosphorIconsRegular.arrowsClockwise,
                               size: 16,
                             ),
-                            label: const Text('Scan this photo again'),
+                            label: const Text('Scan this bill again'),
                           ),
                         ),
                       ],
@@ -389,9 +425,7 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
                         Expanded(
                           child: Text(
                             _error!,
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodySmall
+                            style: Theme.of(context).textTheme.bodySmall
                                 ?.copyWith(color: scheme.error, height: 1.5),
                           ),
                         ),
@@ -419,9 +453,7 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
                             Expanded(
                               child: Text(
                                 warning,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
+                                style: Theme.of(context).textTheme.bodySmall
                                     ?.copyWith(height: 1.4),
                               ),
                             ),
@@ -447,9 +479,8 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
                     child: Text(
                       'Nothing is saved yet. The next screen shows the full '
                       'bill form with these values filled in.',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                          ),
+                      style: Theme.of(context).textTheme.bodySmall
+                          ?.copyWith(color: scheme.onSurfaceVariant),
                     ),
                   ),
                 ],
@@ -510,70 +541,81 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
             label: 'Supplier',
             value: r.supplierName,
             onChanged: (v) => setState(
-                () => _review = _review.copyWith(supplierName: () => v)),
+              () => _review = _review.copyWith(supplierName: () => v),
+            ),
           ),
           _reviewField(
             field: 'gstin',
             label: 'GSTIN',
             value: r.supplierGstin,
-            onChanged: (v) => setState(() =>
-                _review = _review.copyWith(supplierGstin: () => v.toUpperCase())),
+            onChanged: (v) => setState(
+              () => _review = _review.copyWith(
+                supplierGstin: () => v.toUpperCase(),
+              ),
+            ),
             // Only a value that IS present can be malformed. `isValidGstin(null)`
             // is false, so passing a null straight to errorText painted a red
             // "Not a valid GSTIN format" under a field nobody had touched —
             // while most suppliers are unregistered and have no GSTIN at all.
             trailingError:
                 (r.supplierGstin ?? '').trim().isEmpty ||
-                        Validators.isValidGstin(r.supplierGstin)
-                    ? null
-                    : 'Not a valid GSTIN format',
+                    Validators.isValidGstin(r.supplierGstin)
+                ? null
+                : 'Not a valid GSTIN format',
           ),
           _reviewField(
             field: 'invoiceNumber',
             label: 'Bill number',
             value: r.invoiceNumber,
             onChanged: (v) => setState(
-                () => _review = _review.copyWith(invoiceNumber: () => v)),
+              () => _review = _review.copyWith(invoiceNumber: () => v),
+            ),
           ),
           _reviewField(
             field: 'billDate',
             label: 'Bill date (YYYY-MM-DD)',
             value: r.billDateRaw,
             onChanged: (v) => setState(
-                () => _review = _review.copyWith(billDateRaw: () => v)),
+              () => _review = _review.copyWith(billDateRaw: () => v),
+            ),
           ),
           _reviewField(
             field: 'dueDate',
             label: 'Due date (YYYY-MM-DD)',
             value: r.dueDateRaw,
             hintText: 'Leave empty if it is payable on delivery',
-            onChanged: (v) => setState(
-                () => _review = _review.copyWith(dueDateRaw: () => v)),
+            onChanged: (v) =>
+                setState(() => _review = _review.copyWith(dueDateRaw: () => v)),
           ),
           _reviewField(
             field: 'placeOfSupply',
             label: 'Place of supply (state code)',
             value: r.placeOfSupply,
             onChanged: (v) => setState(
-                () => _review = _review.copyWith(placeOfSupply: () => v)),
+              () => _review = _review.copyWith(placeOfSupply: () => v),
+            ),
           ),
           _reviewField(
             field: 'shippingCharge',
             label: 'Shipping / freight',
             value: r.shippingCharge == 0 ? null : '${r.shippingCharge}',
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
-            onChanged: (v) => setState(() => _review = _review.copyWith(
-                shippingCharge: () => double.tryParse(v.trim()) ?? 0)),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            onChanged: (v) => setState(
+              () => _review = _review.copyWith(
+                shippingCharge: () => double.tryParse(v.trim()) ?? 0,
+              ),
+            ),
           ),
           _reviewField(
             field: 'otherCharges',
             label: 'Other charges',
             value: r.otherCharges == 0 ? null : '${r.otherCharges}',
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
-            onChanged: (v) => setState(() => _review = _review.copyWith(
-                otherCharges: () => double.tryParse(v.trim()) ?? 0)),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            onChanged: (v) => setState(
+              () => _review = _review.copyWith(
+                otherCharges: () => double.tryParse(v.trim()) ?? 0,
+              ),
+            ),
           ),
         ],
       ),
@@ -614,31 +656,32 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Lines read from the bill', style: Theme.of(context).textTheme.titleSmall),
+          Text(
+            'Lines read from the bill',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
           const SizedBox(height: 8),
           if (_review.lines.isEmpty)
             Text(
               'No lines were readable. Add them in the editor instead.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: scheme.onSurfaceVariant),
             )
           else
             for (var i = 0; i < _review.lines.length; i++)
               // Keyed by the line's stable id, so removing line 0 does not make
               // the survivors show one line's numbers against another's state.
               _lineReview(i),
-          if (_review.lines.isNotEmpty && _review.linkedCount < _review.lines.length)
+          if (_review.lines.isNotEmpty &&
+              _review.linkedCount < _review.lines.length)
             Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Text(
                 '${_review.lines.length - _review.linkedCount} line(s) are '
                 'not linked to an item. They still save — a shop buys things it '
                 'does not stock — but they will not change stock levels.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                      height: 1.4,
-                    ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: scheme.onSurfaceVariant, height: 1.4),
               ),
             ),
         ],
@@ -677,16 +720,18 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
                 Expanded(
                   child: Text(
                     line.name,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                    style: Theme.of(context).textTheme.bodyMedium
+                        ?.copyWith(fontWeight: FontWeight.w600),
                   ),
                 ),
                 IconButton(
                   tooltip: 'Remove line',
                   visualDensity: VisualDensity.compact,
                   onPressed: () => _removeLine(lineId),
-                  icon: const PhosphorIcon(PhosphorIconsRegular.trash, size: 17),
+                  icon: const PhosphorIcon(
+                    PhosphorIconsRegular.trash,
+                    size: 17,
+                  ),
                 ),
               ],
             ),
@@ -698,8 +743,9 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
                     field: '$lineId|qty',
                     label: 'Qty',
                     initial: line.quantity,
-                    onChanged: (v) => setState(() =>
-                        _review = _review.withLineQuantity(lineId, v)),
+                    onChanged: (v) => setState(
+                      () => _review = _review.withLineQuantity(lineId, v),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -709,7 +755,8 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
                     label: 'Rate',
                     initial: line.rate,
                     onChanged: (v) => setState(
-                        () => _review = _review.withLineRate(lineId, v)),
+                      () => _review = _review.withLineRate(lineId, v),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -718,8 +765,9 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
                     field: '$lineId|gst',
                     label: 'GST %',
                     initial: line.gstRate,
-                    onChanged: (v) =>
-                        setState(() => _review = _review.withLineGst(lineId, v)),
+                    onChanged: (v) => setState(
+                      () => _review = _review.withLineGst(lineId, v),
+                    ),
                   ),
                 ),
               ],
@@ -731,8 +779,8 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
                 child: Text(
                   'HSN ${line.hsn}  ·  unit ${line.unit}',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
             ],
@@ -799,27 +847,29 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
                   ),
                 ),
           ],
-          onChanged: (next) => setState(() => _review = _review.withLineItem(
+          onChanged: (next) => setState(
+            () => _review = _review.withLineItem(
               lineId,
               next == null || next == noLink ? null : next,
-            )),
+            ),
+          ),
         ),
         const SizedBox(height: 4),
         Text(
           linked == null
               ? (candidates.isEmpty
                     ? 'No catalogue item looks like this line. It will save '
-                        'without touching stock.'
+                          'without touching stock.'
                     : 'No item picked. It will save without touching stock.')
               // Services and untracked goods carry no stock at all, so saying
               // "moves stock" here would be a promise the save cannot keep.
               : linked.isService || linked.stockType != 'tracked'
-                  ? 'Linked to ${linked.name} — ${linked.isService ? 'a service' : 'untracked stock'} '
-                      'carries no quantity, so this line does not change stock.'
-                  : 'Linked to ${linked.name} — its stock is updated on save.',
+              ? 'Linked to ${linked.name} — ${linked.isService ? 'a service' : 'untracked stock'} '
+                    'carries no quantity, so this line does not change stock.'
+              : 'Linked to ${linked.name} — its stock is updated on save.',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: linked != null ? scheme.primary : scheme.onSurfaceVariant,
-              ),
+            color: linked != null ? scheme.primary : scheme.onSurfaceVariant,
+          ),
         ),
       ],
     );
@@ -862,9 +912,7 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
       final byRank = a.$1.compareTo(b.$1);
       return byRank != 0 ? byRank : a.$2.name.compareTo(b.$2.name);
     });
-    return [
-      for (final (_, item) in scored.take(8)) item,
-    ];
+    return [for (final (_, item) in scored.take(8)) item];
   }
 
   Widget _lineNumField({
@@ -895,6 +943,7 @@ class _BillScanScreenState extends ConsumerState<BillScanScreen> {
 /// `onChanged` wrote into whatever line had slid into that slot.
 class ScannedReviewState {
   const ScannedReviewState({
+    this.grandTotal,
     required this.supplierName,
     required this.supplierGstin,
     required this.supplierPhone,
@@ -933,6 +982,7 @@ class ScannedReviewState {
 
   final double shippingCharge;
   final double otherCharges;
+  final double? grandTotal;
   final String confidence;
   final List<String> warnings;
   final String model;
@@ -1018,6 +1068,7 @@ class ScannedReviewState {
       lineItemIds: [for (final _ in bill.lines) null],
       shippingCharge: bill.shippingCharge,
       otherCharges: bill.otherCharges,
+      grandTotal: bill.grandTotal,
       confidence: bill.confidence,
       warnings: bill.warnings,
       model: bill.model,
@@ -1033,33 +1084,30 @@ class ScannedReviewState {
     String? Function()? placeOfSupply,
     double Function()? shippingCharge,
     double Function()? otherCharges,
-  }) =>
-      ScannedReviewState(
-        supplierName: supplierName == null ? this.supplierName : supplierName(),
-        supplierGstin:
-            supplierGstin == null ? this.supplierGstin : supplierGstin(),
-        supplierPhone: supplierPhone,
-        supplierAddress: supplierAddress,
-        invoiceNumber:
-            invoiceNumber == null ? this.invoiceNumber : invoiceNumber(),
-        billDateRaw: billDateRaw == null ? this.billDateRaw : billDateRaw(),
-        // dueDate / shipping / other charges had no field on the review screen
-        // and so could never be corrected, although they were written straight
-        // into the editor.
-        dueDateRaw: dueDateRaw == null ? this.dueDateRaw : dueDateRaw(),
-        placeOfSupply:
-            placeOfSupply == null ? this.placeOfSupply : placeOfSupply(),
-        lines: lines,
-        lineIds: lineIds,
-        lineItemIds: lineItemIds,
-        shippingCharge:
-            shippingCharge == null ? this.shippingCharge : shippingCharge(),
-        otherCharges:
-            otherCharges == null ? this.otherCharges : otherCharges(),
-        confidence: confidence,
-        warnings: warnings,
-        model: model,
-      );
+  }) => ScannedReviewState(
+    supplierName: supplierName == null ? this.supplierName : supplierName(),
+    supplierGstin: supplierGstin == null ? this.supplierGstin : supplierGstin(),
+    supplierPhone: supplierPhone,
+    supplierAddress: supplierAddress,
+    invoiceNumber: invoiceNumber == null ? this.invoiceNumber : invoiceNumber(),
+    billDateRaw: billDateRaw == null ? this.billDateRaw : billDateRaw(),
+    // dueDate / shipping / other charges had no field on the review screen
+    // and so could never be corrected, although they were written straight
+    // into the editor.
+    dueDateRaw: dueDateRaw == null ? this.dueDateRaw : dueDateRaw(),
+    placeOfSupply: placeOfSupply == null ? this.placeOfSupply : placeOfSupply(),
+    lines: lines,
+    lineIds: lineIds,
+    lineItemIds: lineItemIds,
+    shippingCharge: shippingCharge == null
+        ? this.shippingCharge
+        : shippingCharge(),
+    otherCharges: otherCharges == null ? this.otherCharges : otherCharges(),
+    grandTotal: grandTotal,
+    confidence: confidence,
+    warnings: warnings,
+    model: model,
+  );
 
   ScannedReviewState withoutLine(int index) {
     if (index < 0 || index >= lines.length) return this;
@@ -1077,32 +1125,54 @@ class ScannedReviewState {
       lineItemIds: [...lineItemIds]..removeAt(index),
       shippingCharge: shippingCharge,
       otherCharges: otherCharges,
+      grandTotal: grandTotal,
       confidence: confidence,
       warnings: warnings,
       model: model,
     );
   }
 
-  ScannedReviewState withLineQuantity(String lineId, double value) =>
-      _mapLine(lineId, (l) => ScannedLineSeed(
-            name: l.name, hsn: l.hsn, quantity: value, rate: l.rate,
-            unit: l.unit, discountPercent: l.discountPercent,
-            gstRate: l.gstRate, cessRate: l.cessRate,
-          ));
+  ScannedReviewState withLineQuantity(String lineId, double value) => _mapLine(
+    lineId,
+    (l) => ScannedLineSeed(
+      name: l.name,
+      hsn: l.hsn,
+      quantity: value,
+      rate: l.rate,
+      unit: l.unit,
+      discountPercent: l.discountPercent,
+      gstRate: l.gstRate,
+      cessRate: l.cessRate,
+    ),
+  );
 
-  ScannedReviewState withLineRate(String lineId, double value) =>
-      _mapLine(lineId, (l) => ScannedLineSeed(
-            name: l.name, hsn: l.hsn, quantity: l.quantity, rate: value,
-            unit: l.unit, discountPercent: l.discountPercent,
-            gstRate: l.gstRate, cessRate: l.cessRate,
-          ));
+  ScannedReviewState withLineRate(String lineId, double value) => _mapLine(
+    lineId,
+    (l) => ScannedLineSeed(
+      name: l.name,
+      hsn: l.hsn,
+      quantity: l.quantity,
+      rate: value,
+      unit: l.unit,
+      discountPercent: l.discountPercent,
+      gstRate: l.gstRate,
+      cessRate: l.cessRate,
+    ),
+  );
 
-  ScannedReviewState withLineGst(String lineId, double value) =>
-      _mapLine(lineId, (l) => ScannedLineSeed(
-            name: l.name, hsn: l.hsn, quantity: l.quantity, rate: l.rate,
-            unit: l.unit, discountPercent: l.discountPercent,
-            gstRate: value, cessRate: l.cessRate,
-          ));
+  ScannedReviewState withLineGst(String lineId, double value) => _mapLine(
+    lineId,
+    (l) => ScannedLineSeed(
+      name: l.name,
+      hsn: l.hsn,
+      quantity: l.quantity,
+      rate: l.rate,
+      unit: l.unit,
+      discountPercent: l.discountPercent,
+      gstRate: value,
+      cessRate: l.cessRate,
+    ),
+  );
 
   /// Records the catalogue row a line is linked to (null clears the link).
   ScannedReviewState withLineItem(String lineId, String? itemId) {
@@ -1125,6 +1195,7 @@ class ScannedReviewState {
       ],
       shippingCharge: shippingCharge,
       otherCharges: otherCharges,
+      grandTotal: grandTotal,
       confidence: confidence,
       warnings: warnings,
       model: model,
@@ -1155,6 +1226,7 @@ class ScannedReviewState {
       lineItemIds: lineItemIds,
       shippingCharge: shippingCharge,
       otherCharges: otherCharges,
+      grandTotal: grandTotal,
       confidence: confidence,
       warnings: warnings,
       model: model,
@@ -1185,6 +1257,7 @@ class ScannedReviewState {
       lineItemIds: lineItemIds,
       shippingCharge: shippingCharge,
       otherCharges: otherCharges,
+      grandTotal: grandTotal,
     );
   }
 }
@@ -1211,6 +1284,7 @@ class CataloguedBillSeed extends ScannedBillSeed {
     super.placeOfSupply,
     super.shippingCharge,
     super.otherCharges,
+    super.grandTotal,
   });
 
   /// Catalogue item id per line, null where the reviewer left it unlinked.
@@ -1228,10 +1302,7 @@ class CataloguedBillSeed extends ScannedBillSeed {
 /// produce no match rather than an arbitrary one. Anything this refuses, the
 /// review screen offers as a choice and the editor says out loud that the line
 /// will not move stock.
-ItemEntity? matchScannedItem(
-  List<ItemEntity> items,
-  ScannedLineSeed line,
-) {
+ItemEntity? matchScannedItem(List<ItemEntity> items, ScannedLineSeed line) {
   final description = line.name.trim().toLowerCase();
   if (description.isNotEmpty) {
     // The scanned line carries only a description, so identity is matched
@@ -1248,7 +1319,9 @@ ItemEntity? matchScannedItem(
   final hsn = (line.hsn ?? '').trim().toLowerCase();
   if (hsn.isEmpty) return null;
   return _uniqueItem(
-      items, (item) => (item.hsn ?? '').trim().toLowerCase() == hsn);
+    items,
+    (item) => (item.hsn ?? '').trim().toLowerCase() == hsn,
+  );
 }
 
 ItemEntity? _uniqueItem(

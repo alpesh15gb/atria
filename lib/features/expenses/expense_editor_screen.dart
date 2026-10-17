@@ -1,3 +1,4 @@
+import '../../core/domain/gst_registration.dart';
 import 'package:decimal/decimal.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
@@ -53,6 +54,8 @@ class _ExpenseEditorScreenState extends ConsumerState<ExpenseEditorScreen> {
       : ExpenseCategory.all.first.id;
   DateTime _date = DateTime.now();
   String _mode = PaymentMode.cash.id;
+  String? _itemId;
+  List<ItemEntity> _items = const [];
   bool _gstIncluded = false;
 
   bool _saving = false;
@@ -102,9 +105,18 @@ class _ExpenseEditorScreenState extends ConsumerState<ExpenseEditorScreen> {
   @override
   void initState() {
     super.initState();
+    _loadItems();
     if (widget.editId != null) {
       _loadExisting();
     }
+  }
+
+  Future<void> _loadItems() async {
+    final itemRepo = ref.read(itemRepositoryProvider);
+    if (itemRepo == null) return;
+    final items = await itemRepo.all(limit: 1000);
+    if (!mounted) return;
+    setState(() => _items = items);
   }
 
   Future<void> _loadExisting() async {
@@ -130,6 +142,7 @@ class _ExpenseEditorScreenState extends ConsumerState<ExpenseEditorScreen> {
       _category = expense.category;
       _date = expense.date;
       _mode = expense.mode;
+      _itemId = expense.itemId;
       _gstIncluded = expense.gstAmount > 0;
       _amountController.text = _formatMoney(expense.amount);
       _gstAmountController.text = expense.gstAmount == 0
@@ -187,6 +200,7 @@ class _ExpenseEditorScreenState extends ConsumerState<ExpenseEditorScreen> {
       _vendorController.clear();
       _referenceController.clear();
       _notesController.clear();
+      _itemId = null;
       _dirty = false;
     });
   }
@@ -252,6 +266,7 @@ class _ExpenseEditorScreenState extends ConsumerState<ExpenseEditorScreen> {
             // Nullable columns need drift's Value wrapper so clearing a field
             // actually writes NULL instead of being treated as "unchanged".
             vendorName: Value(vendor.isEmpty ? null : vendor),
+            itemId: Value(_itemId),
             reference: Value(reference.isEmpty ? null : reference),
             gstAmount: gstAmount,
             notes: Value(notes.isEmpty ? null : notes),
@@ -271,6 +286,7 @@ class _ExpenseEditorScreenState extends ConsumerState<ExpenseEditorScreen> {
           date: _date,
           mode: _mode,
           vendorName: vendor.isEmpty ? null : vendor,
+          itemId: _itemId,
           reference: reference.isEmpty ? null : reference,
           gstAmount: gstAmount,
           notes: notes.isEmpty ? null : notes,
@@ -369,7 +385,7 @@ class _ExpenseEditorScreenState extends ConsumerState<ExpenseEditorScreen> {
           ),
           validator: (value) => Validators.amount(value, allowZero: false),
         ),
-        SwitchListTile(
+        if (widget.type != 'income' || ref.watch(activeFirmProvider).valueOrNull?.isGstRegistered == true || _original?.itcEligible == true) SwitchListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 4),
           title: const Text('GST included'),
           subtitle: const Text(
@@ -383,6 +399,8 @@ class _ExpenseEditorScreenState extends ConsumerState<ExpenseEditorScreen> {
         ),
         if (_gstIncluded) ...[
           const SizedBox(height: 4),
+          if (widget.type == 'expense' && ref.watch(activeFirmProvider).valueOrNull?.isGstRegistered != true)
+            const Text('Supplier GST is included in expense cost. No input credit is claimed.'),
           TextFormField(
             controller: _gstAmountController,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -430,8 +448,40 @@ class _ExpenseEditorScreenState extends ConsumerState<ExpenseEditorScreen> {
 
   Widget _categorySection() {
     if (Theme.of(context).platform.isMobileUi) {
-      final options = _isExpense ? [for (final c in ExpenseCategory.all) MobileChoice(value: c.id, label: c.label)] : [for (final c in IncomeCategory.all) MobileChoice(value: c.id, label: c.label)];
-      return MobileSelectionField<String>(label: _isExpense ? 'Expense details' : 'Income details', placeholder: 'Select Category', value: _category, choices: options, onChanged: (value) { _markDirty(); setState(() => _category = value); });
+      final options = _isExpense
+          ? [for (final c in ExpenseCategory.all) MobileChoice(value: c.id, label: c.label)]
+          : [for (final c in IncomeCategory.all) MobileChoice(value: c.id, label: c.label)];
+      final itemOptions = <MobileChoice<String>>[
+        const MobileChoice(value: '', label: 'None (General)'),
+        for (final item in _items) MobileChoice(value: item.id, label: item.name),
+      ];
+      return Column(
+        children: [
+          MobileSelectionField<String>(
+            label: _isExpense ? 'Expense details' : 'Income details',
+            placeholder: 'Select Category',
+            value: _category,
+            choices: options,
+            onChanged: (value) {
+              _markDirty();
+              setState(() => _category = value);
+            },
+          ),
+          if (_items.isNotEmpty || _itemId != null) ...[
+            const SizedBox(height: 12),
+            MobileSelectionField<String>(
+              label: 'Linked item (optional)',
+              placeholder: 'None (General)',
+              value: _itemId ?? '',
+              choices: itemOptions,
+              onChanged: (value) {
+                _markDirty();
+                setState(() => _itemId = value.isEmpty ? null : value);
+              },
+            ),
+          ],
+        ],
+      );
     }
     return AtriaFormSection(
       icon: Icons.category_outlined,
@@ -464,6 +514,31 @@ class _ExpenseEditorScreenState extends ConsumerState<ExpenseEditorScreen> {
             setState(() => _category = value ?? _category);
           },
         ),
+        if (_items.isNotEmpty || _itemId != null) ...[
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            iconSize: AppIconSize.md,
+            initialValue: _itemId ?? '',
+            isExpanded: true,
+            decoration: const InputDecoration(
+              labelText: 'Linked item (optional)',
+              prefixIcon: AtriaFieldIcon(Icons.inventory_2_outlined),
+            ),
+            items: _options(
+              [
+                (id: '', label: 'None (General)'),
+                for (final item in _items) (id: item.id, label: item.name),
+              ],
+              _itemId ?? '',
+            ),
+            onChanged: (value) {
+              _markDirty();
+              setState(
+                () => _itemId = (value == null || value.isEmpty) ? null : value,
+              );
+            },
+          ),
+        ],
       ],
     );
   }

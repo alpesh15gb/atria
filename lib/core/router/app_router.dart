@@ -30,11 +30,14 @@ import '../../features/recycle_bin/recycle_bin_screen.dart';
 import '../../features/settings/members_screen.dart';
 import '../../features/reports/gst_reports_screen.dart';
 import '../../features/reports/reports_screen.dart';
+import '../../features/reports/report_view_page.dart';
 import '../../features/sales/payment_reminders_screen.dart';
 import '../../features/sales/sale_detail_screen.dart';
 import '../../features/sales/sale_editor_screen.dart';
 import '../../features/sales/sales_list_screen.dart';
 import '../../features/settings/backup_restore_screen.dart';
+import '../../features/settings/bank_accounts_screen.dart';
+import '../../features/settings/bank_reconciliation_screen.dart';
 import '../../features/settings/firm_settings_screen.dart';
 import '../../features/settings/period_lock_and_audit_screens.dart';
 import '../../features/settings/settings_screen.dart';
@@ -188,7 +191,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                       docType: state.uri.queryParameters['type'] ?? 'invoice',
                       // ?from=<id> seeds a new invoice from a quotation or
                       // sales order — the convert flow.
-                      convertFromId: state.uri.queryParameters['from'],
+                      convertFromId: state.uri.queryParameters['convertFrom'],
+                      duplicateFromId: state.uri.queryParameters['from'],
                       // ?party=<id> preselects the customer (Parties pane's
                       // "New invoice" affordance).
                       presetPartyId: state.uri.queryParameters['party'],
@@ -271,6 +275,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: '/reports',
                 builder: (context, state) => const ReportsScreen(),
+                routes: [
+                  GoRoute(
+                    path: ':reportId',
+                    builder: (context, state) => ReportViewPage(
+                      reportId: state.pathParameters['reportId']!,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -293,7 +305,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                       // ?from=<id> seeds a new bill from a purchase order —
                       // the convert flow. The scan flow arrives via `extra`.
                       docType: state.uri.queryParameters['type'] ?? 'bill',
-                      convertFromId: state.uri.queryParameters['from'],
+                      convertFromId: state.uri.queryParameters['convertFrom'],
+                      duplicateFromId: state.uri.queryParameters['from'],
                       scanSeed: state.extra is ScannedBillSeed
                           ? state.extra as ScannedBillSeed
                           : null,
@@ -368,7 +381,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             routes: [
               GoRoute(
                 path: '/gst-reports',
-                builder: (context, state) => const GstReportsScreen(),
+                builder: (context, state) => GstReportsScreen(
+                  initialTab: state.uri.queryParameters['tab'] ?? 'gstr1',
+                ),
               ),
             ],
           ),
@@ -380,7 +395,18 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 routes: [
                   GoRoute(
                     path: 'firm',
-                    builder: (context, state) => FirmSettingsScreen(section: state.uri.queryParameters['section']),
+                    builder: (context, state) => FirmSettingsScreen(
+                      section: state.uri.queryParameters['section'],
+                    ),
+                  ),
+                  GoRoute(
+                    path: 'bank-accounts',
+                    builder: (context, state) => const BankAccountsScreen(),
+                  ),
+                  GoRoute(
+                    path: 'bank-reconciliation',
+                    builder: (context, state) =>
+                        const BankReconciliationScreen(),
                   ),
                   GoRoute(
                     path: 'backup',
@@ -553,7 +579,7 @@ class _RouteNotFound extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Page not found')),
       body: Center(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,

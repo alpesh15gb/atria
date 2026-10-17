@@ -1,3 +1,4 @@
+import '../../core/domain/gst_registration.dart';
 import 'package:decimal/decimal.dart';
 
 import 'dart:io';
@@ -85,7 +86,9 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
   bool _notFound = false;
 
   bool _dirty = false;
-  void _markDirty() => _dirty = true;
+  void _markDirty() {
+    if (!_dirty && mounted) setState(() => _dirty = true);
+  }
 
   bool get _isEditing => widget.editId != null;
 
@@ -758,9 +761,9 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                AtriaFormFieldRow(first: _gstField(), second: _cessField()),
+                if (ref.watch(activeFirmProvider).valueOrNull?.isGstRegistered == true) AtriaFormFieldRow(first: _gstField(), second: _cessField()),
                 const SizedBox(height: 12),
-                _taxModeField(),
+                if (ref.watch(activeFirmProvider).valueOrNull?.isGstRegistered == true) _taxModeField(),
               ],
             ),
             AtriaFormSection(
@@ -1217,7 +1220,8 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
     final rate = Money.tryParse(_salePriceController.text) ?? Decimal.zero;
     final cess = (Money.tryParse(_cessRateController.text) ?? Decimal.zero)
         .toDouble();
-    final inclusive = _taxMode == TaxMode.inclusive;
+    final registered = ref.read(activeFirmProvider).valueOrNull?.isGstRegistered == true;
+    final inclusive = registered && _taxMode == TaxMode.inclusive;
     final totals = GstEngine.computeLine(
       TaxLine(
         id: 'preview',
@@ -1225,8 +1229,8 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
         quantity: Decimal.one,
         unit: _unit,
         rate: rate,
-        gstRate: _gstRate,
-        cessRate: cess,
+        gstRate: registered ? _gstRate : 0,
+        cessRate: registered ? cess : 0,
         taxMode: _taxMode,
       ),
       GstSplit.intraState,
@@ -1234,7 +1238,7 @@ class _ItemEditorScreenState extends ConsumerState<ItemEditorScreen> {
     final cessPart = cess > 0 ? ' + ${Formatters.percent(cess)} cess' : '';
     return (
       total: totals.total,
-      label: inclusive
+      label: !registered ? 'Selling price (no GST)' : inclusive
           ? 'Price incl. ${Formatters.percent(_gstRate)} GST$cessPart'
           : 'Selling price + ${Formatters.percent(_gstRate)} GST$cessPart',
     );

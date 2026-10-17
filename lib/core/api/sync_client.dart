@@ -32,6 +32,19 @@ class SyncClient {
   /// legitimately takes a while.
   final Duration timeout;
 
+  /// Notification only: the normal sync run applies rows and commits cursors.
+  /// Older servers ignore waitSeconds; callers retain a bounded polling fallback.
+  Future<bool> waitForChanges({required String firmId,
+    required String accessToken, required int afterSeq}) async {
+    final json = await ServerHttp.requestJson(
+      uri: await _config.endpoint('/v1/firms/$firmId/changes?afterSeq=$afterSeq&limit=1&waitSeconds=20'),
+      method: 'GET', accessToken: accessToken,
+      timeout: const Duration(seconds: 30),
+      timeoutMessage: 'Live sync connection interrupted; reconnecting.',
+    );
+    return json['changes'] is List && (json['changes'] as List).isNotEmpty;
+  }
+
   /// Pushes [changes] for [firmId], authenticated as the given access token.
   ///
   /// Each change is `{id, entity, entityId, operation, payload, createdAt}` —

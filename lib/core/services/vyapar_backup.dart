@@ -97,6 +97,7 @@ class VyaparDocument {
     this.balanceAmount = 0,
     this.cashAmount = 0,
     this.roundOff = 0,
+    this.additionalCharges = 0,
     this.discountAmount = 0,
     this.discountPercent = 0,
     this.taxAmount = 0,
@@ -136,6 +137,7 @@ class VyaparDocument {
   final double balanceAmount;
   final double cashAmount;
   final double roundOff;
+  final double additionalCharges;
   final double discountAmount;
   final double discountPercent;
   final double taxAmount;
@@ -289,6 +291,7 @@ class VyaparSnapshot {
     required this.expenses,
     required this.settings,
     required this.warnings,
+    this.conversions = const [],
   });
 
   /// The single `kb_firms` row.
@@ -306,6 +309,7 @@ class VyaparSnapshot {
   final List<Map<String, Object?>> itemCategories;
   final List<Map<String, Object?>> partyGroups;
 
+  final List<Map<String, Object?>> conversions;
   final List<VyaparDocument> documents;
   final Map<int, List<VyaparLine>> linesByTxn;
 
@@ -380,11 +384,19 @@ class VyaparBackupReader {
   /// Throws [VyaparFormatException] with a user-facing message when the file is
   /// not a Vyapar backup.
   static Future<VyaparSnapshot> read(Uint8List bytes) async {
-    final database = _extractDatabase(bytes);
+    final (database, directory) = _extractDatabase(bytes);
     try {
       return _snapshot(database);
     } finally {
       database.dispose();
+      // On Windows, the file lock is only released when database.dispose()
+      // finishes, so the directory must be cleaned up here rather than while
+      // the database handle is still open.
+      try {
+        directory.deleteSync(recursive: true);
+      } on Object {
+        // A leftover temp file is not worth failing an import over.
+      }
     }
   }
 
@@ -393,8 +405,9 @@ class VyaparBackupReader {
   /// Unpacks the single `.vyp` SQLite file out of the `.vyb` ZIP.
   ///
   /// The database is handed to `sqlite3`, which opens by path, so it is written
-  /// to a throw-off temp directory first. The file is removed before returning.
-  static Database _extractDatabase(Uint8List bytes) {
+  /// to a throw-off temp directory first. The directory is cleaned up by the caller
+  /// once the database handle is disposed.
+  static (Database, Directory) _extractDatabase(Uint8List bytes) {
     if (bytes.length < 4 || bytes[0] != 0x50 || bytes[1] != 0x4b) {
       throw const VyaparFormatException(
         'That does not look like a Vyapar backup. Pick the .vyb file Vyapar '
@@ -441,19 +454,16 @@ class VyaparBackupReader {
       directory = Directory.systemTemp.createTempSync('atria_vyapar_');
       final file = File(p.join(directory.path, 'vyapar.vyp'))
         ..writeAsBytesSync(content);
-      return sqlite3.open(file.path, mode: OpenMode.readOnly);
+      return (sqlite3.open(file.path, mode: OpenMode.readOnly), directory);
     } on Object catch (error) {
-      throw VyaparFormatException(
-        'The Vyapar database could not be read: $error',
-      );
-    } finally {
-      // sqlite3 keeps its own handle on the bytes it has already mapped, so
-      // deleting the file here is safe on every platform we ship.
       try {
         directory?.deleteSync(recursive: true);
       } on Object {
-        // A leftover temp file is not worth failing an import over.
+        // Ignore failure during error recovery
       }
+      throw VyaparFormatException(
+        'The Vyapar database could not be read: $error',
+      );
     }
   }
 
@@ -493,53 +503,70 @@ class VyaparBackupReader {
     for (final row in _rows(db, 'kb_lineitems', orderBy: 'lineitem_id')) {
       final txnId = _int(row['lineitem_txn_id']) ?? 0;
       final lineId = _int(row['lineitem_id']) ?? 0;
-      (linesByTxn[txnId] ??= <VyaparLine>[]).add(VyaparLine(
-        id: lineId,
-        txnId: txnId,
-        sortOrder: lineId,
-        itemId: _int(row['item_id']),
-        unitId: _int(row['lineitem_unit_id']),
-        taxId: _int(row['lineitem_tax_id']),
-        quantity: _double(row['quantity']),
-        price: _double(row['priceperunit']),
-        total: _double(row['total_amount']),
-        taxAmount: _double(row['lineitem_tax_amount']),
-        discountAmount: _double(row['lineitem_discount_amount']),
-        discountPercent: _double(row['lineitem_discount_percent']),
-        cess: _double(row['lineitem_additional_cess']),
-        description: _string(row['lineitem_description']),
-      ));
+      (linesByTxn[txnId] ??= <VyaparLine>[]).add(
+        VyaparLine(
+          id: lineId,
+          txnId: txnId,
+          sortOrder: lineId,
+          itemId: _int(row['item_id']),
+          unitId: _int(row['lineitem_unit_id']),
+          taxId: _int(row['lineitem_tax_id']),
+          quantity: _double(row['quantity']),
+          price: _double(row['priceperunit']),
+          total: _double(row['total_amount']),
+          taxAmount: _double(row['lineitem_tax_amount']),
+          discountAmount: _double(row['lineitem_discount_amount']),
+          discountPercent: _double(row['lineitem_discount_percent']),
+          cess: _double(row['lineitem_additional_cess']),
+          description: _string(row['lineitem_description']),
+        ),
+      );
     }
 
+    final prefixes = {
+      for (final r in _rows(db, 'kb_prefix'))
+        _int(r['prefix_id']): _string(r['prefix_value']) ?? '',
+    };
     final documents = <VyaparDocument>[];
-    for (final row in _rows(db, 'kb_transactions', orderBy: 'txn_date, txn_id')) {
+    for (final row in _rows(
+      db,
+      'kb_transactions',
+      orderBy: 'txn_date, txn_id',
+    )) {
       final type = _int(row['txn_type']);
       final subType = _int(row['txn_sub_type']) ?? 0;
-      documents.add(VyaparDocument(
-        id: _int(row['txn_id']) ?? 0,
-        kind: vyaparDocKindFor(type, subType),
-        txnType: type ?? -1,
-        txnSubType: subType,
-        status: _int(row['txn_status']) ?? 1,
-        paymentStatus: _int(row['txn_payment_status']) ?? 1,
-        number: _string(row['txn_ref_number_char']),
-        paymentReference: _string(row['txn_payment_reference']),
-        date: _date(row['txn_date']),
-        dueDate: _date(row['txn_due_date']),
-        nameId: _int(row['txn_name_id']),
-        balanceAmount: _double(row['txn_balance_amount']),
-        cashAmount: _double(row['txn_cash_amount']),
-        roundOff: _double(row['txn_round_off_amount']),
-        discountAmount: _double(row['txn_discount_amount']),
-        discountPercent: _double(row['txn_discount_percent']),
-        taxAmount: _double(row['txn_tax_amount']),
-        placeOfSupply: _string(row['txn_place_of_supply']),
-        billingAddress: _string(row['txn_billing_address']),
-        shippingAddress: _string(row['txn_shipping_address']),
-        notes: _string(row['txn_description']),
-        paymentTypeId: _int(row['txn_payment_type_id']),
-        taxInclusive: (_int(row['txn_tax_inclusive']) ?? 0) == 1,
-      ));
+      documents.add(
+        VyaparDocument(
+          id: _int(row['txn_id']) ?? 0,
+          kind: vyaparDocKindFor(type, subType),
+          txnType: type ?? -1,
+          txnSubType: subType,
+          status: _int(row['txn_status']) ?? 1,
+          paymentStatus: _int(row['txn_payment_status']) ?? 1,
+          number:
+              '${prefixes[_int(row['txn_prefix_id'])] ?? _string(row['txn_invoice_prefix']) ?? ''}${_string(row['txn_ref_number_char']) ?? ''}',
+          paymentReference: _string(row['txn_payment_reference']),
+          date: _date(row['txn_date']),
+          dueDate: _date(row['txn_due_date']),
+          nameId: _int(row['txn_name_id']),
+          balanceAmount: _double(row['txn_balance_amount']),
+          cashAmount: _double(row['txn_cash_amount']),
+          roundOff: _double(row['txn_round_off_amount']),
+          additionalCharges: [1, 2, 3].fold<double>(
+            0,
+            (sum, i) => sum + _double(row['txn_ac${i}_amount']),
+          ),
+          discountAmount: _double(row['txn_discount_amount']),
+          discountPercent: _double(row['txn_discount_percent']),
+          taxAmount: _double(row['txn_tax_amount']),
+          placeOfSupply: _string(row['txn_place_of_supply']),
+          billingAddress: _string(row['txn_billing_address']),
+          shippingAddress: _string(row['txn_shipping_address']),
+          notes: _string(row['txn_description']),
+          paymentTypeId: _int(row['txn_payment_type_id']),
+          taxInclusive: (_int(row['txn_tax_inclusive']) ?? 0) == 1,
+        ),
+      );
     }
 
     final paymentLinks = <VyaparPaymentLink>[];
@@ -553,17 +580,21 @@ class VyaparBackupReader {
       final firstIsPayment = firstType == 3 || firstType == 4;
       final secondIsPayment = secondType == 3 || secondType == 4;
       if (firstIsPayment && !secondIsPayment) {
-        paymentLinks.add(VyaparPaymentLink(
-          paymentTxnId: firstId,
-          documentTxnId: secondId,
-          amount: amount,
-        ));
+        paymentLinks.add(
+          VyaparPaymentLink(
+            paymentTxnId: firstId,
+            documentTxnId: secondId,
+            amount: amount,
+          ),
+        );
       } else if (secondIsPayment && !firstIsPayment) {
-        paymentLinks.add(VyaparPaymentLink(
-          paymentTxnId: secondId,
-          documentTxnId: firstId,
-          amount: amount,
-        ));
+        paymentLinks.add(
+          VyaparPaymentLink(
+            paymentTxnId: secondId,
+            documentTxnId: firstId,
+            amount: amount,
+          ),
+        );
       }
     }
 
@@ -578,15 +609,18 @@ class VyaparBackupReader {
       final documentTxnId = _int(row['txn_id']);
       final paymentTypeId = _int(row['payment_id']);
       if (documentTxnId == null || paymentTypeId == null) continue;
-      paymentSplits.add(VyaparPaymentSplit(
-        paymentTypeId: paymentTypeId,
-        documentTxnId: documentTxnId,
-        amount: _double(row['amount']),
-        reference: _string(row['payment_reference']),
-      ));
+      paymentSplits.add(
+        VyaparPaymentSplit(
+          paymentTypeId: paymentTypeId,
+          documentTxnId: documentTxnId,
+          amount: _double(row['amount']),
+          reference: _string(row['payment_reference']),
+        ),
+      );
     }
 
     return VyaparSnapshot(
+      conversions: _rows(db, 'kb_linked_transactions'),
       firm: firm,
       parties: names.where((n) => _int(n['name_type']) == 1).toList(),
       expenseHeads: names.where((n) => _int(n['name_type']) == 2).toList(),
@@ -670,7 +704,8 @@ class VyaparBackupReader {
         }
         final raw = _double(line['amount']);
         final side = _journalSide(line['amount_type']) ?? (raw < 0 ? -1 : null);
-        final name = _string(account['name']) ?? _string(account['account_name']);
+        final name =
+            _string(account['name']) ?? _string(account['account_name']);
         if (side == null || name == null || raw == 0) {
           sides.clear();
           break;
@@ -700,16 +735,20 @@ class VyaparBackupReader {
       // other income. The side that is *not* Cash/bank is the category.
       final isExpense = creditIsMoney;
       final moneyName = isExpense ? credit.name : debit.name;
-      expenses.add(VyaparExpense(
-        id: id,
-        type: isExpense ? 'expense' : 'income',
-        reference: _string(entry['reference_number']) ?? 'VYP-JE-$id',
-        date: _date(entry['date']),
-        category: isExpense ? debit.name : credit.name,
-        amount: debit.amount,
-        mode: moneyName.toLowerCase().contains('cash') ? 'cash' : 'bank_transfer',
-        notes: _string(entry['description']),
-      ));
+      expenses.add(
+        VyaparExpense(
+          id: id,
+          type: isExpense ? 'expense' : 'income',
+          reference: _string(entry['reference_number']) ?? 'VYP-JE-$id',
+          date: _date(entry['date']),
+          category: isExpense ? debit.name : credit.name,
+          amount: debit.amount,
+          mode: moneyName.toLowerCase().contains('cash')
+              ? 'cash'
+              : 'bank_transfer',
+          notes: _string(entry['description']),
+        ),
+      );
     }
 
     if (unmapped > 0) {
@@ -743,9 +782,22 @@ class VyaparBackupReader {
     const hints = ['bank', 'a/c', 'acct', 'current account', 'savings'];
     if (hints.any(text.contains)) return true;
     const banks = [
-      'hdfc', 'icici', 'sbi', 'axis', 'kotak', 'idfc', 'pnb',
-      'punjab national', 'bank of baroda', 'canara', 'union bank',
-      'indusind', 'federal bank', 'rbl', 'bandhan', 'au small',
+      'hdfc',
+      'icici',
+      'sbi',
+      'axis',
+      'kotak',
+      'idfc',
+      'pnb',
+      'punjab national',
+      'bank of baroda',
+      'canara',
+      'union bank',
+      'indusind',
+      'federal bank',
+      'rbl',
+      'bandhan',
+      'au small',
     ];
     return banks.any(text.contains);
   }
@@ -756,7 +808,8 @@ class VyaparBackupReader {
     try {
       return {
         for (final row in db.select(
-            "SELECT name FROM sqlite_master WHERE type = 'table'"))
+          "SELECT name FROM sqlite_master WHERE type = 'table'",
+        ))
           row['name'] as String,
       };
     } on Object {
@@ -780,8 +833,7 @@ class VyaparBackupReader {
     }
     if (available.isEmpty) return const [];
 
-    final columns =
-        available.map((c) => '"$c"').join(', ');
+    final columns = available.map((c) => '"$c"').join(', ');
     final sql = StringBuffer('SELECT $columns FROM "$table"');
     if (orderBy != null) sql.write(' ORDER BY $orderBy');
     try {

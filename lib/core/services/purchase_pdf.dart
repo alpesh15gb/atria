@@ -6,6 +6,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'pdf_fonts.dart';
 import 'pdf_sections.dart';
 import 'pdf_template_style.dart';
+import 'reference_document_pdf.dart';
 
 import '../database/app_database.dart';
 import '../engine/gst_engine.dart';
@@ -35,6 +36,7 @@ import '../utils/number_words.dart';
 class PurchasePdf extends PdfSections {
   PurchasePdf.forFirm(FirmEntity firm)
       : super(firm, PdfTemplateStyle.resolve(firm.pdfTemplate));
+  PurchasePdf._(super.firm, super.style);
 
   static const _docTitles = {
     'bill': 'PURCHASE BILL',
@@ -47,6 +49,11 @@ class PurchasePdf extends PdfSections {
     required PurchaseBillEntity bill,
     required List<PurchaseBillItemEntity> items,
   }) async {
+    final selected = DocumentTemplates.parse(firm.pdfTemplate).forDocument('purchase');
+    if (selected.isReference) {
+      return ReferenceDocumentPdf(firm, selected).build(ReferenceDocument.purchaseBill(firm, bill, items));
+    }
+    if (selected.id != style.id) return PurchasePdf._(firm, selected).build(bill: bill, items: items);
     final doc = pw.Document(
       pageMode: PdfPageMode.fullscreen,
       theme: await PdfFonts.theme(),

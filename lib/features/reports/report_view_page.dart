@@ -1,21 +1,27 @@
+import '../../core/domain/gst_registration.dart';
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:open_filex/open_filex.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/database/app_database.dart';
+import '../../core/database/repositories/repository_extensions.dart';
 import '../../core/reports/catalogue/report_catalogue.dart';
 import '../../core/reports/engine/report_providers.dart';
 import '../../core/reports/engine/report_result.dart';
 import '../../core/reports/export/report_export_service.dart';
 import '../../core/reports/export/report_pdf_builder.dart';
 import '../../core/reports/gst_export_service.dart';
+import '../../core/reports/gstr2_purchase_export.dart';
+import '../../core/reports/vyapar_gst_workbook.dart';
 import '../../core/reports/gst_return_builder.dart';
 import '../../core/reports/spec/report_spec.dart';
 import '../../core/reports/window/report_window.dart';
 import '../../core/responsive/platform_ui.dart';
 import '../../core/services/csv_export.dart';
+import '../../core/services/save_export.dart';
 import '../../core/state/providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
@@ -47,6 +53,31 @@ class ReportViewPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final definition = ReportCatalogue.byId(reportId);
+    if (definition?.source is PlaceholderReportSource) {
+      return AtriaListPage(
+        title: definition!.spec.title,
+        body: const SizedBox(
+          height: 300,
+          child: EmptyState(
+            icon: Icons.description_outlined,
+            title: 'Report not available yet',
+            message: 'This report is still being prepared. Your business records are unchanged.',
+          ),
+        ),
+      );
+    }
+    if ((isGstReport(reportId) || definition?.spec.category == 'GST') &&
+        ref.watch(activeFirmProvider).valueOrNull?.isGstRegistered != true) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('GST reports')),
+        body: const EmptyState(
+          icon: Icons.info_outline,
+          title: 'GST registration required',
+          message: 'This business is not GST registered. Ordinary sales, purchase, profit and stock reports remain available.',
+        ),
+      );
+    }
     final window = ref.watch(reportWindowProvider);
     final filters = ref.watch(reportFiltersProvider(reportId));
     final query = ReportQuery(
@@ -65,7 +96,16 @@ class ReportViewPage extends ConsumerWidget {
       subtitle: window.spanLabel,
       // Unconditional. The single line that makes "every report has an export
       // affordance" true rather than aspirational.
-      actions: [_ExportButton(query: query)],
+      actions: [
+        if (isGstReport(reportId))
+          TextButton(
+            onPressed: () => context.push(
+              '/gst-reports?tab=${reportId == 'gstr2a_reconciliation' ? 'gstr2a' : reportId}',
+            ),
+            child: const Text('GST filing & 2A import'),
+          ),
+        _ExportButton(query: query),
+      ],
       toolbar: [
         ReportPeriodToolbar(
           window: window,
@@ -76,11 +116,7 @@ class ReportViewPage extends ConsumerWidget {
         // rather than a check on the filter list, because a bar that renders as
         // an empty strip is a strip the reader has to look at to learn nothing.
         if (spec?.hasFilters ?? false)
-          ReportFilterBar(
-            reportId: reportId,
-            spec: spec!,
-            filters: filters,
-          ),
+          ReportFilterBar(reportId: reportId, spec: spec!, filters: filters),
       ],
       body: SizedBox(
         // `AtriaListPage.body` needs a bounded height — see that class's doc.
@@ -149,7 +185,29 @@ class _ReportBody extends ConsumerWidget {
         if (!integrity.isClean) _IntegrityBanner(integrity: integrity),
         if (result.notes.isNotEmpty) _NotesStrip(notes: result.notes),
         Expanded(child: body),
-        if (spec.footnote != null)
+        if (spec.footnote != null && Theme.of(context).platform.isMobileUi)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              icon: const Icon(Icons.info_outline, size: 18),
+              label: const Text('About this report'),
+              onPressed: () => showModalBottomSheet<void>(
+                context: context,
+                isScrollControlled: true,
+                useSafeArea: true,
+                builder: (context) => ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.sizeOf(context).height * .7,
+                  ),
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(spec.footnote!),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        if (spec.footnote != null && !Theme.of(context).platform.isMobileUi)
           Padding(
             padding: const EdgeInsets.fromLTRB(
               AppSpace.sm,
@@ -305,13 +363,28 @@ class _ErrorPanel extends StatelessWidget {
 /// `statement_of_account_screen.dart:405-447`. Sharing the shape matters more
 /// than it looks: the user has to be told where the file went *and* get it open,
 /// and a report the user cannot find again is an export they will run twice.
-class _ExportButton extends ConsumerWidget {
+class _ExportButton extends ConsumerStatefulWidget {
   const _ExportButton({required this.query});
 
   final ReportQuery query;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ExportButton> createState() => _ExportButtonState();
+}
+
+class _ExportButtonState extends ConsumerState<_ExportButton> {
+  /// An export in flight.
+  ///
+  /// Without it the popup stays enabled for the whole write, so a double tap
+  /// fired two exports and two `OpenFilex.open` calls — and for a GST return
+  /// that is two files written and the user left unsure which they filed.
+  /// `gst_reports_screen` has had a `_busy` flag for this all along.
+  bool _busy = false;
+
+  ReportQuery get query => widget.query;
+
+  @override
+  Widget build(BuildContext context) {
     // **The menu narrows by platform.** On a phone the choices are Excel and —
     // for a GST return — the portal payload. CSV, PDF and Print stay on desktop:
     // a PDF is a desktop artefact here, and the print spool is the one the user
@@ -327,7 +400,8 @@ class _ExportButton extends ConsumerWidget {
     return PopupMenuButton<_ExportFormat>(
       icon: const Icon(Icons.ios_share),
       tooltip: 'Export',
-      onSelected: (format) => _run(context, ref, format),
+      enabled: !_busy,
+      onSelected: (format) => _run(context, format),
       itemBuilder: (context) => isMobile
           ? [
               const PopupMenuItem(
@@ -340,26 +414,34 @@ class _ExportButton extends ConsumerWidget {
               if (hasPortalUpload)
                 const PopupMenuItem(
                   value: _ExportFormat.portalJson,
-                  child: Text('Download for GST portal'),
+                  child: Text('Download GST JSON draft'),
                 ),
             ]
-          : const [
-              PopupMenuItem(value: _ExportFormat.csv, child: Text('Export as CSV')),
+          : [
+              PopupMenuItem(
+                value: _ExportFormat.csv,
+                child: Text('Export as CSV'),
+              ),
               PopupMenuItem(
                 value: _ExportFormat.excel,
                 child: Text('Export as Excel'),
               ),
-              PopupMenuItem(value: _ExportFormat.pdf, child: Text('Export as PDF')),
+              PopupMenuItem(
+                value: _ExportFormat.pdf,
+                child: Text('Export as PDF'),
+              ),
               PopupMenuItem(value: _ExportFormat.print, child: Text('Print')),
+              if (hasPortalUpload)
+                const PopupMenuItem(
+                  value: _ExportFormat.portalJson,
+                  child: Text('GST JSON preparation draft'),
+                ),
             ],
     );
   }
 
-  Future<void> _run(
-    BuildContext context,
-    WidgetRef ref,
-    _ExportFormat format,
-  ) async {
+  Future<void> _run(BuildContext context, _ExportFormat format) async {
+    if (_busy) return;
     final messenger = ScaffoldMessenger.maybeOf(context);
     // Read once, here, and passed down: the portal payload needs the database and
     // the firm, and the report result carries neither — it is a computed result,
@@ -371,7 +453,12 @@ class _ExportButton extends ConsumerWidget {
       );
       return;
     }
-    final db = ref.watch(appDatabaseProvider);
+    // `read`, not `watch`: this is an event handler, not a build. A `watch`
+    // here registers the dependency outside the build that is running, so it is
+    // not part of the set the next build reconciles — it can be silently closed,
+    // or left holding a stale subscription. Every sibling line above uses
+    // `read`, and Riverpod's own docs prescribe it outside `build`.
+    final db = ref.read(appDatabaseProvider);
     final async = ref.read(reportResultProvider(query));
 
     // Nothing to export from a report that failed or has not loaded. Saying so
@@ -384,6 +471,7 @@ class _ExportButton extends ConsumerWidget {
       return;
     }
 
+    setState(() => _busy = true);
     try {
       final dir = await exportRootDirectory();
       final file = switch (format) {
@@ -391,20 +479,44 @@ class _ExportButton extends ConsumerWidget {
           result,
           dir,
         ),
-        _ExportFormat.excel => await const ReportExportService().writeExcel(
-          result,
-          dir,
-        ),
+        _ExportFormat.excel =>
+          query.reportId == 'gstr2_purchase'
+              ? await Gstr2PurchaseExport().write(
+                  result,
+                  dir,
+                  gstin: await _firmGstin(db, firmId),
+                  firmName:
+                      (await db.firmRepository.getById(firmId))?.name ?? '',
+                )
+              : query.reportId == 'gstr1'
+              ? await VyaparGstWorkbook().gstr1(
+                  await GstReturnBuilder(db, firmId).buildGstr1(
+                    from: result.window.from ?? DateTime(2000),
+                    to: result.window.to ?? DateTime.now(),
+                  ),
+                  File('${dir.path}/GSTR1_Report_${exportTimestamp()}.xlsx'),
+                )
+              : query.reportId == 'gstr3b'
+              ? await VyaparGstWorkbook().gstr3b(
+                  await buildGstr3b(
+                    db,
+                    firmId,
+                    from: result.window.from ?? DateTime(2000),
+                    to: result.window.to ?? DateTime.now(),
+                  ),
+                  File('${dir.path}/GSTR3B_Report_${exportTimestamp()}.xlsx'),
+                )
+              : await const ReportExportService().writeExcel(result, dir),
         _ExportFormat.pdf => await const ReportPdfBuilder().write(result, dir),
         // Print goes through the spool, not the filesystem — it has no file to
         // open afterwards, so the snackbar is the whole interaction.
         _ExportFormat.print => null,
         _ExportFormat.portalJson => await writePortalPayload(
-            db,
-            firmId,
-            query.reportId,
-            result.window,
-          ),
+          db,
+          firmId,
+          query.reportId,
+          result.window,
+        ),
       };
 
       if (format == _ExportFormat.print) {
@@ -416,20 +528,41 @@ class _ExportButton extends ConsumerWidget {
         return;
       }
 
+      final saved = file == null ? null : await saveExportAs(file);
+      if (saved == null) return;
       messenger?.showSnackBar(
         SnackBar(
           content: Text(
-            '${ReportExportService.describe(result)} saved to ${dir.path}',
+            '${ReportExportService.describe(result)} saved to $saved',
           ),
         ),
       );
       // Only open when there is a file. `file` is null on the print path,
       // which has already returned by here.
-      if (file != null) await OpenFilex.open(file.path);
     } catch (e) {
-      messenger?.showSnackBar(SnackBar(content: Text('Could not export: $e')));
+      messenger?.showSnackBar(
+        SnackBar(content: Text('Could not export: ${_humanExportError(e)}')),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
+}
+
+/// A failure in words, not in internals.
+///
+/// `$e` on a `FileSystemException` prints the user's full absolute path and on a
+/// drift exception prints the table and column that failed. Neither belongs in a
+/// snackbar shown to a shopkeeper, so the raw text goes to the log instead.
+String _humanExportError(Object error) {
+  if (error is FileSystemException) {
+    return 'the file could not be written — check the folder exists and is writable';
+  }
+  if (error is FormatException) {
+    return 'the file was in a format Apex Books could not read';
+  }
+  debugPrint('report export failed: $error');
+  return 'something went wrong writing the file';
 }
 
 /// The portal payload for whichever return this report is.
@@ -447,28 +580,65 @@ Future<File?> writePortalPayload(
 ) async {
   final from = window.from ?? DateTime(2000, 1, 1);
   final to = window.to ?? DateTime.now().add(const Duration(days: 1));
+  final fullMonth =
+      from.day == 1 &&
+      from.year == to.year &&
+      from.month == to.month &&
+      to.day == DateTime(to.year, to.month + 1, 0).day;
+  final fullQuarter =
+      from.day == 1 &&
+      (from.month - 1) % 3 == 0 &&
+      from.year == to.year &&
+      to.month == from.month + 2 &&
+      to.day == DateTime(to.year, to.month + 1, 0).day;
+  if (!fullMonth && !fullQuarter) {
+    throw const FormatException(
+      'Select a complete calendar month or QRMP quarter for GST JSON export.',
+    );
+  }
   final service = GstExportService();
   final dir = switch (reportId) {
     'gstr1' => await service.exportGstr1(
-        await GstReturnBuilder(db, firmId).buildGstr1(from: from, to: to),
-      ),
+      await GstReturnBuilder(db, firmId).buildGstr1(from: from, to: to),
+    ),
     'gstr3b' => await service.exportGstr3b(
-        await buildGstr3b(db, firmId, from: from, to: to),
-      ),
+      // The GSTIN is passed explicitly. `exportGstr3b` takes it as a separate
+      // argument (a `Gstr3bReport` carries no firm GSTIN of its own), so
+      // omitting it filed 3B under `NOGSTIN/` while GSTR-1 for the same firm
+      // went under its real GSTIN — the same period, two different folders.
+      await buildGstr3b(db, firmId, from: from, to: to),
+      gstin: await _firmGstin(db, firmId),
+    ),
     _ => null,
   };
   if (dir == null) return null;
-  // The export service returns the directory it wrote into; the payload is the
-  // JSON it just wrote. Picked by extension and then by name rather than by
-  // "newest", because a clock difference between two writes in the same call is
-  // not a thing to depend on.
+  // The export service returns the *directory* it wrote into, and both returns
+  // for one filing period share it (`_periodDir` keys on GSTIN + period), so
+  // scanning it and taking `files.first` could hand back the other return:
+  // sorted by path, `gstr1_…` precedes `gstr3b_…`, so asking for a GSTR-3B
+  // payload after a GSTR-1 export opened the **GSTR-1** file. `gst_reports_screen`
+  // composes the exact name instead; so does this.
   final files = dir
       .listSync()
       .whereType<File>()
       .where((f) => f.path.endsWith('.json'))
-      .toList()
-    ..sort((a, b) => a.path.compareTo(b.path));
+      .toList();
+  final wanted = reportId == 'gstr3b' ? 'gstr3b_' : 'gstr1_';
+  final matches = files.where((f) {
+    final name = f.uri.pathSegments.last;
+    return name.startsWith(wanted);
+  }).toList()..sort((a, b) => a.path.compareTo(b.path));
+  if (matches.isNotEmpty) return matches.first;
   return files.isEmpty ? null : files.first;
+}
+
+/// The firm's GSTIN, or empty when it has not recorded one — which is the same
+/// thing `_periodDir` treats as `NOGSTIN`.
+Future<String> _firmGstin(AppDatabase db, String firmId) async {
+  final firm = await (db.select(
+    db.firms,
+  )..where((f) => f.id.equals(firmId))).getSingleOrNull();
+  return (firm?.gstin ?? '').trim();
 }
 
 enum _ExportFormat {

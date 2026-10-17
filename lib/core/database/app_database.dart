@@ -57,7 +57,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.test(super.e);
 
   @override
-  int get schemaVersion => 12;
+  int get schemaVersion => 14;
 
   /// Who is operating, for local-user permissions.
   ///
@@ -255,6 +255,32 @@ class AppDatabase extends _$AppDatabase {
         await m.createIndex(idxLoansParty);
         await m.createIndex(idxLoanTxnLoan);
         await m.createIndex(idxGstr9AdjFirm);
+      }
+      if (from == 12) {
+        await m.addColumn(bankAccounts, bankAccounts.openingBalance);
+        // v12 cached every live payment, including uncleared cheques. Recover
+        // the operator's opening figure before rebuilding with cleared money.
+        await customStatement('''UPDATE bank_accounts SET opening_balance = current_balance - COALESCE((
+          SELECT SUM(CASE WHEN type = 'payment_in' THEN amount ELSE -amount END)
+          FROM payments WHERE payments.bank_account_id = bank_accounts.id
+          AND payments.firm_id = bank_accounts.firm_id AND is_deleted = 0
+        ), 0)''');
+        await customStatement('''UPDATE bank_accounts SET current_balance = opening_balance + COALESCE((
+          SELECT SUM(CASE WHEN type = 'payment_in' THEN amount ELSE -amount END)
+          FROM payments WHERE payments.bank_account_id = bank_accounts.id
+          AND payments.firm_id = bank_accounts.firm_id AND is_deleted = 0
+          AND ((mode != 'cheque' AND cheque_status IS NULL) OR cheque_status = 'cleared')
+        ), 0)''');
+      }
+      if (from < 14) {
+        final purchaseColumns = await customSelect('PRAGMA table_info(purchase_bills)').get();
+        if (!purchaseColumns.any((row) => row.data['name'] == 'itc_eligible')) {
+          await m.addColumn(purchaseBills, purchaseBills.itcEligible);
+        }
+        final expenseColumns = await customSelect('PRAGMA table_info(expenses)').get();
+        if (!expenseColumns.any((row) => row.data['name'] == 'itc_eligible')) {
+          await m.addColumn(expenses, expenses.itcEligible);
+        }
       }
     },
   );

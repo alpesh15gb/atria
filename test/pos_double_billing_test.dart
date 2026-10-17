@@ -27,7 +27,7 @@ void main() {
 
   setUp(() async {
     db = AppDatabase.test(NativeDatabase.memory());
-    firmId = (await db.firmRepository.create(name: 'Apex Traders')).id;
+    firmId = (await db.firmRepository.create(gstin: '29ABCDE1234F1Z5', name: 'Apex Traders')).id;
   });
 
   tearDown(() => db.close());
@@ -211,6 +211,7 @@ class _FailingPayments extends PaymentRepository {
 
   @override
   Future<PaymentEntity> create({
+    String? paymentId,
     required String type,
     required String number,
     String? partyId,
@@ -223,6 +224,7 @@ class _FailingPayments extends PaymentRepository {
     String? linkedInvoiceId,
     String? linkedInvoiceNumber,
     String? bankAccount,
+    String? bankAccountId,
     String? notes,
     int sequence = 0,
     Future<void> Function(String linkedId, double amount)? onLinked,

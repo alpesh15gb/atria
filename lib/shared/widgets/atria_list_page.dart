@@ -84,36 +84,53 @@ class AtriaListPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (Theme.of(context).platform.isMobileUi) {
-      final date = filters.whereType<AtriaAdaptiveFilter>().where((filter) => filter.label == 'Date').firstOrNull;
+      final date = filters
+          .whereType<AtriaAdaptiveFilter>()
+          .where((filter) => filter.label == 'Date')
+          .firstOrNull;
       final remaining = filters.where((filter) => filter != date).toList();
       return MobileListPage(
         title: title,
+        subtitle: subtitle,
         header: mobileHeader,
         actions: actions,
-        body: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (search != null && date != null) Row(children: [Expanded(child: search!), const SizedBox(width: 6), date]) else ?search,
-              if (date != null && search == null) date,
-              if (mobileHeader != null)
-                if (actions.whereType<AtriaHeaderIconAction>().isNotEmpty) Row(mainAxisAlignment: MainAxisAlignment.end, children: actions.whereType<AtriaHeaderIconAction>().toList()),
-              if (remaining.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 10, bottom: 8),
-                  child: AtriaFilterBar(
-                    filters: remaining,
-                    padding: EdgeInsets.zero,
+        toolbar: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (search != null && date != null)
+                  Row(
+                    children: [
+                      Expanded(child: search!),
+                      const SizedBox(width: 6),
+                      date,
+                    ],
+                  )
+                else
+                  ?search,
+                if (date != null && search == null) date,
+                if (remaining.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10, bottom: 8),
+                    child: AtriaFilterBar(
+                      filters: remaining,
+                      padding: EdgeInsets.zero,
+                    ),
                   ),
-                ),
-              for (final row in toolbar)
-                Padding(padding: const EdgeInsets.only(bottom: 10), child: row),
-              Expanded(
-                child: body ?? CustomScrollView(slivers: slivers ?? const []),
-              ),
-            ],
+                for (final row in toolbar)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: row,
+                  ),
+              ],
+            ),
           ),
+        ],
+        body: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: body ?? CustomScrollView(slivers: slivers ?? const []),
         ),
       );
     }

@@ -1,14 +1,13 @@
 import 'dart:async';
 
 import 'package:decimal/decimal.dart';
-import 'package:drift/drift.dart' show Value;
+import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/database/app_database.dart';
 import '../../core/database/repositories/firm_repository.dart';
 import '../../core/database/repositories/payment_repository.dart';
-import '../../core/responsive/breakpoints.dart';
 import '../../core/state/providers.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_theme.dart';
@@ -176,7 +175,8 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
         // the list below — otherwise the same cheque appears twice on one
         // screen. A search stands the strip down: a search must be able to
         // find a cheque by number, reference or party like anything else.
-        final uncleared = ref.watch(_unclearedChequesProvider).valueOrNull ??
+        final uncleared =
+            ref.watch(_unclearedChequesProvider).valueOrNull ??
             const <PaymentEntity>[];
         final searching = _search.isNotEmpty;
         final inStrip = searching
@@ -192,7 +192,9 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
           slivers: [
             SliverToBoxAdapter(child: _summaryRow(context, summary)),
             if (!searching)
-              SliverToBoxAdapter(child: _chequeBucket(context, repo, uncleared)),
+              SliverToBoxAdapter(
+                child: _chequeBucket(context, repo, uncleared),
+              ),
             SliverToBoxAdapter(
               child: Padding(
                 padding: EdgeInsets.fromLTRB(0, AppSpace.sm, 0, 0),
@@ -388,12 +390,12 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
             Text(
               bothWays
                   ? 'Money in ${Formatters.money(inTotal)} · money out '
-                      '${Formatters.money(outTotal)}. Deposit the ones in '
-                      'hand, then mark what the bank has cleared. A bounced '
-                      'cheque releases the invoice it was settling.'
+                        '${Formatters.money(outTotal)}. Deposit the ones in '
+                        'hand, then mark what the bank has cleared. A bounced '
+                        'cheque releases the invoice it was settling.'
                   : 'Deposit the ones in hand, then mark what the bank has '
-                      'cleared. A bounced cheque releases the invoice it was '
-                      'settling.',
+                        'cleared. A bounced cheque releases the invoice it was '
+                        'settling.',
               style: text.bodySmall?.copyWith(
                 color: scheme.onSurfaceVariant,
                 height: 1.4,
@@ -520,40 +522,52 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
     final balances = state.valueOrNull;
     final loading = balances == null;
     final s = balances ?? const CashBankBalances();
+    final cards = <Widget>[
+      _SummaryCard(
+        label: 'Cash in hand',
+        icon: Icons.payments_rounded,
+        value: Money.of(s.cash),
+        tone: s.cash >= 0 ? Tone.positive : Tone.negative,
+        loading: loading,
+      ),
+      _SummaryCard(
+        label: 'Bank accounts',
+        icon: Icons.account_balance_rounded,
+        value: Money.of(s.bank),
+        tone: s.bank >= 0 ? Tone.positive : Tone.negative,
+        loading: loading,
+      ),
+      _SummaryCard(
+        label: 'Cheques to deposit',
+        icon: Icons.receipt_long_rounded,
+        value: Money.of(s.cheques),
+        tone: Tone.neutral,
+        loading: loading,
+      ),
+    ];
     return Padding(
       padding: const EdgeInsets.fromLTRB(0, 12, 0, 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: _SummaryCard(
-              label: 'Cash in hand',
-              icon: Icons.payments_rounded,
-              value: Money.of(s.cash),
-              tone: s.cash >= 0 ? Tone.positive : Tone.negative,
-              loading: loading,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _SummaryCard(
-              label: 'Bank accounts',
-              icon: Icons.account_balance_rounded,
-              value: Money.of(s.bank),
-              tone: s.bank >= 0 ? Tone.positive : Tone.negative,
-              loading: loading,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _SummaryCard(
-              label: 'Cheques to deposit',
-              icon: Icons.receipt_long_rounded,
-              value: Money.of(s.cheques),
-              tone: Tone.neutral,
-              loading: loading,
-            ),
-          ),
-        ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth < 520) {
+            return Column(
+              children: [
+                for (var i = 0; i < cards.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 8),
+                  SizedBox(width: double.infinity, child: cards[i]),
+                ],
+              ],
+            );
+          }
+          return Row(
+            children: [
+              for (var i = 0; i < cards.length; i++) ...[
+                if (i > 0) const SizedBox(width: 12),
+                Expanded(child: cards[i]),
+              ],
+            ],
+          );
+        },
       ),
     );
   }
@@ -808,73 +822,73 @@ class _SummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    // Below a compact width three cards side by side are ~101dp each, which
-    // leaves ~27dp for the figure after the icon — narrower than "₹1,000.00",
-    // so it painted off the card and off the screen. Stack the icon above
-    // the text instead, which needs no horizontal room at all.
-    final stack = MediaQuery.sizeOf(context).width < Breakpoints.compact;
-    return AtriaCard(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      child: stack
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: scheme.primaryContainer,
-                    borderRadius: AppRadius.smAll,
-                  ),
-                  child: Icon(
-                    icon,
-                    size: AppIconSize.md,
-                    color: scheme.primary,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  label,
-                  style: Theme.of(context).textTheme.bodySmall
-                      ?.copyWith(color: scheme.onSurfaceVariant),
-                ),
-                const SizedBox(height: 2),
-                _figure(context, compact: true),
-              ],
-            )
-          : Row(
-              children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: scheme.primaryContainer,
-                    borderRadius: AppRadius.smAll,
-                  ),
-                  child: Icon(
-                    icon,
-                    size: AppIconSize.md,
-                    color: scheme.primary,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        label,
-                        style: Theme.of(context).textTheme.bodySmall
-                            ?.copyWith(color: scheme.onSurfaceVariant),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stack = constraints.maxWidth < 240;
+        return AtriaCard(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          child: stack
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: scheme.primaryContainer,
+                        borderRadius: AppRadius.smAll,
                       ),
-                      const SizedBox(height: 2),
-                      _figure(context, compact: false),
-                    ],
-                  ),
+                      child: Icon(
+                        icon,
+                        size: AppIconSize.md,
+                        color: scheme.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      label,
+                      style: Theme.of(context).textTheme.bodySmall
+                          ?.copyWith(color: scheme.onSurfaceVariant),
+                    ),
+                    const SizedBox(height: 2),
+                    _figure(context, compact: true),
+                  ],
+                )
+              : Row(
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: scheme.primaryContainer,
+                        borderRadius: AppRadius.smAll,
+                      ),
+                      child: Icon(
+                        icon,
+                        size: AppIconSize.md,
+                        color: scheme.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            label,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: scheme.onSurfaceVariant),
+                          ),
+                          const SizedBox(height: 2),
+                          _figure(context, compact: false),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+        );
+      },
     );
   }
 
@@ -1026,6 +1040,19 @@ class _PaymentEditorSheetState extends ConsumerState<_PaymentEditorSheet> {
   String _mode = 'cash';
   DateTime _date = DateTime.now();
   List<PartyEntity> _parties = const [];
+
+  /// The account the money moved through, by name — the same shape the
+  /// repository's `bankAccount` column has always held, and which
+  /// `PaymentRepository` resolves into `bankAccountId`.
+  String? _bankAccount;
+  String? _bankAccountId;
+  bool _accountChosen = false;
+
+  /// The firm's accounts, so the picker can offer them. Empty means the firm has
+  /// set none up, and the picker then renders nothing at all rather than an
+  /// empty dropdown.
+  List<BankAccountEntity> _accounts = const [];
+  StreamSubscription<List<BankAccountEntity>>? _accountsSub;
   String? _amountError;
   bool _submitting = false;
 
@@ -1061,6 +1088,13 @@ class _PaymentEditorSheetState extends ConsumerState<_PaymentEditorSheet> {
     _mode = existing?.mode ?? 'cash';
     _date = existing?.date ?? DateTime.now();
     _selectedPartyName = existing?.partyName;
+    // The name, not the id: `bankAccount` is the free-text column every caller
+    // has always written, and the repository resolves it against the account
+    // list on the way in.
+    _bankAccountId = existing?.bankAccountId;
+    _bankAccount = (existing?.bankAccount ?? '').trim().isEmpty
+        ? null
+        : existing!.bankAccount!.trim();
 
     // A subscription, not `.first.then(...)`: `.first` still opens the query,
     // and its `.then` was neither cancellable nor guarded, so it resolved
@@ -1072,11 +1106,38 @@ class _PaymentEditorSheetState extends ConsumerState<_PaymentEditorSheet> {
         setState(() => _parties = list);
       });
     }
+
+    // Live, so an account added in Settings appears without reopening this
+    // sheet — the same reason the party list is a subscription.
+    final db = ref.read(appDatabaseProvider);
+    final firmId = ref.read(activeFirmIdProvider);
+    if (firmId != null) {
+      final query = db.select(db.bankAccounts)
+        ..where((a) => a.firmId.equals(firmId) & a.isArchived.equals(false))
+        ..orderBy([(a) => OrderingTerm.asc(a.name)]);
+      _accountsSub = query.watch().listen((list) {
+        if (!mounted) return;
+        setState(() {
+          _accounts = list;
+          if (!_accountChosen) {
+            for (final account in list) {
+              if (account.id == _bankAccountId ||
+                  (_bankAccountId == null && account.name == _bankAccount)) {
+                _bankAccountId = account.id;
+                _bankAccount = account.name;
+                break;
+              }
+            }
+          }
+        });
+      });
+    }
   }
 
   @override
   void dispose() {
     _partiesSub?.cancel();
+    _accountsSub?.cancel();
     _typeController.dispose();
     _partyController.dispose();
     _amountController.dispose();
@@ -1121,9 +1182,9 @@ class _PaymentEditorSheetState extends ConsumerState<_PaymentEditorSheet> {
           .where((p) => p.id == partyId)
           .cast<PartyEntity?>()
           .firstWhere((p) => p != null, orElse: () => null);
-      final firm = await ref.read(firmRepositoryProvider).getById(
-        widget.firmId,
-      );
+      final firm = await ref
+          .read(firmRepositoryProvider)
+          .getById(widget.firmId);
       if (firm == null) {
         if (mounted) setState(() => _submitting = false);
         return false;
@@ -1153,6 +1214,8 @@ class _PaymentEditorSheetState extends ConsumerState<_PaymentEditorSheet> {
             mode: _mode,
             reference: Value(_trimmedOrNull(_referenceController.text)),
             notes: Value(_trimmedOrNull(_notesController.text)),
+            bankAccount: Value(_bankAccount),
+            bankAccountId: Value(_bankAccountId),
           ),
         );
       } else {
@@ -1166,6 +1229,10 @@ class _PaymentEditorSheetState extends ConsumerState<_PaymentEditorSheet> {
           mode: _mode,
           reference: _trimmedOrNull(_referenceController.text),
           notes: _trimmedOrNull(_notesController.text),
+          // The account name. The repository resolves it to `bankAccountId`
+          // and maintains the account's cached balance — see `create`.
+          bankAccount: _bankAccount,
+          bankAccountId: _bankAccountId,
         );
       }
       return true;
@@ -1182,6 +1249,57 @@ class _PaymentEditorSheetState extends ConsumerState<_PaymentEditorSheet> {
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
+  }
+
+  /// The account picker, or nothing when the firm has set none up.
+  ///
+  /// Returns an empty box rather than a disabled field when there are no
+  /// accounts: an empty dropdown invites the question "why is this grey?", and
+  /// the answer is only discoverable in Settings.
+  Widget _accountField() {
+    final accounts = _accounts;
+    if (accounts.isEmpty && _bankAccountId == null) {
+      return const SizedBox.shrink();
+    }
+    final missing =
+        _bankAccountId != null && !accounts.any((a) => a.id == _bankAccountId);
+    return DropdownButtonFormField<String>(
+      key: ValueKey(_bankAccountId),
+      iconSize: AppIconSize.md,
+      initialValue: _bankAccountId,
+      isExpanded: true,
+      decoration: const InputDecoration(
+        labelText: 'Account',
+        helperText: 'Feeds the Bank Statement report',
+      ),
+      items: [
+        const DropdownMenuItem<String>(
+          value: null,
+          child: Text('Not specified'),
+        ),
+        for (final account in accounts)
+          DropdownMenuItem<String>(
+            value: account.id,
+            child: Text(account.name),
+          ),
+        if (missing)
+          DropdownMenuItem<String>(
+            value: _bankAccountId,
+            child: Text(_bankAccount ?? 'Archived account'),
+          ),
+      ],
+      onChanged: (id) => setState(() {
+        _accountChosen = true;
+        _bankAccountId = id;
+        _bankAccount = null;
+        for (final account in accounts) {
+          if (account.id == id) {
+            _bankAccount = account.name;
+            break;
+          }
+        }
+      }),
+    );
   }
 
   @override
@@ -1209,8 +1327,7 @@ class _PaymentEditorSheetState extends ConsumerState<_PaymentEditorSheet> {
           Autocomplete<PartyEntity>(
             displayStringForOption: (p) => p.name,
             optionsBuilder: (v) => _parties.where(
-              (p) =>
-                  p.name.toLowerCase().contains(v.text.trim().toLowerCase()),
+              (p) => p.name.toLowerCase().contains(v.text.trim().toLowerCase()),
             ),
             onSelected: (p) {
               _partyController.text = p.id;
@@ -1255,13 +1372,32 @@ class _PaymentEditorSheetState extends ConsumerState<_PaymentEditorSheet> {
             items: const [
               DropdownMenuItem(value: 'cash', child: Text('Cash')),
               DropdownMenuItem(value: 'bank', child: Text('Bank')),
+              DropdownMenuItem(
+                value: 'bank_transfer',
+                child: Text('Bank Transfer (NEFT/RTGS/IMPS)'),
+              ),
               DropdownMenuItem(value: 'upi', child: Text('UPI')),
               DropdownMenuItem(value: 'neft', child: Text('NEFT/RTGS')),
               DropdownMenuItem(value: 'cheque', child: Text('Cheque')),
               DropdownMenuItem(value: 'card', child: Text('Card')),
+              DropdownMenuItem(value: 'other', child: Text('Other')),
             ],
             onChanged: (v) => setState(() => _mode = v ?? 'cash'),
           ),
+          const SizedBox(height: 12),
+          // Which account the money moved through.
+          //
+          // Without this the Bank Statement has nothing to report: the report
+          // keys on `payments.bankAccountId`, and the only thing that ever set
+          // it was `PaymentRepository`'s name match against an account the
+          // operator had never been able to create. A shop with three accounts
+          // could record *that* money moved but never *which*, which is the
+          // whole question the report answers.
+          //
+          // Optional on purpose — a counter sale paid out of the drawer is still
+          // a legitimate payment — but an account that exists and is never
+          // chosen is a silent hole in the books.
+          _accountField(),
           const SizedBox(height: 12),
           TextField(
             controller: _referenceController,

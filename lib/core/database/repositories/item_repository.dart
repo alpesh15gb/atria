@@ -176,9 +176,16 @@ class ItemRepository with SyncQueueMixin {
   Future<ItemEntity> update(ItemEntity item) async {
     db.assertPermission(Permission.manageMasters);
     await db.transaction(() async {
-      await db
-          .update(db.items)
-          .replace(item.copyWith(updatedAt: DateTime.now()));
+      final current = await getById(item.id);
+      if (current == null || current.isDeleted) {
+        throw StateError('Item no longer exists.');
+      }
+      await db.update(db.items).replace(item.copyWith(
+        firmId: firmId,
+        currentStock: current.currentStock,
+        openingStock: current.openingStock,
+        updatedAt: DateTime.now(),
+      ));
       await enqueue(
         firmId: firmId,
         entity: 'items',
@@ -421,6 +428,7 @@ class ItemRepository with SyncQueueMixin {
     // movement: a firm with years of purchases would otherwise issue one
     // query per movement.
     final billLines = <String, PurchaseBillItemEntity>{};
+    final nonCreditBills = <String>{};
     final byBillAndItem = <String, List<PurchaseBillItemEntity>>{};
     final sourceIds = movements
         .map((m) => m.sourceId)
@@ -428,6 +436,9 @@ class ItemRepository with SyncQueueMixin {
         .where((id) => id.isNotEmpty)
         .toSet();
     if (sourceIds.isNotEmpty) {
+      final bills = await (db.select(db.purchaseBills)..where((t) =>
+          t.firmId.equals(firmId) & t.id.isIn(sourceIds))).get();
+      nonCreditBills.addAll(bills.where((b) => !b.itcEligible).map((b) => b.id));
       final lines = await (db.select(
         db.purchaseBillItems,
       )..where((t) => t.billId.isIn(sourceIds))).get();
@@ -453,7 +464,7 @@ class ItemRepository with SyncQueueMixin {
       if (lineId != null) {
         final line = billLines[lineId];
         if (line != null) {
-          return _netUnitCost(line.taxableValue, line.quantity);
+          return _netUnitCost(nonCreditBills.contains(line.billId) ? line.total : line.taxableValue, line.quantity);
         }
       }
 
@@ -466,7 +477,7 @@ class ItemRepository with SyncQueueMixin {
       if (index >= lines.length) return null;
       consumed[key] = index + 1;
       final line = lines[index];
-      return _netUnitCost(line.taxableValue, line.quantity);
+      return _netUnitCost(nonCreditBills.contains(line.billId) ? line.total : line.taxableValue, line.quantity);
     }
 
     // Group by item: each item's average is its own running total, and
@@ -535,6 +546,9 @@ class ItemRepository with SyncQueueMixin {
     String? godownId,
     Decimal? unitCost,
   }) async {
+    if (kind == 'adjustment' || source == 'manual') {
+      db.assertPermission(Permission.manageMasters);
+    }
     await _recordMovement(
       StockMovementInput(
         itemId: itemId,

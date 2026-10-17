@@ -1,3 +1,5 @@
+import '../../core/domain/member_role.dart';
+import '../../core/state/member_session_controller.dart';
 import 'package:decimal/decimal.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -254,7 +256,7 @@ class _StockScreenState extends ConsumerState<StockScreen> {
             AtriaHeaderIconAction(
               icon: Icons.tune_rounded,
               tooltip: 'Adjust stock',
-              onPressed: repo == null ? null : () => _adjustStock(),
+              onPressed: repo == null || !ref.watch(sessionCanProvider(Permission.manageMasters)) ? null : () => _adjustStock(),
             ),
             AtriaHeaderIconAction(
               icon: Icons.refresh_rounded,
@@ -499,7 +501,7 @@ class _StockScreenState extends ConsumerState<StockScreen> {
       color: scheme.surface,
       child: InkWell(
         onTap: () => _showMovements(row),
-        onLongPress: () => _adjustStock(row),
+        onLongPress: ref.watch(sessionCanProvider(Permission.manageMasters)) ? () => _adjustStock(row) : null,
         child: Container(
           decoration: BoxDecoration(
             border: Border(

@@ -514,6 +514,7 @@ class TransactionTableRow extends StatelessWidget {
     this.amountColorize = false,
     this.dimmed = false,
     this.showStatusChip = true,
+    this.showBalance = true,
   });
 
   final VoidCallback onTap;
@@ -541,6 +542,7 @@ class TransactionTableRow extends StatelessWidget {
   /// row ("Confirmed … [Confirmed]") and pushed the balance value left of
   /// its header. Lists with a Status column pass false.
   final bool showStatusChip;
+  final bool showBalance;
 
   @override
   Widget build(BuildContext context) {
@@ -610,13 +612,15 @@ class TransactionTableRow extends StatelessWidget {
                     Expanded(
                       child: Align(
                         alignment: Alignment.centerRight,
-                        child: MoneyText(
-                          balance,
-                          colorize: balance > Decimal.zero,
-                          style: text.bodySmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                        child: showBalance
+                            ? MoneyText(
+                                balance,
+                                colorize: balance > Decimal.zero,
+                                style: text.bodySmall?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              )
+                            : const SizedBox.shrink(),
                       ),
                     ),
                     if (showStatusChip) ...[

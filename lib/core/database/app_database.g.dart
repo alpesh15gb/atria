@@ -12005,6 +12005,21 @@ class $PurchaseBillsTable extends PurchaseBills
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _itcEligibleMeta = const VerificationMeta(
+    'itcEligible',
+  );
+  @override
+  late final GeneratedColumn<bool> itcEligible = GeneratedColumn<bool>(
+    'itc_eligible',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("itc_eligible" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
   static const VerificationMeta _isInwardSupplyFromUnregisteredMeta =
       const VerificationMeta('isInwardSupplyFromUnregistered');
   @override
@@ -12328,6 +12343,7 @@ class $PurchaseBillsTable extends PurchaseBills
     placeOfSupply,
     isInterState,
     reverseCharge,
+    itcEligible,
     isInwardSupplyFromUnregistered,
     subTotal,
     itemDiscount,
@@ -12510,6 +12526,15 @@ class $PurchaseBillsTable extends PurchaseBills
         reverseCharge.isAcceptableOrUnknown(
           data['reverse_charge']!,
           _reverseChargeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('itc_eligible')) {
+      context.handle(
+        _itcEligibleMeta,
+        itcEligible.isAcceptableOrUnknown(
+          data['itc_eligible']!,
+          _itcEligibleMeta,
         ),
       );
     }
@@ -12785,6 +12810,10 @@ class $PurchaseBillsTable extends PurchaseBills
         DriftSqlType.bool,
         data['${effectivePrefix}reverse_charge'],
       )!,
+      itcEligible: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}itc_eligible'],
+      )!,
       isInwardSupplyFromUnregistered: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}is_inward_supply_from_unregistered'],
@@ -12926,6 +12955,9 @@ class PurchaseBillEntity extends DataClass
   final String? placeOfSupply;
   final bool isInterState;
   final bool reverseCharge;
+
+  /// Snapshot at entry time: changing registration must not rewrite history.
+  final bool itcEligible;
   final bool isInwardSupplyFromUnregistered;
   final double subTotal;
   final double itemDiscount;
@@ -12999,6 +13031,7 @@ class PurchaseBillEntity extends DataClass
     this.placeOfSupply,
     required this.isInterState,
     required this.reverseCharge,
+    required this.itcEligible,
     required this.isInwardSupplyFromUnregistered,
     required this.subTotal,
     required this.itemDiscount,
@@ -13067,6 +13100,7 @@ class PurchaseBillEntity extends DataClass
     }
     map['is_inter_state'] = Variable<bool>(isInterState);
     map['reverse_charge'] = Variable<bool>(reverseCharge);
+    map['itc_eligible'] = Variable<bool>(itcEligible);
     map['is_inward_supply_from_unregistered'] = Variable<bool>(
       isInwardSupplyFromUnregistered,
     );
@@ -13148,6 +13182,7 @@ class PurchaseBillEntity extends DataClass
           : Value(placeOfSupply),
       isInterState: Value(isInterState),
       reverseCharge: Value(reverseCharge),
+      itcEligible: Value(itcEligible),
       isInwardSupplyFromUnregistered: Value(isInwardSupplyFromUnregistered),
       subTotal: Value(subTotal),
       itemDiscount: Value(itemDiscount),
@@ -13215,6 +13250,7 @@ class PurchaseBillEntity extends DataClass
       placeOfSupply: serializer.fromJson<String?>(json['placeOfSupply']),
       isInterState: serializer.fromJson<bool>(json['isInterState']),
       reverseCharge: serializer.fromJson<bool>(json['reverseCharge']),
+      itcEligible: serializer.fromJson<bool>(json['itcEligible']),
       isInwardSupplyFromUnregistered: serializer.fromJson<bool>(
         json['isInwardSupplyFromUnregistered'],
       ),
@@ -13275,6 +13311,7 @@ class PurchaseBillEntity extends DataClass
       'placeOfSupply': serializer.toJson<String?>(placeOfSupply),
       'isInterState': serializer.toJson<bool>(isInterState),
       'reverseCharge': serializer.toJson<bool>(reverseCharge),
+      'itcEligible': serializer.toJson<bool>(itcEligible),
       'isInwardSupplyFromUnregistered': serializer.toJson<bool>(
         isInwardSupplyFromUnregistered,
       ),
@@ -13329,6 +13366,7 @@ class PurchaseBillEntity extends DataClass
     Value<String?> placeOfSupply = const Value.absent(),
     bool? isInterState,
     bool? reverseCharge,
+    bool? itcEligible,
     bool? isInwardSupplyFromUnregistered,
     double? subTotal,
     double? itemDiscount,
@@ -13382,6 +13420,7 @@ class PurchaseBillEntity extends DataClass
         : this.placeOfSupply,
     isInterState: isInterState ?? this.isInterState,
     reverseCharge: reverseCharge ?? this.reverseCharge,
+    itcEligible: itcEligible ?? this.itcEligible,
     isInwardSupplyFromUnregistered:
         isInwardSupplyFromUnregistered ?? this.isInwardSupplyFromUnregistered,
     subTotal: subTotal ?? this.subTotal,
@@ -13455,6 +13494,9 @@ class PurchaseBillEntity extends DataClass
       reverseCharge: data.reverseCharge.present
           ? data.reverseCharge.value
           : this.reverseCharge,
+      itcEligible: data.itcEligible.present
+          ? data.itcEligible.value
+          : this.itcEligible,
       isInwardSupplyFromUnregistered:
           data.isInwardSupplyFromUnregistered.present
           ? data.isInwardSupplyFromUnregistered.value
@@ -13530,6 +13572,7 @@ class PurchaseBillEntity extends DataClass
           ..write('placeOfSupply: $placeOfSupply, ')
           ..write('isInterState: $isInterState, ')
           ..write('reverseCharge: $reverseCharge, ')
+          ..write('itcEligible: $itcEligible, ')
           ..write(
             'isInwardSupplyFromUnregistered: $isInwardSupplyFromUnregistered, ',
           )
@@ -13584,6 +13627,7 @@ class PurchaseBillEntity extends DataClass
     placeOfSupply,
     isInterState,
     reverseCharge,
+    itcEligible,
     isInwardSupplyFromUnregistered,
     subTotal,
     itemDiscount,
@@ -13635,6 +13679,7 @@ class PurchaseBillEntity extends DataClass
           other.placeOfSupply == this.placeOfSupply &&
           other.isInterState == this.isInterState &&
           other.reverseCharge == this.reverseCharge &&
+          other.itcEligible == this.itcEligible &&
           other.isInwardSupplyFromUnregistered ==
               this.isInwardSupplyFromUnregistered &&
           other.subTotal == this.subTotal &&
@@ -13685,6 +13730,7 @@ class PurchaseBillsCompanion extends UpdateCompanion<PurchaseBillEntity> {
   final Value<String?> placeOfSupply;
   final Value<bool> isInterState;
   final Value<bool> reverseCharge;
+  final Value<bool> itcEligible;
   final Value<bool> isInwardSupplyFromUnregistered;
   final Value<double> subTotal;
   final Value<double> itemDiscount;
@@ -13733,6 +13779,7 @@ class PurchaseBillsCompanion extends UpdateCompanion<PurchaseBillEntity> {
     this.placeOfSupply = const Value.absent(),
     this.isInterState = const Value.absent(),
     this.reverseCharge = const Value.absent(),
+    this.itcEligible = const Value.absent(),
     this.isInwardSupplyFromUnregistered = const Value.absent(),
     this.subTotal = const Value.absent(),
     this.itemDiscount = const Value.absent(),
@@ -13782,6 +13829,7 @@ class PurchaseBillsCompanion extends UpdateCompanion<PurchaseBillEntity> {
     this.placeOfSupply = const Value.absent(),
     this.isInterState = const Value.absent(),
     this.reverseCharge = const Value.absent(),
+    this.itcEligible = const Value.absent(),
     this.isInwardSupplyFromUnregistered = const Value.absent(),
     this.subTotal = const Value.absent(),
     this.itemDiscount = const Value.absent(),
@@ -13834,6 +13882,7 @@ class PurchaseBillsCompanion extends UpdateCompanion<PurchaseBillEntity> {
     Expression<String>? placeOfSupply,
     Expression<bool>? isInterState,
     Expression<bool>? reverseCharge,
+    Expression<bool>? itcEligible,
     Expression<bool>? isInwardSupplyFromUnregistered,
     Expression<double>? subTotal,
     Expression<double>? itemDiscount,
@@ -13884,6 +13933,7 @@ class PurchaseBillsCompanion extends UpdateCompanion<PurchaseBillEntity> {
       if (placeOfSupply != null) 'place_of_supply': placeOfSupply,
       if (isInterState != null) 'is_inter_state': isInterState,
       if (reverseCharge != null) 'reverse_charge': reverseCharge,
+      if (itcEligible != null) 'itc_eligible': itcEligible,
       if (isInwardSupplyFromUnregistered != null)
         'is_inward_supply_from_unregistered': isInwardSupplyFromUnregistered,
       if (subTotal != null) 'sub_total': subTotal,
@@ -13938,6 +13988,7 @@ class PurchaseBillsCompanion extends UpdateCompanion<PurchaseBillEntity> {
     Value<String?>? placeOfSupply,
     Value<bool>? isInterState,
     Value<bool>? reverseCharge,
+    Value<bool>? itcEligible,
     Value<bool>? isInwardSupplyFromUnregistered,
     Value<double>? subTotal,
     Value<double>? itemDiscount,
@@ -13988,6 +14039,7 @@ class PurchaseBillsCompanion extends UpdateCompanion<PurchaseBillEntity> {
       placeOfSupply: placeOfSupply ?? this.placeOfSupply,
       isInterState: isInterState ?? this.isInterState,
       reverseCharge: reverseCharge ?? this.reverseCharge,
+      itcEligible: itcEligible ?? this.itcEligible,
       isInwardSupplyFromUnregistered:
           isInwardSupplyFromUnregistered ?? this.isInwardSupplyFromUnregistered,
       subTotal: subTotal ?? this.subTotal,
@@ -14085,6 +14137,9 @@ class PurchaseBillsCompanion extends UpdateCompanion<PurchaseBillEntity> {
     }
     if (reverseCharge.present) {
       map['reverse_charge'] = Variable<bool>(reverseCharge.value);
+    }
+    if (itcEligible.present) {
+      map['itc_eligible'] = Variable<bool>(itcEligible.value);
     }
     if (isInwardSupplyFromUnregistered.present) {
       map['is_inward_supply_from_unregistered'] = Variable<bool>(
@@ -14199,6 +14254,7 @@ class PurchaseBillsCompanion extends UpdateCompanion<PurchaseBillEntity> {
           ..write('placeOfSupply: $placeOfSupply, ')
           ..write('isInterState: $isInterState, ')
           ..write('reverseCharge: $reverseCharge, ')
+          ..write('itcEligible: $itcEligible, ')
           ..write(
             'isInwardSupplyFromUnregistered: $isInwardSupplyFromUnregistered, ',
           )
@@ -16939,6 +16995,21 @@ class $ExpensesTable extends Expenses
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _itcEligibleMeta = const VerificationMeta(
+    'itcEligible',
+  );
+  @override
+  late final GeneratedColumn<bool> itcEligible = GeneratedColumn<bool>(
+    'itc_eligible',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("itc_eligible" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
   static const VerificationMeta _notesMeta = const VerificationMeta('notes');
   @override
   late final GeneratedColumn<String> notes = GeneratedColumn<String>(
@@ -17024,6 +17095,7 @@ class $ExpensesTable extends Expenses
     itemId,
     reference,
     gstAmount,
+    itcEligible,
     notes,
     createdAt,
     updatedAt,
@@ -17124,6 +17196,15 @@ class $ExpensesTable extends Expenses
         gstAmount.isAcceptableOrUnknown(data['gst_amount']!, _gstAmountMeta),
       );
     }
+    if (data.containsKey('itc_eligible')) {
+      context.handle(
+        _itcEligibleMeta,
+        itcEligible.isAcceptableOrUnknown(
+          data['itc_eligible']!,
+          _itcEligibleMeta,
+        ),
+      );
+    }
     if (data.containsKey('notes')) {
       context.handle(
         _notesMeta,
@@ -17217,6 +17298,10 @@ class $ExpensesTable extends Expenses
         DriftSqlType.double,
         data['${effectivePrefix}gst_amount'],
       )!,
+      itcEligible: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}itc_eligible'],
+      )!,
       notes: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}notes'],
@@ -17273,6 +17358,7 @@ class ExpenseEntity extends DataClass implements Insertable<ExpenseEntity> {
   final String? itemId;
   final String? reference;
   final double gstAmount;
+  final bool itcEligible;
   final String? notes;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -17292,6 +17378,7 @@ class ExpenseEntity extends DataClass implements Insertable<ExpenseEntity> {
     this.itemId,
     this.reference,
     required this.gstAmount,
+    required this.itcEligible,
     this.notes,
     required this.createdAt,
     required this.updatedAt,
@@ -17320,6 +17407,7 @@ class ExpenseEntity extends DataClass implements Insertable<ExpenseEntity> {
       map['reference'] = Variable<String>(reference);
     }
     map['gst_amount'] = Variable<double>(gstAmount);
+    map['itc_eligible'] = Variable<bool>(itcEligible);
     if (!nullToAbsent || notes != null) {
       map['notes'] = Variable<String>(notes);
     }
@@ -17353,6 +17441,7 @@ class ExpenseEntity extends DataClass implements Insertable<ExpenseEntity> {
           ? const Value.absent()
           : Value(reference),
       gstAmount: Value(gstAmount),
+      itcEligible: Value(itcEligible),
       notes: notes == null && nullToAbsent
           ? const Value.absent()
           : Value(notes),
@@ -17384,6 +17473,7 @@ class ExpenseEntity extends DataClass implements Insertable<ExpenseEntity> {
       itemId: serializer.fromJson<String?>(json['itemId']),
       reference: serializer.fromJson<String?>(json['reference']),
       gstAmount: serializer.fromJson<double>(json['gstAmount']),
+      itcEligible: serializer.fromJson<bool>(json['itcEligible']),
       notes: serializer.fromJson<String?>(json['notes']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
@@ -17408,6 +17498,7 @@ class ExpenseEntity extends DataClass implements Insertable<ExpenseEntity> {
       'itemId': serializer.toJson<String?>(itemId),
       'reference': serializer.toJson<String?>(reference),
       'gstAmount': serializer.toJson<double>(gstAmount),
+      'itcEligible': serializer.toJson<bool>(itcEligible),
       'notes': serializer.toJson<String?>(notes),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
@@ -17430,6 +17521,7 @@ class ExpenseEntity extends DataClass implements Insertable<ExpenseEntity> {
     Value<String?> itemId = const Value.absent(),
     Value<String?> reference = const Value.absent(),
     double? gstAmount,
+    bool? itcEligible,
     Value<String?> notes = const Value.absent(),
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -17449,6 +17541,7 @@ class ExpenseEntity extends DataClass implements Insertable<ExpenseEntity> {
     itemId: itemId.present ? itemId.value : this.itemId,
     reference: reference.present ? reference.value : this.reference,
     gstAmount: gstAmount ?? this.gstAmount,
+    itcEligible: itcEligible ?? this.itcEligible,
     notes: notes.present ? notes.value : this.notes,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -17472,6 +17565,9 @@ class ExpenseEntity extends DataClass implements Insertable<ExpenseEntity> {
       itemId: data.itemId.present ? data.itemId.value : this.itemId,
       reference: data.reference.present ? data.reference.value : this.reference,
       gstAmount: data.gstAmount.present ? data.gstAmount.value : this.gstAmount,
+      itcEligible: data.itcEligible.present
+          ? data.itcEligible.value
+          : this.itcEligible,
       notes: data.notes.present ? data.notes.value : this.notes,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
@@ -17496,6 +17592,7 @@ class ExpenseEntity extends DataClass implements Insertable<ExpenseEntity> {
           ..write('itemId: $itemId, ')
           ..write('reference: $reference, ')
           ..write('gstAmount: $gstAmount, ')
+          ..write('itcEligible: $itcEligible, ')
           ..write('notes: $notes, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
@@ -17520,6 +17617,7 @@ class ExpenseEntity extends DataClass implements Insertable<ExpenseEntity> {
     itemId,
     reference,
     gstAmount,
+    itcEligible,
     notes,
     createdAt,
     updatedAt,
@@ -17543,6 +17641,7 @@ class ExpenseEntity extends DataClass implements Insertable<ExpenseEntity> {
           other.itemId == this.itemId &&
           other.reference == this.reference &&
           other.gstAmount == this.gstAmount &&
+          other.itcEligible == this.itcEligible &&
           other.notes == this.notes &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
@@ -17564,6 +17663,7 @@ class ExpensesCompanion extends UpdateCompanion<ExpenseEntity> {
   final Value<String?> itemId;
   final Value<String?> reference;
   final Value<double> gstAmount;
+  final Value<bool> itcEligible;
   final Value<String?> notes;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
@@ -17584,6 +17684,7 @@ class ExpensesCompanion extends UpdateCompanion<ExpenseEntity> {
     this.itemId = const Value.absent(),
     this.reference = const Value.absent(),
     this.gstAmount = const Value.absent(),
+    this.itcEligible = const Value.absent(),
     this.notes = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
@@ -17605,6 +17706,7 @@ class ExpensesCompanion extends UpdateCompanion<ExpenseEntity> {
     this.itemId = const Value.absent(),
     this.reference = const Value.absent(),
     this.gstAmount = const Value.absent(),
+    this.itcEligible = const Value.absent(),
     this.notes = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
@@ -17631,6 +17733,7 @@ class ExpensesCompanion extends UpdateCompanion<ExpenseEntity> {
     Expression<String>? itemId,
     Expression<String>? reference,
     Expression<double>? gstAmount,
+    Expression<bool>? itcEligible,
     Expression<String>? notes,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
@@ -17652,6 +17755,7 @@ class ExpensesCompanion extends UpdateCompanion<ExpenseEntity> {
       if (itemId != null) 'item_id': itemId,
       if (reference != null) 'reference': reference,
       if (gstAmount != null) 'gst_amount': gstAmount,
+      if (itcEligible != null) 'itc_eligible': itcEligible,
       if (notes != null) 'notes': notes,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
@@ -17675,6 +17779,7 @@ class ExpensesCompanion extends UpdateCompanion<ExpenseEntity> {
     Value<String?>? itemId,
     Value<String?>? reference,
     Value<double>? gstAmount,
+    Value<bool>? itcEligible,
     Value<String?>? notes,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
@@ -17696,6 +17801,7 @@ class ExpensesCompanion extends UpdateCompanion<ExpenseEntity> {
       itemId: itemId ?? this.itemId,
       reference: reference ?? this.reference,
       gstAmount: gstAmount ?? this.gstAmount,
+      itcEligible: itcEligible ?? this.itcEligible,
       notes: notes ?? this.notes,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -17745,6 +17851,9 @@ class ExpensesCompanion extends UpdateCompanion<ExpenseEntity> {
     if (gstAmount.present) {
       map['gst_amount'] = Variable<double>(gstAmount.value);
     }
+    if (itcEligible.present) {
+      map['itc_eligible'] = Variable<bool>(itcEligible.value);
+    }
     if (notes.present) {
       map['notes'] = Variable<String>(notes.value);
     }
@@ -17784,6 +17893,7 @@ class ExpensesCompanion extends UpdateCompanion<ExpenseEntity> {
           ..write('itemId: $itemId, ')
           ..write('reference: $reference, ')
           ..write('gstAmount: $gstAmount, ')
+          ..write('itcEligible: $itcEligible, ')
           ..write('notes: $notes, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
@@ -22003,6 +22113,18 @@ class $BankAccountsTable extends BankAccounts
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _openingBalanceMeta = const VerificationMeta(
+    'openingBalance',
+  );
+  @override
+  late final GeneratedColumn<double> openingBalance = GeneratedColumn<double>(
+    'opening_balance',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
   static const VerificationMeta _ledgerAccountIdMeta = const VerificationMeta(
     'ledgerAccountId',
   );
@@ -22098,6 +22220,7 @@ class $BankAccountsTable extends BankAccounts
     branch,
     type,
     currentBalance,
+    openingBalance,
     ledgerAccountId,
     upiId,
     notes,
@@ -22187,6 +22310,15 @@ class $BankAccountsTable extends BankAccounts
         currentBalance.isAcceptableOrUnknown(
           data['current_balance']!,
           _currentBalanceMeta,
+        ),
+      );
+    }
+    if (data.containsKey('opening_balance')) {
+      context.handle(
+        _openingBalanceMeta,
+        openingBalance.isAcceptableOrUnknown(
+          data['opening_balance']!,
+          _openingBalanceMeta,
         ),
       );
     }
@@ -22284,6 +22416,10 @@ class $BankAccountsTable extends BankAccounts
         DriftSqlType.double,
         data['${effectivePrefix}current_balance'],
       )!,
+      openingBalance: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}opening_balance'],
+      )!,
       ledgerAccountId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}ledger_account_id'],
@@ -22346,6 +22482,9 @@ class BankAccountEntity extends DataClass
   /// Cached from the payment and journal ledger. See the class note.
   final double currentBalance;
 
+  /// Balance before recorded payments. Synced independently of derived totals.
+  final double openingBalance;
+
   /// The ledger account this bank feeds, so a payment can post to the right
   /// place without the operator picking an account on every entry. Null means
   /// the default cash/bank account for the firm.
@@ -22369,6 +22508,7 @@ class BankAccountEntity extends DataClass
     this.branch,
     required this.type,
     required this.currentBalance,
+    required this.openingBalance,
     this.ledgerAccountId,
     this.upiId,
     this.notes,
@@ -22400,6 +22540,7 @@ class BankAccountEntity extends DataClass
     }
     map['type'] = Variable<String>(type);
     map['current_balance'] = Variable<double>(currentBalance);
+    map['opening_balance'] = Variable<double>(openingBalance);
     if (!nullToAbsent || ledgerAccountId != null) {
       map['ledger_account_id'] = Variable<String>(ledgerAccountId);
     }
@@ -22436,6 +22577,7 @@ class BankAccountEntity extends DataClass
           : Value(branch),
       type: Value(type),
       currentBalance: Value(currentBalance),
+      openingBalance: Value(openingBalance),
       ledgerAccountId: ledgerAccountId == null && nullToAbsent
           ? const Value.absent()
           : Value(ledgerAccountId),
@@ -22468,6 +22610,7 @@ class BankAccountEntity extends DataClass
       branch: serializer.fromJson<String?>(json['branch']),
       type: serializer.fromJson<String>(json['type']),
       currentBalance: serializer.fromJson<double>(json['currentBalance']),
+      openingBalance: serializer.fromJson<double>(json['openingBalance']),
       ledgerAccountId: serializer.fromJson<String?>(json['ledgerAccountId']),
       upiId: serializer.fromJson<String?>(json['upiId']),
       notes: serializer.fromJson<String?>(json['notes']),
@@ -22491,6 +22634,7 @@ class BankAccountEntity extends DataClass
       'branch': serializer.toJson<String?>(branch),
       'type': serializer.toJson<String>(type),
       'currentBalance': serializer.toJson<double>(currentBalance),
+      'openingBalance': serializer.toJson<double>(openingBalance),
       'ledgerAccountId': serializer.toJson<String?>(ledgerAccountId),
       'upiId': serializer.toJson<String?>(upiId),
       'notes': serializer.toJson<String?>(notes),
@@ -22512,6 +22656,7 @@ class BankAccountEntity extends DataClass
     Value<String?> branch = const Value.absent(),
     String? type,
     double? currentBalance,
+    double? openingBalance,
     Value<String?> ledgerAccountId = const Value.absent(),
     Value<String?> upiId = const Value.absent(),
     Value<String?> notes = const Value.absent(),
@@ -22534,6 +22679,7 @@ class BankAccountEntity extends DataClass
     branch: branch.present ? branch.value : this.branch,
     type: type ?? this.type,
     currentBalance: currentBalance ?? this.currentBalance,
+    openingBalance: openingBalance ?? this.openingBalance,
     ledgerAccountId: ledgerAccountId.present
         ? ledgerAccountId.value
         : this.ledgerAccountId,
@@ -22562,6 +22708,9 @@ class BankAccountEntity extends DataClass
       currentBalance: data.currentBalance.present
           ? data.currentBalance.value
           : this.currentBalance,
+      openingBalance: data.openingBalance.present
+          ? data.openingBalance.value
+          : this.openingBalance,
       ledgerAccountId: data.ledgerAccountId.present
           ? data.ledgerAccountId.value
           : this.ledgerAccountId,
@@ -22589,6 +22738,7 @@ class BankAccountEntity extends DataClass
           ..write('branch: $branch, ')
           ..write('type: $type, ')
           ..write('currentBalance: $currentBalance, ')
+          ..write('openingBalance: $openingBalance, ')
           ..write('ledgerAccountId: $ledgerAccountId, ')
           ..write('upiId: $upiId, ')
           ..write('notes: $notes, ')
@@ -22612,6 +22762,7 @@ class BankAccountEntity extends DataClass
     branch,
     type,
     currentBalance,
+    openingBalance,
     ledgerAccountId,
     upiId,
     notes,
@@ -22634,6 +22785,7 @@ class BankAccountEntity extends DataClass
           other.branch == this.branch &&
           other.type == this.type &&
           other.currentBalance == this.currentBalance &&
+          other.openingBalance == this.openingBalance &&
           other.ledgerAccountId == this.ledgerAccountId &&
           other.upiId == this.upiId &&
           other.notes == this.notes &&
@@ -22654,6 +22806,7 @@ class BankAccountsCompanion extends UpdateCompanion<BankAccountEntity> {
   final Value<String?> branch;
   final Value<String> type;
   final Value<double> currentBalance;
+  final Value<double> openingBalance;
   final Value<String?> ledgerAccountId;
   final Value<String?> upiId;
   final Value<String?> notes;
@@ -22673,6 +22826,7 @@ class BankAccountsCompanion extends UpdateCompanion<BankAccountEntity> {
     this.branch = const Value.absent(),
     this.type = const Value.absent(),
     this.currentBalance = const Value.absent(),
+    this.openingBalance = const Value.absent(),
     this.ledgerAccountId = const Value.absent(),
     this.upiId = const Value.absent(),
     this.notes = const Value.absent(),
@@ -22693,6 +22847,7 @@ class BankAccountsCompanion extends UpdateCompanion<BankAccountEntity> {
     this.branch = const Value.absent(),
     this.type = const Value.absent(),
     this.currentBalance = const Value.absent(),
+    this.openingBalance = const Value.absent(),
     this.ledgerAccountId = const Value.absent(),
     this.upiId = const Value.absent(),
     this.notes = const Value.absent(),
@@ -22715,6 +22870,7 @@ class BankAccountsCompanion extends UpdateCompanion<BankAccountEntity> {
     Expression<String>? branch,
     Expression<String>? type,
     Expression<double>? currentBalance,
+    Expression<double>? openingBalance,
     Expression<String>? ledgerAccountId,
     Expression<String>? upiId,
     Expression<String>? notes,
@@ -22735,6 +22891,7 @@ class BankAccountsCompanion extends UpdateCompanion<BankAccountEntity> {
       if (branch != null) 'branch': branch,
       if (type != null) 'type': type,
       if (currentBalance != null) 'current_balance': currentBalance,
+      if (openingBalance != null) 'opening_balance': openingBalance,
       if (ledgerAccountId != null) 'ledger_account_id': ledgerAccountId,
       if (upiId != null) 'upi_id': upiId,
       if (notes != null) 'notes': notes,
@@ -22757,6 +22914,7 @@ class BankAccountsCompanion extends UpdateCompanion<BankAccountEntity> {
     Value<String?>? branch,
     Value<String>? type,
     Value<double>? currentBalance,
+    Value<double>? openingBalance,
     Value<String?>? ledgerAccountId,
     Value<String?>? upiId,
     Value<String?>? notes,
@@ -22777,6 +22935,7 @@ class BankAccountsCompanion extends UpdateCompanion<BankAccountEntity> {
       branch: branch ?? this.branch,
       type: type ?? this.type,
       currentBalance: currentBalance ?? this.currentBalance,
+      openingBalance: openingBalance ?? this.openingBalance,
       ledgerAccountId: ledgerAccountId ?? this.ledgerAccountId,
       upiId: upiId ?? this.upiId,
       notes: notes ?? this.notes,
@@ -22821,6 +22980,9 @@ class BankAccountsCompanion extends UpdateCompanion<BankAccountEntity> {
     if (currentBalance.present) {
       map['current_balance'] = Variable<double>(currentBalance.value);
     }
+    if (openingBalance.present) {
+      map['opening_balance'] = Variable<double>(openingBalance.value);
+    }
     if (ledgerAccountId.present) {
       map['ledger_account_id'] = Variable<String>(ledgerAccountId.value);
     }
@@ -22861,6 +23023,7 @@ class BankAccountsCompanion extends UpdateCompanion<BankAccountEntity> {
           ..write('branch: $branch, ')
           ..write('type: $type, ')
           ..write('currentBalance: $currentBalance, ')
+          ..write('openingBalance: $openingBalance, ')
           ..write('ledgerAccountId: $ledgerAccountId, ')
           ..write('upiId: $upiId, ')
           ..write('notes: $notes, ')
@@ -30889,6 +31052,7 @@ typedef $$PurchaseBillsTableCreateCompanionBuilder =
       Value<String?> placeOfSupply,
       Value<bool> isInterState,
       Value<bool> reverseCharge,
+      Value<bool> itcEligible,
       Value<bool> isInwardSupplyFromUnregistered,
       Value<double> subTotal,
       Value<double> itemDiscount,
@@ -30939,6 +31103,7 @@ typedef $$PurchaseBillsTableUpdateCompanionBuilder =
       Value<String?> placeOfSupply,
       Value<bool> isInterState,
       Value<bool> reverseCharge,
+      Value<bool> itcEligible,
       Value<bool> isInwardSupplyFromUnregistered,
       Value<double> subTotal,
       Value<double> itemDiscount,
@@ -31111,6 +31276,11 @@ class $$PurchaseBillsTableFilterComposer
 
   ColumnFilters<bool> get reverseCharge => $composableBuilder(
     column: $table.reverseCharge,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get itcEligible => $composableBuilder(
+    column: $table.itcEligible,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -31379,6 +31549,11 @@ class $$PurchaseBillsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<bool> get itcEligible => $composableBuilder(
+    column: $table.itcEligible,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<bool> get isInwardSupplyFromUnregistered =>
       $composableBuilder(
         column: $table.isInwardSupplyFromUnregistered,
@@ -31602,6 +31777,11 @@ class $$PurchaseBillsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<bool> get itcEligible => $composableBuilder(
+    column: $table.itcEligible,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<bool> get isInwardSupplyFromUnregistered =>
       $composableBuilder(
         column: $table.isInwardSupplyFromUnregistered,
@@ -31778,6 +31958,7 @@ class $$PurchaseBillsTableTableManager
                 Value<String?> placeOfSupply = const Value.absent(),
                 Value<bool> isInterState = const Value.absent(),
                 Value<bool> reverseCharge = const Value.absent(),
+                Value<bool> itcEligible = const Value.absent(),
                 Value<bool> isInwardSupplyFromUnregistered =
                     const Value.absent(),
                 Value<double> subTotal = const Value.absent(),
@@ -31827,6 +32008,7 @@ class $$PurchaseBillsTableTableManager
                 placeOfSupply: placeOfSupply,
                 isInterState: isInterState,
                 reverseCharge: reverseCharge,
+                itcEligible: itcEligible,
                 isInwardSupplyFromUnregistered: isInwardSupplyFromUnregistered,
                 subTotal: subTotal,
                 itemDiscount: itemDiscount,
@@ -31877,6 +32059,7 @@ class $$PurchaseBillsTableTableManager
                 Value<String?> placeOfSupply = const Value.absent(),
                 Value<bool> isInterState = const Value.absent(),
                 Value<bool> reverseCharge = const Value.absent(),
+                Value<bool> itcEligible = const Value.absent(),
                 Value<bool> isInwardSupplyFromUnregistered =
                     const Value.absent(),
                 Value<double> subTotal = const Value.absent(),
@@ -31926,6 +32109,7 @@ class $$PurchaseBillsTableTableManager
                 placeOfSupply: placeOfSupply,
                 isInterState: isInterState,
                 reverseCharge: reverseCharge,
+                itcEligible: itcEligible,
                 isInwardSupplyFromUnregistered: isInwardSupplyFromUnregistered,
                 subTotal: subTotal,
                 itemDiscount: itemDiscount,
@@ -33290,6 +33474,7 @@ typedef $$ExpensesTableCreateCompanionBuilder =
       Value<String?> itemId,
       Value<String?> reference,
       Value<double> gstAmount,
+      Value<bool> itcEligible,
       Value<String?> notes,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
@@ -33312,6 +33497,7 @@ typedef $$ExpensesTableUpdateCompanionBuilder =
       Value<String?> itemId,
       Value<String?> reference,
       Value<double> gstAmount,
+      Value<bool> itcEligible,
       Value<String?> notes,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
@@ -33387,6 +33573,11 @@ class $$ExpensesTableFilterComposer
 
   ColumnFilters<double> get gstAmount => $composableBuilder(
     column: $table.gstAmount,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get itcEligible => $composableBuilder(
+    column: $table.itcEligible,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -33490,6 +33681,11 @@ class $$ExpensesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<bool> get itcEligible => $composableBuilder(
+    column: $table.itcEligible,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get notes => $composableBuilder(
     column: $table.notes,
     builder: (column) => ColumnOrderings(column),
@@ -33568,6 +33764,11 @@ class $$ExpensesTableAnnotationComposer
   GeneratedColumn<double> get gstAmount =>
       $composableBuilder(column: $table.gstAmount, builder: (column) => column);
 
+  GeneratedColumn<bool> get itcEligible => $composableBuilder(
+    column: $table.itcEligible,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get notes =>
       $composableBuilder(column: $table.notes, builder: (column) => column);
 
@@ -33630,6 +33831,7 @@ class $$ExpensesTableTableManager
                 Value<String?> itemId = const Value.absent(),
                 Value<String?> reference = const Value.absent(),
                 Value<double> gstAmount = const Value.absent(),
+                Value<bool> itcEligible = const Value.absent(),
                 Value<String?> notes = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
@@ -33650,6 +33852,7 @@ class $$ExpensesTableTableManager
                 itemId: itemId,
                 reference: reference,
                 gstAmount: gstAmount,
+                itcEligible: itcEligible,
                 notes: notes,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
@@ -33672,6 +33875,7 @@ class $$ExpensesTableTableManager
                 Value<String?> itemId = const Value.absent(),
                 Value<String?> reference = const Value.absent(),
                 Value<double> gstAmount = const Value.absent(),
+                Value<bool> itcEligible = const Value.absent(),
                 Value<String?> notes = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
@@ -33692,6 +33896,7 @@ class $$ExpensesTableTableManager
                 itemId: itemId,
                 reference: reference,
                 gstAmount: gstAmount,
+                itcEligible: itcEligible,
                 notes: notes,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
@@ -35973,6 +36178,7 @@ typedef $$BankAccountsTableCreateCompanionBuilder =
       Value<String?> branch,
       Value<String> type,
       Value<double> currentBalance,
+      Value<double> openingBalance,
       Value<String?> ledgerAccountId,
       Value<String?> upiId,
       Value<String?> notes,
@@ -35994,6 +36200,7 @@ typedef $$BankAccountsTableUpdateCompanionBuilder =
       Value<String?> branch,
       Value<String> type,
       Value<double> currentBalance,
+      Value<double> openingBalance,
       Value<String?> ledgerAccountId,
       Value<String?> upiId,
       Value<String?> notes,
@@ -36060,6 +36267,11 @@ class $$BankAccountsTableFilterComposer
 
   ColumnFilters<double> get currentBalance => $composableBuilder(
     column: $table.currentBalance,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get openingBalance => $composableBuilder(
+    column: $table.openingBalance,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -36158,6 +36370,11 @@ class $$BankAccountsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<double> get openingBalance => $composableBuilder(
+    column: $table.openingBalance,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get ledgerAccountId => $composableBuilder(
     column: $table.ledgerAccountId,
     builder: (column) => ColumnOrderings(column),
@@ -36239,6 +36456,11 @@ class $$BankAccountsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<double> get openingBalance => $composableBuilder(
+    column: $table.openingBalance,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get ledgerAccountId => $composableBuilder(
     column: $table.ledgerAccountId,
     builder: (column) => column,
@@ -36310,6 +36532,7 @@ class $$BankAccountsTableTableManager
                 Value<String?> branch = const Value.absent(),
                 Value<String> type = const Value.absent(),
                 Value<double> currentBalance = const Value.absent(),
+                Value<double> openingBalance = const Value.absent(),
                 Value<String?> ledgerAccountId = const Value.absent(),
                 Value<String?> upiId = const Value.absent(),
                 Value<String?> notes = const Value.absent(),
@@ -36329,6 +36552,7 @@ class $$BankAccountsTableTableManager
                 branch: branch,
                 type: type,
                 currentBalance: currentBalance,
+                openingBalance: openingBalance,
                 ledgerAccountId: ledgerAccountId,
                 upiId: upiId,
                 notes: notes,
@@ -36350,6 +36574,7 @@ class $$BankAccountsTableTableManager
                 Value<String?> branch = const Value.absent(),
                 Value<String> type = const Value.absent(),
                 Value<double> currentBalance = const Value.absent(),
+                Value<double> openingBalance = const Value.absent(),
                 Value<String?> ledgerAccountId = const Value.absent(),
                 Value<String?> upiId = const Value.absent(),
                 Value<String?> notes = const Value.absent(),
@@ -36369,6 +36594,7 @@ class $$BankAccountsTableTableManager
                 branch: branch,
                 type: type,
                 currentBalance: currentBalance,
+                openingBalance: openingBalance,
                 ledgerAccountId: ledgerAccountId,
                 upiId: upiId,
                 notes: notes,

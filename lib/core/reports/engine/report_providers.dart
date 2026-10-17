@@ -37,21 +37,22 @@ final reportFiltersProvider =
 /// which is what the dropdown actually holds — is the identity. Two options with
 /// the same label and different ids are different choices.
 final reportFilterOptionsProvider = FutureProvider.autoDispose
-    .family<List<ReportFilterOption<Object?>>, ReportFilterRequest>(
-      (ref, request) async {
-        final db = ref.watch(appDatabaseProvider);
-        final firmId = ref.watch(activeFirmIdProvider);
-        if (firmId == null) return const [];
-        final definition = ReportCatalogue.byId(request.reportId);
-        if (definition == null) return const [];
-        return definition.source.optionsFor(
-          db,
-          firmId,
-          definition.spec,
-          request.filterId,
-        );
-      },
-    );
+    .family<List<ReportFilterOption<Object?>>, ReportFilterRequest>((
+      ref,
+      request,
+    ) async {
+      final db = ref.watch(appDatabaseProvider);
+      final firmId = ref.watch(activeFirmIdProvider);
+      if (firmId == null) return const [];
+      final definition = ReportCatalogue.byId(request.reportId);
+      if (definition == null) return const [];
+      return definition.source.optionsFor(
+        db,
+        firmId,
+        definition.spec,
+        request.filterId,
+      );
+    });
 
 /// One filter's options, asked for by id.
 @immutable
@@ -88,6 +89,7 @@ class ReportFilterRequest {
 /// for what *does* survive.
 final reportResultProvider = FutureProvider.autoDispose
     .family<ReportResult, ReportQuery>((ref, query) async {
+      ref.watch(bookRevisionProvider);
       final db = ref.watch(appDatabaseProvider);
       final firmId = ref.watch(activeFirmIdProvider);
       if (firmId == null) {

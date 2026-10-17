@@ -34,7 +34,12 @@ const ReportSpec gstr3bSpec = ReportSpec(
   sort: ReportSort(columnKey: 'taxable', descending: true),
   columns: [
     ReportColumn(key: 'table', label: 'Table', flex: 2),
-    ReportColumn(key: 'description', label: 'Description', flex: 4, emphasise: true),
+    ReportColumn(
+      key: 'description',
+      label: 'Description',
+      flex: 4,
+      emphasise: true,
+    ),
     ReportColumn(
       key: 'taxable',
       label: 'Taxable value',
@@ -45,6 +50,13 @@ const ReportSpec gstr3bSpec = ReportSpec(
     ReportColumn(key: 'cgst', label: 'CGST', kind: ReportValueKind.money),
     ReportColumn(key: 'sgst', label: 'SGST', kind: ReportValueKind.money),
     ReportColumn(key: 'cess', label: 'Cess', kind: ReportValueKind.money),
+    // Table 4 is input tax credit — an inward figure, in a different direction
+    // from every column above it. It used to be written into `cess`, which made
+    // a ₹45,000 credit print under the heading "Cess" and, because `cess` is a
+    // summable money column, added it to the grand total alongside genuine
+    // outward cess. The screen (gst_reports_screen) and gstr1 both label these
+    // figures correctly, so the filed document and the on-screen copy disagreed.
+    ReportColumn(key: 'itc', label: 'ITC', kind: ReportValueKind.money),
     ReportColumn(
       key: 'total',
       label: 'Total tax',
@@ -105,6 +117,10 @@ Future<List<ReportRow>> gstr3bRows(
       table: '3.1(b)',
       description: 'Outward taxable supplies (zero rated)',
       taxable: report.zeroRated,
+      igst: dec(report.zeroRatedHeads.igst),
+      cgst: dec(report.zeroRatedHeads.cgst),
+      sgst: dec(report.zeroRatedHeads.sgst),
+      cess: dec(report.zeroRatedHeads.cess),
     ),
     _row(
       table: '3.1(c)',
@@ -114,8 +130,11 @@ Future<List<ReportRow>> gstr3bRows(
     _row(
       table: '3.1(d)',
       description: 'Inward supplies liable to reverse charge',
-      taxable: Decimal.zero,
-      cess: report.reverseChargeTax,
+      taxable: dec(report.reverseChargeValue),
+      igst: dec(report.reverseChargeHeads.igst),
+      cgst: dec(report.reverseChargeHeads.cgst),
+      sgst: dec(report.reverseChargeHeads.sgst),
+      cess: dec(report.reverseChargeHeads.cess),
       total: report.reverseChargeTax,
     ),
   ];
@@ -123,12 +142,14 @@ Future<List<ReportRow>> gstr3bRows(
   // 3.2 is the inter-state, unregistered breakdown of 3.1(a)'s value — a detail
   // of the row above, not an addition to it, so it is labelled as such.
   for (final entry in report.interStateByPos) {
-    rows.add(_row(
-      table: '3.2',
-      description: 'Place of supply ${entry.pos} — unregistered',
-      taxable: entry.taxableValue,
-      igst: entry.igst,
-    ));
+    rows.add(
+      _row(
+        table: '3.2',
+        description: 'Place of supply ${entry.pos} — unregistered',
+        taxable: entry.taxableValue,
+        igst: entry.igst,
+      ),
+    );
   }
 
   rows.addAll([
@@ -136,42 +157,42 @@ Future<List<ReportRow>> gstr3bRows(
       table: '4(A)(1)',
       description: 'Import of goods',
       taxable: Decimal.zero,
-      cess: report.itcImport,
+      itc: report.itcImport,
       total: report.itcImport,
     ),
     _row(
       table: '4(A)(3)',
       description: 'Inward supplies liable to reverse charge',
       taxable: Decimal.zero,
-      cess: report.itcReverseCharge,
+      itc: report.itcReverseCharge,
       total: report.itcReverseCharge,
     ),
     _row(
       table: '4(A)(4)',
       description: 'Input from ISD',
       taxable: Decimal.zero,
-      cess: report.itcInwardIsd,
+      itc: report.itcInwardIsd,
       total: report.itcInwardIsd,
     ),
     _row(
       table: '4(A)(5)',
       description: 'All other ITC',
       taxable: Decimal.zero,
-      cess: report.itcAllOther,
+      itc: report.itcAllOther,
       total: report.itcAllOther,
     ),
     _row(
       table: '4(B)',
       description: 'ITC reversed — Rule 42/43 and others',
       taxable: Decimal.zero,
-      cess: -report.itcReversed,
+      itc: -report.itcReversed,
       total: -report.itcReversed,
     ),
     _row(
       table: 'Net ITC',
       description: 'Input tax credit available (4(A) less 4(B))',
       taxable: Decimal.zero,
-      cess: report.netItc,
+      itc: report.netItc,
       total: report.netItc,
       emphasise: true,
     ),
@@ -187,6 +208,14 @@ Future<List<ReportRow>> gstr3bRows(
     ),
   ]);
 
+  rows.add(
+    _row(
+      table: 'Net payable',
+      description: 'Estimated tax payable before portal ledger adjustment',
+      taxable: Decimal.zero,
+      total: report.netPayable,
+    ),
+  );
   return rows;
 }
 
@@ -208,6 +237,7 @@ ReportRow _row({
   Decimal? cgst,
   Decimal? sgst,
   Decimal? cess,
+  Decimal? itc,
   Decimal? total,
   bool emphasise = false,
 }) {
@@ -215,22 +245,24 @@ ReportRow _row({
   final cg = cgst ?? Decimal.zero;
   final sg = sgst ?? Decimal.zero;
   final ce = cess ?? Decimal.zero;
+  final cr = itc ?? Decimal.zero;
   return ReportRow({
-      'table': table,
-      'description': description,
-      'taxable': taxable,
-      'igst': ig,
-      'cgst': cg,
-      'sgst': sg,
-      'cess': ce,
-      'total': total ?? (ig + cg + sg + ce),
-    }, label: '$table $description');
+    'table': table,
+    'description': description,
+    'taxable': taxable,
+    'igst': ig,
+    'cgst': cg,
+    'sgst': sg,
+    'cess': ce,
+    'itc': cr,
+    'total': total ?? (ig + cg + sg + ce + cr),
+  }, label: '$table $description');
 }
 
 /// A function, not a string: the source's `notes` is
 /// `List<String> Function(ReportResult)`, which is what lets a report say
 /// something only its own rows can support.
 List<String> _gstr3bNotes(ReportResult result) => [
-      'Computed by GstReturnBuilder from live documents in the window. '
+  'Computed by GstReturnBuilder from live documents in the window. '
       'Cancelled and deleted documents are excluded upstream.',
-    ];
+];

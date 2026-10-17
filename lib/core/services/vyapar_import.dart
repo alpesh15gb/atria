@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:decimal/decimal.dart';
 import 'package:drift/drift.dart';
 
@@ -9,6 +11,8 @@ import '../database/repositories/purchase_repository.dart';
 import '../database/repositories/repository_extensions.dart';
 import '../database/repositories/sales_repository.dart';
 import '../utils/id_utils.dart';
+import '../utils/money.dart';
+import '../database/repositories/sync_mixin.dart';
 import 'vyapar_backup.dart';
 
 // Callers should not have to reach past this file to catch a bad backup.
@@ -163,8 +167,17 @@ class VyaparImportService {
           counts.skipped++;
       }
     }
+    final paymentTransactions = {
+      for (final document in snapshot.documents)
+        if (document.kind == VyaparDocKind.paymentIn ||
+            document.kind == VyaparDocKind.paymentOut)
+          document.id,
+    };
     for (final split in snapshot.paymentSplits) {
-      if (split.amount > 0) counts.payments++;
+      if (split.amount > 0 &&
+          !paymentTransactions.contains(split.documentTxnId)) {
+        counts.payments++;
+      }
     }
     return counts.freeze();
   }
@@ -208,9 +221,10 @@ class VyaparImportService {
 
 /// One run of the importer: holds the id mappings and the running totals that
 /// the phases share, so no phase has to re-read what an earlier one wrote.
-class _ImportRun {
+class _ImportRun with SyncQueueMixin {
   _ImportRun(this.db, this.snapshot);
 
+  @override
   final AppDatabase db;
   final VyaparSnapshot snapshot;
 
@@ -235,6 +249,7 @@ class _ImportRun {
   /// Vyapar transaction id → what it became in Apex Books.
   final Map<int, VyaparDocKind> importedKinds = {};
   final Map<int, String> documentIds = {};
+  final Map<int, String> paymentAccountIds = {};
   final Map<int, double> documentTotals = {};
 
   /// Vyapar transaction id → money already recorded against it, so the
@@ -284,12 +299,15 @@ class _ImportRun {
     await _importCategories();
     await _importParties();
     await _importItems();
+    await _importAccounts();
     await _importDocuments();
+    await _importConversions();
     await _importPayments();
     await _importExpenses();
     await _reconcileBalances();
     await _importOpeningBalances();
     await _advanceSequences();
+    await _enqueueReconciledDocuments();
 
     for (final warning in _pendingWarnings) {
       if (!warnings.contains(warning)) warnings.add(warning);
@@ -305,11 +323,13 @@ class _ImportRun {
       legalName: name,
       gstin: gstin,
       pan: panFromGstin(gstin),
-      stateCode: IndianStates.byName(cleanString(row['firm_state']))?.code ??
+      stateCode:
+          IndianStates.byName(cleanString(row['firm_state']))?.code ??
           IndianStates.stateCodeFromGstin(gstin),
       addressLine1: cleanString(row['firm_address']),
       pincode: cleanString(row['firm_pincode']),
-      phone: cleanString(row['firm_phone']) ??
+      phone:
+          cleanString(row['firm_phone']) ??
           cleanString(row['firm_phone_secondary']),
       email: cleanString(row['firm_email']),
     );
@@ -327,7 +347,8 @@ class _ImportRun {
     for (final row in snapshot.parties) {
       final id = asInt(row['name_id']);
       if (id == null) continue;
-      partyName[id] = cleanString(row['full_name']) ??
+      partyName[id] =
+          cleanString(row['full_name']) ??
           cleanString(row['party_billing_name']) ??
           '';
     }
@@ -348,10 +369,7 @@ class _ImportRun {
         continue;
       }
       if (name == null && short == null) continue;
-      final created = await items.createUnit(
-        name ?? short!,
-        short ?? name!,
-      );
+      final created = await items.createUnit(name ?? short!, short ?? name!);
       unitIds[id] = created.id;
       counts.units++;
     }
@@ -402,7 +420,8 @@ class _ImportRun {
         );
       }
       final address = _parseAddress(cleanString(row['address']));
-      final stateCode = IndianStates.byName(cleanString(row['name_state']))?.code ??
+      final stateCode =
+          IndianStates.byName(cleanString(row['name_state']))?.code ??
           IndianStates.stateCodeFromGstin(gstin);
 
       final party = await repo.create(
@@ -439,6 +458,25 @@ class _ImportRun {
       final id = asInt(row['item_id']);
       final name = itemName[id] ?? '';
       if (id == null || name.isEmpty) continue;
+      var importedName = name;
+      var description =
+          cleanString(row['item_description']) ??
+          cleanString(row['item_catalogue_description']);
+      if (name.length > 200) {
+        // Drift validates UTF-16 length. Avoid splitting a surrogate pair.
+        var end = 200;
+        final last = name.codeUnitAt(end - 1);
+        if (last >= 0xD800 && last <= 0xDBFF) end--;
+        importedName = name.substring(0, end).trimRight();
+        description = [
+          if (description != null) description,
+          'Original Vyapar item name: $name',
+        ].join('\n\n');
+        _warn(
+          'Item $id had a name longer than 200 characters. The catalogue name '
+          'was shortened and the full original name was saved in its description.',
+        );
+      }
 
       final gstRate = itemGstRate[id] ?? 0;
       final hsn = itemHsn[id];
@@ -454,7 +492,8 @@ class _ImportRun {
       // to items that genuinely carry no stock; otherwise the quantity would
       // quietly vanish from the stock report.
       final carriesStock = vyaparStock != 0 || stockFromDocuments != 0;
-      final isService = !carriesStock &&
+      final isService =
+          !carriesStock &&
           _looksLikeService(itemType: itemType, hsn: hsn, unit: unit);
 
       if (asDouble(row['item_additional_cess_per_unit']) != 0) {
@@ -465,7 +504,7 @@ class _ImportRun {
       }
 
       final item = await repo.create(
-        name: name,
+        name: importedName,
         sku: cleanString(row['item_code']),
         hsn: hsn,
         categoryId: categoryIds[asInt(row['category_id'])],
@@ -479,13 +518,226 @@ class _ImportRun {
         stockType: isService ? 'untracked' : 'tracked',
         openingStock: openingStock,
         lowStockAlert: asDouble(row['item_min_stock_quantity']),
-        description: cleanString(row['item_description']) ??
-            cleanString(row['item_catalogue_description']),
+        description: description,
       );
       itemIds[id] = item.id;
       itemUnit[id] = unit;
       counts.items++;
     }
+  }
+
+  double _paise(double value) => Money.round2(Money.of(value)).toDouble();
+
+  // Repository inserts precede source amount/balance reconciliation. Sync must
+  // also receive the final rows, rather than only the calculated draft values.
+  Future<void> _enqueueReconciledDocuments() async {
+    for (final row in await (db.select(
+      db.bankAccounts,
+    )..where((t) => t.firmId.equals(firm.id))).get()) {
+      await enqueue(
+        firmId: firm.id,
+        entity: 'bank_accounts',
+        entityId: row.id,
+        operation: 'update',
+        payload: jsonEncode(row.toJson()),
+      );
+    }
+    for (final row in await (db.select(
+      db.salesInvoices,
+    )..where((t) => t.firmId.equals(firm.id))).get()) {
+      await enqueue(
+        firmId: firm.id,
+        entity: 'sales_invoices',
+        entityId: row.id,
+        operation: 'update',
+        payload: jsonEncode(row.toJson()),
+      );
+      for (final line
+          in await db.salesRepositoryFor(firm.id).itemsFor(row.id)) {
+        await enqueue(
+          firmId: firm.id,
+          entity: 'sales_invoice_items',
+          entityId: line.id,
+          operation: 'update',
+          payload: jsonEncode(line.toJson()),
+        );
+      }
+    }
+    for (final row in await (db.select(
+      db.purchaseBills,
+    )..where((t) => t.firmId.equals(firm.id))).get()) {
+      await enqueue(
+        firmId: firm.id,
+        entity: 'purchase_bills',
+        entityId: row.id,
+        operation: 'update',
+        payload: jsonEncode(row.toJson()),
+      );
+      for (final line
+          in await db.purchaseRepositoryFor(firm.id).itemsFor(row.id)) {
+        await enqueue(
+          firmId: firm.id,
+          entity: 'purchase_bill_items',
+          entityId: line.id,
+          operation: 'update',
+          payload: jsonEncode(line.toJson()),
+        );
+      }
+    }
+  }
+
+  bool _isIncoming(VyaparDocKind kind) =>
+      kind == VyaparDocKind.saleInvoice ||
+      kind == VyaparDocKind.saleOrder ||
+      kind == VyaparDocKind.quotation;
+
+  int? _paymentTypeFor(VyaparDocument document) {
+    for (final split in snapshot.paymentSplits) {
+      if (split.documentTxnId == document.id && split.amount > 0) {
+        return split.paymentTypeId;
+      }
+    }
+    return document.paymentTypeId;
+  }
+
+  Future<void> _importAccounts() async {
+    for (final entry in snapshot.paymentTypes.entries) {
+      final row = entry.value;
+      final type = (cleanString(row['paymentType_type']) ?? '').toLowerCase();
+      if (!['cash', 'bank', 'card'].contains(type)) continue;
+      final id = IdUtils.newId();
+      final opening = asDouble(row['paymentType_opening_balance']);
+      await db
+          .into(db.bankAccounts)
+          .insert(
+            BankAccountsCompanion.insert(
+              id: id,
+              firmId: firm.id,
+              name: cleanString(row['paymentType_name']) ?? type,
+              type: Value(type),
+              currentBalance: Value(opening),
+              openingBalance: Value(opening),
+              bankName: Value(cleanString(row['paymentType_bankName'])),
+              accountNumber: Value(
+                cleanString(row['paymentType_accountNumber']),
+              ),
+              ifsc: Value(cleanString(row['pt_bank_ifsc_code'])),
+              accountHolder: Value(
+                cleanString(row['pt_bank_account_holder_name']),
+              ),
+              upiId: Value(cleanString(row['pt_bank_upi_id'])),
+            ),
+          );
+      paymentAccountIds[entry.key] = id;
+      final saved = await (db.select(
+        db.bankAccounts,
+      )..where((t) => t.id.equals(id))).getSingle();
+      await enqueue(
+        entity: 'bank_accounts',
+        entityId: id,
+        operation: 'insert',
+        payload: jsonEncode(saved.toJson()),
+        firmId: firm.id,
+      );
+      if (opening != 0) {
+        _warn(
+          'Bank opening balances were retained in account balances; review opening ledger entries.',
+        );
+      }
+    }
+  }
+
+  Future<void> _importConversions() async {
+    final converted = <int>{};
+    for (final row in snapshot.conversions) {
+      final source = asInt(row['txn_source_id']);
+      final target = documentIds[asInt(row['txn_destination_id'])];
+      final id = documentIds[source];
+      if (id == null ||
+          target == null ||
+          importedKinds[source] != VyaparDocKind.quotation) {
+        continue;
+      }
+      converted.add(source!);
+      await (db.update(db.salesInvoices)..where((t) => t.id.equals(id))).write(
+        SalesInvoicesCompanion(
+          convertedToInvoiceId: Value(target),
+          convertedAt: Value(DateTime.tryParse('${row['txns_linked_date']}')),
+        ),
+      );
+    }
+    for (final document in snapshot.documents) {
+      final id = documentIds[document.id];
+      if (id == null ||
+          document.kind != VyaparDocKind.quotation ||
+          document.status != 4 ||
+          converted.contains(document.id)) {
+        continue;
+      }
+      await (db.update(db.salesInvoices)..where((t) => t.id.equals(id))).write(
+        const SalesInvoicesCompanion(status: Value('cancelled')),
+      );
+    }
+  }
+
+  Future<void> _preserveDocumentAmounts(
+    VyaparDocument document,
+    String id,
+  ) async {
+    final sale =
+        document.kind != VyaparDocKind.purchaseBill &&
+        document.kind != VyaparDocKind.purchaseOrder;
+    final header = sale ? 'sales_invoices' : 'purchase_bills';
+    final linesTable = sale ? 'sales_invoice_items' : 'purchase_bill_items';
+    final parent = sale ? 'invoice_id' : 'bill_id';
+    final savedLines = await db
+        .customSelect(
+          'SELECT id FROM $linesTable WHERE $parent = ? ORDER BY sort_order',
+          variables: [Variable<String>(id)],
+        )
+        .get();
+    final sourceLines = snapshot.linesByTxn[document.id] ?? [];
+    final party = await _partyFor(
+      db.partyRepositoryFor(firm.id),
+      document.nameId,
+    );
+    final interstate = _isInterState(party);
+    double rawTax = 0;
+    for (var i = 0; i < sourceLines.length; i++) {
+      final line = sourceLines[i];
+      rawTax += line.taxAmount;
+      final total = _paise(line.total);
+      final tax = _paise(line.taxAmount);
+      final cgst = interstate ? 0.0 : _paise(tax / 2);
+      await db.customUpdate(
+        'UPDATE $linesTable SET total = ?, taxable_value = ?, cgst = ?, sgst = ?, igst = ? WHERE id = ?',
+        variables: [
+          Variable<double>(total),
+          Variable<double>(_paise(total - tax)),
+          Variable<double>(cgst),
+          Variable<double>(interstate ? 0 : _paise(tax - cgst)),
+          Variable<double>(interstate ? tax : 0),
+          Variable<String>(savedLines[i].read<String>('id')),
+        ],
+      );
+    }
+    final total = _paise(document.cashAmount + document.balanceAmount);
+    final tax = _paise(rawTax);
+    final cgst = interstate ? 0.0 : _paise(tax / 2);
+    await db.customUpdate(
+      'UPDATE $header SET grand_total = ?, taxable_value = ?, cgst = ?, sgst = ?, igst = ?, round_off = ? WHERE id = ?',
+      variables: [
+        Variable<double>(total),
+        Variable<double>(
+          _paise(total - tax - document.additionalCharges - document.roundOff),
+        ),
+        Variable<double>(cgst),
+        Variable<double>(interstate ? 0 : _paise(tax - cgst)),
+        Variable<double>(interstate ? tax : 0),
+        Variable<double>(_paise(document.roundOff)),
+        Variable<String>(id),
+      ],
+    );
   }
 
   // ---- Documents ---------------------------------------------------------
@@ -511,7 +763,11 @@ class _ImportRun {
               docType: _salesDocType(document.kind),
               partyId: party?.atriaId,
               invoiceDate: document.date ?? DateTime.now(),
-              dueDate: document.dueDate,
+              // Vyapar's generic due date is also populated on open estimates.
+              // It is not an explicit quotation validity deadline.
+              dueDate: document.kind == VyaparDocKind.quotation
+                  ? null
+                  : document.dueDate,
               status: 'confirmed',
               lines: lines.map((e) => e.sales).toList(),
               partyName: party?.name,
@@ -526,13 +782,20 @@ class _ImportRun {
               invoiceDiscountAmount: _decimalOrNull(document.discountAmount),
               invoiceDiscountPercent: _decimalOrNull(document.discountPercent),
               notes: document.notes,
+              shippingCharge: decimal(document.additionalCharges),
+              applyRoundOff: false,
             ),
             // Only a real invoice moves goods. Apex Books's sales repository already
             // skips quotations and delivery notes, but it does *not* skip
             // sales orders, so an order would have deducted stock here.
             affectStock: document.kind == VyaparDocKind.saleInvoice,
           );
-          _recordImported(document, saved.id, saved.grandTotal);
+          await _preserveDocumentAmounts(document, saved.id);
+          _recordImported(
+            document,
+            saved.id,
+            _paise(document.cashAmount + document.balanceAmount),
+          );
           _countSales(document.kind);
           break;
 
@@ -567,10 +830,17 @@ class _ImportRun {
               isInterState: _isInterState(party),
               invoiceDiscountAmount: _decimalOrNull(document.discountAmount),
               notes: document.notes,
+              shippingCharge: decimal(document.additionalCharges),
+              applyRoundOff: false,
             ),
             affectStock: document.kind == VyaparDocKind.purchaseBill,
           );
-          _recordImported(document, saved.id, saved.grandTotal);
+          await _preserveDocumentAmounts(document, saved.id);
+          _recordImported(
+            document,
+            saved.id,
+            _paise(document.cashAmount + document.balanceAmount),
+          );
           if (document.kind == VyaparDocKind.purchaseBill) {
             counts.purchaseBills++;
           } else {
@@ -608,9 +878,8 @@ class _ImportRun {
             rate: decimal(line.price),
             discountPercent: _decimalOrNull(line.discountPercent),
             discountAmount: _decimalOrNull(line.discountAmount),
-            gstRate: snapshot.taxRates[line.taxId] ??
-                itemGstRate[line.itemId] ??
-                0,
+            gstRate:
+                snapshot.taxRates[line.taxId] ?? itemGstRate[line.itemId] ?? 0,
           ),
           purchase: PurchaseLineDraft(
             id: IdUtils.newId(),
@@ -621,9 +890,8 @@ class _ImportRun {
             unit: _lineUnit(line),
             rate: decimal(line.price),
             discountPercent: _decimalOrNull(line.discountPercent),
-            gstRate: snapshot.taxRates[line.taxId] ??
-                itemGstRate[line.itemId] ??
-                0,
+            gstRate:
+                snapshot.taxRates[line.taxId] ?? itemGstRate[line.itemId] ?? 0,
           ),
         ),
     ];
@@ -683,8 +951,9 @@ class _ImportRun {
       final isOut = document.kind == VyaparDocKind.paymentOut;
       if (!isIn && !isOut) continue;
 
-      final amount =
-          document.cashAmount > 0 ? document.cashAmount : document.balanceAmount;
+      final amount = document.cashAmount > 0
+          ? document.cashAmount
+          : document.balanceAmount;
       if (amount <= 0) {
         counts.skipped++;
         continue;
@@ -693,7 +962,8 @@ class _ImportRun {
       // A payment against an order or an estimate is an advance: real money,
       // but not the settlement of a ledger document. It is kept, and named,
       // rather than applied to a balance it would distort.
-      final documentLinks = linksByTxn[document.id] ?? const <VyaparPaymentLink>[];
+      final documentLinks =
+          linksByTxn[document.id] ?? const <VyaparPaymentLink>[];
       VyaparPaymentLink? ledgerLink;
       for (final link in documentLinks) {
         if (importedKinds[link.documentTxnId]?.isLedgerDocument ?? false) {
@@ -701,8 +971,11 @@ class _ImportRun {
           break;
         }
       }
-      final targetLink = ledgerLink ?? (documentLinks.isEmpty ? null : documentLinks.first);
-      final atriaId = targetLink == null ? null : documentIds[targetLink.documentTxnId];
+      final targetLink =
+          ledgerLink ?? (documentLinks.isEmpty ? null : documentLinks.first);
+      final atriaId = targetLink == null
+          ? null
+          : documentIds[targetLink.documentTxnId];
 
       await payments.create(
         type: isIn ? 'payment_in' : 'payment_out',
@@ -711,15 +984,19 @@ class _ImportRun {
         partyName: partyName[document.nameId],
         amount: amount,
         date: document.date ?? DateTime.now(),
-        mode: _paymentMode(document.paymentTypeId, null),
+        mode: _paymentMode(_paymentTypeFor(document), null),
+        bankAccountId: paymentAccountIds[_paymentTypeFor(document)],
         reference: document.paymentReference,
         linkedInvoiceId: atriaId,
         linkedInvoiceNumber: atriaId == null
             ? _documentNumber(targetLink?.documentTxnId)
             : null,
-        notes:
-            atriaId == null && targetLink != null ? 'Advance from Vyapar' : null,
-        onLinked: isIn
+        notes: atriaId == null && targetLink != null
+            ? 'Advance from Vyapar'
+            : null,
+        onLinked: ledgerLink == null
+            ? null
+            : isIn
             ? (id, value) => sales.applyPayment(invoiceId: id, amount: value)
             : (id, value) => purchases.applyPayment(billId: id, amount: value),
       );
@@ -742,31 +1019,31 @@ class _ImportRun {
 
     for (final split in snapshot.paymentSplits) {
       final kind = importedKinds[split.documentTxnId];
-      if (kind == null || !kind.isLedgerDocument || split.amount <= 0) continue;
+      if (kind == null || split.amount <= 0) continue;
       final document = documentByTxnId[split.documentTxnId];
       final atriaId = documentIds[split.documentTxnId];
       if (document == null || atriaId == null) continue;
 
-      final already = paidBySplit[split.documentTxnId] ?? 0;
-      final remaining = split.amount - already;
+      final remaining = _paise(split.amount);
       if (remaining <= 0.0001) continue;
 
       final base = _paymentNumber(document.number, document.id);
       final seen = numberSuffix.update(base, (v) => v + 1, ifAbsent: () => 1);
 
       await payments.create(
-        type: kind == VyaparDocKind.saleInvoice
-            ? 'payment_in'
-            : 'payment_out',
+        type: _isIncoming(kind) ? 'payment_in' : 'payment_out',
         number: seen == 1 ? base : '$base-$seen',
         partyId: partyIds[document.nameId],
         partyName: partyName[document.nameId],
         amount: remaining,
         date: document.date ?? DateTime.now(),
         mode: _paymentMode(split.paymentTypeId, split.reference),
+        bankAccountId: paymentAccountIds[split.paymentTypeId],
         reference: split.reference,
         linkedInvoiceId: atriaId,
-        onLinked: kind == VyaparDocKind.saleInvoice
+        onLinked: !kind.isLedgerDocument
+            ? null
+            : kind == VyaparDocKind.saleInvoice
             ? (id, value) => sales.applyPayment(invoiceId: id, amount: value)
             : (id, value) => purchases.applyPayment(billId: id, amount: value),
       );
@@ -836,29 +1113,34 @@ class _ImportRun {
       if (grandTotal == null || atriaId == null) continue;
       if (!kind.isLedgerDocument) continue;
 
-      final outstanding =
-          _outstanding(document, grandTotal).toDouble();
+      final outstanding = _outstanding(document, grandTotal).toDouble();
       final paid = grandTotal - outstanding;
       final status = outstanding <= 0.01
           ? 'paid'
           : (paid <= 0.01 ? 'unpaid' : 'partial');
 
       if (kind == VyaparDocKind.saleInvoice) {
-        await (db.update(db.salesInvoices)..where((t) => t.id.equals(atriaId)))
-            .write(SalesInvoicesCompanion(
-          paidAmount: Value(paid),
-          balanceDue: Value(outstanding),
-          paymentStatus: Value(status),
-          updatedAt: Value(DateTime.now()),
-        ));
+        await (db.update(
+          db.salesInvoices,
+        )..where((t) => t.id.equals(atriaId))).write(
+          SalesInvoicesCompanion(
+            paidAmount: Value(paid),
+            balanceDue: Value(outstanding),
+            paymentStatus: Value(status),
+            updatedAt: Value(DateTime.now()),
+          ),
+        );
       } else {
-        await (db.update(db.purchaseBills)..where((t) => t.id.equals(atriaId)))
-            .write(PurchaseBillsCompanion(
-          paidAmount: Value(paid),
-          balanceDue: Value(outstanding),
-          paymentStatus: Value(status),
-          updatedAt: Value(DateTime.now()),
-        ));
+        await (db.update(
+          db.purchaseBills,
+        )..where((t) => t.id.equals(atriaId))).write(
+          PurchaseBillsCompanion(
+            paidAmount: Value(paid),
+            balanceDue: Value(outstanding),
+            paymentStatus: Value(status),
+            updatedAt: Value(DateTime.now()),
+          ),
+        );
       }
     }
   }
@@ -900,23 +1182,30 @@ class _ImportRun {
       final atriaId = partyIds[nameId];
       if (atriaId == null) continue;
 
-      final residual = asDouble(row['amount']) - (explained[nameId] ?? 0);
+      final statement = await db
+          .reportRepositoryFor(firm.id)
+          .partyStatement(partyId: atriaId);
+      final residual = _paise(
+        asDouble(row['amount']) - statement.closing.toDouble(),
+      );
       if (residual.abs() < 0.01) continue;
 
       final party = await repo.getById(atriaId);
       if (party == null) continue;
-      await repo.update(party.copyWith(
-        openingBalance: residual.abs(),
-        openingBalanceType: residual >= 0 ? 'dr' : 'cr',
-        updatedAt: DateTime.now(),
-      ));
+      await repo.update(
+        party.copyWith(
+          openingBalance: residual.abs(),
+          openingBalanceType: residual >= 0 ? 'dr' : 'cr',
+          updatedAt: DateTime.now(),
+        ),
+      );
     }
   }
 
   /// Outstanding on a document, from Vyapar's own balance less whatever was
   /// settled by a standalone payment transaction against it.
   double _outstanding(VyaparDocument document, double grandTotal) =>
-      (document.balanceAmount - (settledByPaymentTxn[document.id] ?? 0))
+      _paise(document.balanceAmount - (settledByPaymentTxn[document.id] ?? 0))
           .clamp(0, grandTotal)
           .toDouble();
 
@@ -927,7 +1216,7 @@ class _ImportRun {
       var top = 0;
       for (final document in snapshot.documents) {
         if (document.kind != kind) continue;
-        final value = int.tryParse(document.number ?? '');
+        final value = int.tryParse((document.number ?? '').split('/').last);
         if (value != null && value > top) top = value;
       }
       return top;
@@ -944,12 +1233,16 @@ class _ImportRun {
         invoiceSequence: Value(
           invoice > firm.invoiceSequence ? invoice : firm.invoiceSequence,
         ),
-        quotationSequence: Value(quotation > firm.quotationSequence
-            ? quotation
-            : firm.quotationSequence),
-        salesOrderSequence: Value(salesOrder > firm.salesOrderSequence
-            ? salesOrder
-            : firm.salesOrderSequence),
+        quotationSequence: Value(
+          quotation > firm.quotationSequence
+              ? quotation
+              : firm.quotationSequence,
+        ),
+        salesOrderSequence: Value(
+          salesOrder > firm.salesOrderSequence
+              ? salesOrder
+              : firm.salesOrderSequence,
+        ),
         purchaseSequence: Value(
           purchase > firm.purchaseSequence ? purchase : firm.purchaseSequence,
         ),
@@ -1056,7 +1349,9 @@ class _ImportRun {
     if (ref.contains('UPI')) return 'upi';
     if (ref.contains('CHEQUE')) return 'cheque';
 
-    final type = paymentTypeId == null ? null : snapshot.paymentTypes[paymentTypeId];
+    final type = paymentTypeId == null
+        ? null
+        : snapshot.paymentTypes[paymentTypeId];
     switch ((cleanString(type?['paymentType_type']) ?? '').toUpperCase()) {
       case 'CASH':
         return 'cash';
@@ -1173,7 +1468,8 @@ Map<int, double> _stockDeltaByItem(VyaparSnapshot snapshot) {
       _ => 0.0,
     };
     if (sign == 0) continue;
-    for (final line in snapshot.linesByTxn[document.id] ?? const <VyaparLine>[]) {
+    for (final line
+        in snapshot.linesByTxn[document.id] ?? const <VyaparLine>[]) {
       final itemId = line.itemId;
       if (itemId == null) continue;
       delta.update(
@@ -1219,20 +1515,21 @@ Map<int, String> _partyTypes(VyaparSnapshot snapshot) {
 }
 
 String _salesDocType(VyaparDocKind kind) => switch (kind) {
-      VyaparDocKind.quotation => 'quotation',
-      VyaparDocKind.saleOrder => 'sales_order',
-      VyaparDocKind.deliveryNote => 'delivery_note',
-      _ => 'invoice',
-    };
+  VyaparDocKind.quotation => 'quotation',
+  VyaparDocKind.saleOrder => 'sales_order',
+  VyaparDocKind.deliveryNote => 'delivery_note',
+  _ => 'invoice',
+};
 
 String _partyAddress(PartyEntity? party) {
   if (party == null) return '';
   return [
     party.addressLine1,
     party.addressLine2,
-    [party.city, party.pincode]
-        .where((e) => e != null && e.isNotEmpty)
-        .join(' '),
+    [
+      party.city,
+      party.pincode,
+    ].where((e) => e != null && e.isNotEmpty).join(' '),
   ].where((e) => e != null && e.trim().isNotEmpty).join(', ');
 }
 
@@ -1303,8 +1600,7 @@ double? _positiveOrNull(Object? value) {
   return parsed > 0 ? parsed : null;
 }
 
-Decimal? _decimalOrNull(double value) =>
-    value == 0 ? null : decimal(value);
+Decimal? _decimalOrNull(double value) => value == 0 ? null : decimal(value);
 
 /// Rounds to the six decimals Vyapar itself stores, so a rate like
 /// `5550.847457627119` survives `Decimal.parse` without float noise.
@@ -1339,20 +1635,20 @@ class _MutableCounts {
   int skipped = 0;
 
   VyaparImportCounts freeze() => VyaparImportCounts(
-        parties: parties,
-        items: items,
-        units: units,
-        categories: categories,
-        expenses: expenses,
-        saleInvoices: saleInvoices,
-        quotations: quotations,
-        saleOrders: saleOrders,
-        deliveryNotes: deliveryNotes,
-        purchaseBills: purchaseBills,
-        purchaseOrders: purchaseOrders,
-        payments: payments,
-        skipped: skipped,
-      );
+    parties: parties,
+    items: items,
+    units: units,
+    categories: categories,
+    expenses: expenses,
+    saleInvoices: saleInvoices,
+    quotations: quotations,
+    saleOrders: saleOrders,
+    deliveryNotes: deliveryNotes,
+    purchaseBills: purchaseBills,
+    purchaseOrders: purchaseOrders,
+    payments: payments,
+    skipped: skipped,
+  );
 }
 
 /// What an import wrote (or would write), per entity.

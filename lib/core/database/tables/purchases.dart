@@ -41,6 +41,8 @@ class PurchaseBills extends Table {
   BoolColumn get isInterState => boolean().withDefault(const Constant(false))();
   BoolColumn get reverseCharge =>
       boolean().withDefault(const Constant(false))();
+  /// Snapshot at entry time: changing registration must not rewrite history.
+  BoolColumn get itcEligible => boolean().withDefault(const Constant(true))();
   BoolColumn get isInwardSupplyFromUnregistered =>
       boolean().withDefault(const Constant(false))();
 
@@ -234,6 +236,7 @@ class Expenses extends Table {
 
   TextColumn get reference => text().nullable()();
   RealColumn get gstAmount => real().withDefault(const Constant(0))();
+  BoolColumn get itcEligible => boolean().withDefault(const Constant(true))();
   TextColumn get notes => text().nullable()();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
   DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();

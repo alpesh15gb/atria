@@ -1,10 +1,14 @@
 import 'package:decimal/decimal.dart';
 import 'package:drift/drift.dart';
 
+import '../../constants/payment_modes.dart';
 import '../../engine/gst_engine.dart';
 import '../app_database.dart';
+import '../costing/moving_average.dart';
+import '../../utils/money.dart';
 import 'repository_extensions.dart';
 import 'sync_mixin.dart';
+import 'ledger_repository.dart';
 
 /// Aggregated dashboard KPIs.
 class DashboardSummary {
@@ -19,6 +23,7 @@ class DashboardSummary {
   /// period figure, so it must not be derived from the windowed totals.
   final Decimal cashIn;
   final Decimal cashOut;
+  final Decimal? cashBalance;
   final Decimal receivable; // customers owe us
   final Decimal payable; // we owe suppliers
   final Decimal stockValue;
@@ -37,6 +42,7 @@ class DashboardSummary {
     required this.totalPaid,
     required this.cashIn,
     required this.cashOut,
+    this.cashBalance,
     required this.receivable,
     required this.payable,
     required this.stockValue,
@@ -339,6 +345,19 @@ class ReportRepository {
 
   // ---------------- Dashboard ----------------
 
+  /// The amount of [p] that actually moved money.
+  ///
+  /// A cheque is not money until it clears. `PaymentRepository.list` filters
+  /// only `isDeleted`, so a receipt whose cheque **bounced** was added to
+  /// "Cash in hand" — while the ledger deliberately excludes it
+  /// (`ledger_repository`: *"a bounced cheque is a phantom asset"*) and
+  /// `outstandingFor` excludes it too. So the customer's statement correctly
+  /// showed them still owing, the trial balance correctly lost the money, and
+  /// the dashboard hero kept it in the till. The brief's rule is that a bounced
+  /// cheque must not remain an asset, and this is the highest-traffic screen.
+  double _moneyActuallyMoved(PaymentEntity p) =>
+      p.chequeStatus == 'bounced' ? 0 : p.amount;
+
   Future<DashboardSummary> dashboard({DateTime? from, DateTime? to}) async {
     final range = DateRangeFilter(
       start: from ?? DateTime(DateTime.now().year, DateTime.now().month, 1),
@@ -403,7 +422,18 @@ class ReportRepository {
     final allPurchases = await db
         .purchaseRepositoryFor(firmId)
         .list(docType: 'bill', limit: 1000000);
-    final items = await db.itemRepositoryFor(firmId).all();
+    // Credit and debit notes. `docType: 'invoice'` excludes them, so "To
+    // receive" never fell when a credit note was raised — while
+    // `PartyRepository.outstandingFor` *does* subtract them, so the Parties
+    // list Outstanding column and the Statement of Account dropped by ₹10,000
+    // and the dashboard's To receive did not move. Two figures for one fact,
+    // shown a tap apart, disagreeing by every note ever issued.
+    final allCreditNotes = await db
+        .salesRepositoryFor(firmId)
+        .list(docType: 'credit_note', limit: 1000000);
+    final allDebitNotes = await db
+        .purchaseRepositoryFor(firmId)
+        .list(docType: 'debit_note', limit: 1000000);
     final lowStock = await db.itemRepositoryFor(firmId).lowStock();
 
     double salesTotal = 0;
@@ -442,28 +472,37 @@ class ReportRepository {
     }
     double cashIn = 0;
     for (final p in allPaymentsIn) {
-      cashIn += p.amount;
+      if (p.mode == 'cash') cashIn += _moneyActuallyMoved(p);
     }
     double cashOut = 0;
     for (final p in allPaymentsOut) {
-      cashOut += p.amount;
+      if (p.mode == 'cash') cashOut += _moneyActuallyMoved(p);
     }
     double receivable = 0;
-    for (final s in allSales) {
-      if (s.status == 'cancelled') continue;
-      receivable += s.balanceDue;
-    }
     double payable = 0;
-    for (final p in allPurchases) {
-      if (p.status == 'cancelled') continue;
-      payable += p.balanceDue;
+    final parties = await (db.select(db.parties)..where((t) => t.firmId.equals(firmId))).get();
+    for (final party in parties) {
+      final net = await db.partyRepositoryFor(firmId).outstandingFor(party.id);
+      if (net >= 0) { receivable += net; } else { payable -= net; }
     }
-    double stockValue = 0;
-    for (final i in items) {
-      // Services aren't counted in stock — see ItemRepository.stockValue.
-      if (i.isService || i.stockType != 'tracked') continue;
-      stockValue += i.currentStock * i.salePrice;
+    // Walk-in documents have no party ledger, but their dues still count.
+    for (final d in allSales) {
+      if (d.partyId == null && d.status != 'cancelled') receivable += d.balanceDue;
     }
+    for (final d in allCreditNotes) {
+      if (d.partyId == null && d.status != 'cancelled') receivable -= d.balanceDue;
+    }
+    for (final d in allPurchases) {
+      if (d.partyId == null && d.status != 'cancelled') payable += d.balanceDue;
+    }
+    for (final d in allDebitNotes) {
+      if (d.partyId == null && d.status != 'cancelled') payable -= d.balanceDue;
+    }
+    final trial = await db.ledgerRepositoryFor(firmId).trialBalance(asOf: DateTime.now());
+    final cashBalance = trial.rows.where((r) => r.account.code == LedgerCodes.cash)
+        .fold(0.0, (sum, row) => sum + row.closing);
+    // Use the same book valuation as P&L, rather than catalogue selling prices.
+    final stockValue = await stockAtCost(asOf: DateTime.now());
 
     // GST payable this period (output less input).
     final gst = await gstSummary(from: range.start, to: range.end);
@@ -486,6 +525,7 @@ class ReportRepository {
       totalPaid: _d(paid),
       cashIn: _d(cashIn),
       cashOut: _d(cashOut),
+      cashBalance: _d(cashBalance),
       receivable: _d(receivable),
       payable: _d(payable),
       stockValue: _d(stockValue),
@@ -606,7 +646,7 @@ class ReportRepository {
 
     double icgst = 0, isgst = 0, iigst = 0;
     for (final p in [...purchases, ...debitNotes]) {
-      if (p.status == 'cancelled') continue;
+      if (p.status == 'cancelled' || !p.itcEligible) continue;
       final sign = p.docType == 'debit_note' ? -1.0 : 1.0;
       icgst += sign * p.cgst;
       isgst += sign * p.sgst;
@@ -723,28 +763,33 @@ class ReportRepository {
     double salesTaxable = 0;
     for (final s in sales) {
       if (s.status == 'cancelled') continue;
-      salesTaxable += s.taxableValue;
+      salesTaxable += s.grandTotal - s.cgst - s.sgst - s.igst - s.cess - s.tcs;
     }
     for (final cn in creditNotes) {
       if (cn.status == 'cancelled') continue;
-      salesTaxable -= cn.taxableValue;
+      salesTaxable -=
+          cn.grandTotal - cn.cgst - cn.sgst - cn.igst - cn.cess - cn.tcs;
     }
     double purchaseTaxable = 0;
     for (final p in purchases) {
       if (p.status == 'cancelled') continue;
-      purchaseTaxable += p.taxableValue;
+      purchaseTaxable += p.taxableValue + p.shippingCharge + p.otherCharges +
+          (p.itcEligible ? 0 : p.cgst + p.sgst + p.igst + p.cess);
     }
     for (final dn in debitNotes) {
       if (dn.status == 'cancelled') continue;
-      purchaseTaxable -= dn.taxableValue;
+      purchaseTaxable -= dn.taxableValue + dn.shippingCharge + dn.otherCharges +
+          (dn.itcEligible ? 0 : dn.cgst + dn.sgst + dn.igst + dn.cess);
     }
     final expenseByCat = <String, double>{};
     for (final e in expenses) {
-      expenseByCat[e.category] = (expenseByCat[e.category] ?? 0) + e.amount;
+      expenseByCat[e.category] = (expenseByCat[e.category] ?? 0) + e.amount -
+          (e.itcEligible ? e.gstAmount.clamp(0, e.amount) : 0);
     }
     final incomeByCat = <String, double>{};
     for (final i in income) {
-      incomeByCat[i.category] = (incomeByCat[i.category] ?? 0) + i.amount;
+      incomeByCat[i.category] = (incomeByCat[i.category] ?? 0) + i.amount -
+          i.gstAmount.clamp(0, i.amount);
     }
 
     // Stock in hand at the two ends of the period, at cost. Closing stock is
@@ -756,11 +801,26 @@ class ReportRepository {
     final closingStock = await stockAtCost(asOf: to);
     final costOfGoodsSold = purchaseTaxable + openingStock - closingStock;
     final grossProfit = salesTaxable - costOfGoodsSold;
+    // **Labels, not slugs.** `expenses.category` stores the id (`rent`,
+    // `bank_charges`, `salary`), and `PnLRow.label` is printed verbatim by the
+    // P&L report and by the reports screen — so the statement a shop files read
+    // "rent ₹12,000 / salary ₹48,000 / bank_charges ₹450" instead of "Rent /
+    // Salaries & Wages / Bank Charges". The ledger-side P&L already maps
+    // through `ExpenseCategory.byId`/`IncomeCategory.byId`; this was the same
+    // arithmetic arriving twice and only one of them naming the thing.
+    String labelFor(String slug) =>
+        ExpenseCategory.byId(slug)?.label ??
+        IncomeCategory.byId(slug)?.label ??
+        slug;
     final expenseRows =
-        expenseByCat.entries.map((e) => PnLRow(e.key, _d(e.value))).toList()
+        expenseByCat.entries
+            .map((e) => PnLRow(labelFor(e.key), _d(e.value)))
+            .toList()
           ..sort((a, b) => b.amount.compareTo(a.amount));
     final incomeRows =
-        incomeByCat.entries.map((e) => PnLRow(e.key, _d(e.value))).toList()
+        incomeByCat.entries
+            .map((e) => PnLRow(labelFor(e.key), _d(e.value)))
+            .toList()
           ..sort((a, b) => b.amount.compareTo(a.amount));
 
     final totalExpenses = expenseByCat.values.fold<double>(0, (a, b) => a + b);
@@ -817,6 +877,15 @@ class ReportRepository {
   /// opening stock of July, and the difference is what the period consumed.
   /// Quantities are signed movements, so summing them to a date is the balance
   /// at that date.
+  ///
+  /// **Valued from `stock_movements.unitCost`, not `items.purchasePrice`.**
+  /// `purchasePrice` is a *current catalogue field*, so valuing last quarter's
+  /// movements with it meant the March P&L's closing stock, cost of goods sold
+  /// and gross profit all changed on the day somebody edited a purchase price —
+  /// a filed statement moving after the fact, which is worse than no statement.
+  /// Replays receipts and issues through the shared moving-average engine at
+  /// the requested date. The latest receipt's unit cost is not the weighted
+  /// cost of all remaining stock. Negative stock is not valued as an asset.
   Future<double> stockAtCost({required DateTime asOf}) async {
     final end = DateTime(asOf.year, asOf.month, asOf.day, 23, 59, 59);
     final movements =
@@ -826,21 +895,29 @@ class ReportRepository {
             ))
             .get();
     if (movements.isEmpty) return 0;
-    final items = await db.itemRepositoryFor(firmId).all();
-    final costById = {for (final i in items) i.id: i.purchasePrice};
-    final quantityById = <String, double>{};
-    for (final movement in movements) {
-      if (!costById.containsKey(movement.itemId)) continue;
-      quantityById[movement.itemId] =
-          (quantityById[movement.itemId] ?? 0) + movement.quantity;
+
+    final states = <String, MovingAverageCosting>{};
+    final ordered = [...movements]
+      ..sort((a, b) {
+        final byDate = a.date.compareTo(b.date);
+        return byDate != 0 ? byDate : a.id.compareTo(b.id);
+      });
+    for (final movement in ordered) {
+      final before = states[movement.itemId] ?? MovingAverageCosting.initial();
+      final (after, _) = before.apply(
+        CostedMovement(
+          id: movement.id,
+          kind: movement.kind,
+          quantity: movement.quantity,
+          unitCost: Money.of(movement.unitCost),
+        ),
+      );
+      states[movement.itemId] = after;
     }
     var total = 0.0;
-    quantityById.forEach((itemId, quantity) {
-      // Negative stock (billing ahead of the purchase entry) is not an asset;
-      // valuing it would invent a loss on goods that were never bought.
-      if (quantity <= 0) return;
-      total += quantity * (costById[itemId] ?? 0);
-    });
+    for (final state in states.values) {
+      if (state.quantity > Decimal.zero) total += state.value.toDouble();
+    }
     return total;
   }
 
@@ -896,6 +973,7 @@ class ReportRepository {
     // The payments have to honour the same window as the documents; `forParty`
     // returns the whole history, so a "this month" statement listed payments
     // from every previous month too.
+    final advances = await db.paymentRepositoryFor(firmId).advanceDocumentIds();
     final payments = await db
         .paymentRepositoryFor(firmId)
         .list(partyId: partyId, from: from, to: to, limit: 1000000);
@@ -965,7 +1043,10 @@ class ReportRepository {
         opening += dn.grandTotal;
       }
       for (final p in priorPayments) {
-        if (p.chequeStatus == 'bounced') continue;
+        if (p.chequeStatus == 'bounced' ||
+            advances.contains(p.linkedInvoiceId)) {
+          continue;
+        }
         opening += p.type == 'payment_in' ? -p.amount : p.amount;
       }
     }
@@ -1020,7 +1101,9 @@ class ReportRepository {
       );
     }
     for (final p in payments) {
-      if (p.chequeStatus == 'bounced') continue;
+      if (p.chequeStatus == 'bounced' || advances.contains(p.linkedInvoiceId)) {
+        continue;
+      }
       final isIn = p.type == 'payment_in';
       events.add(
         _LedgerEvent(
@@ -1157,7 +1240,10 @@ class ReportRepository {
   // ---------------- Stock summary ----------------
 
   Future<List<StockSummaryRow>> stockSummary() async {
-    final items = await db.itemRepositoryFor(firmId).all();
+    // Uncapped: this is the Stock screen's entire table and its totals row, and
+    // the default 1000-row cap dropped the tail of any larger catalogue by name
+    // order, understating "Total · N items" and every value under it.
+    final items = await db.itemRepositoryFor(firmId).all(limit: 0);
     final rows = <StockSummaryRow>[];
     for (final i in items) {
       // Services aren't counted in stock — see ItemRepository.stockValue.

@@ -41,7 +41,7 @@ const ReportSpec stockSummarySpec = ReportSpec(
     ReportColumn(key: 'item', label: 'Item', flex: 3, emphasise: true),
     ReportColumn(key: 'category', label: 'Category'),
     ReportColumn(key: 'unit', label: 'Unit'),
-    ReportColumn(key: 'hsn', label: 'HSN', wideOnly: true),
+    ReportColumn(key: 'hsn', label: 'HSN', wideOnly: true, optional: true),
     ReportColumn(
       key: 'stock',
       label: 'In stock',
@@ -63,7 +63,14 @@ const ReportSpec stockSummarySpec = ReportSpec(
       flex: 2,
       emphasise: true,
     ),
-    ReportColumn(key: 'low', label: 'Reorder', kind: ReportValueKind.quantity),
+    ReportColumn(
+      key: 'low',
+      label: 'Reorder',
+      kind: ReportValueKind.quantity,
+      // Unset on every item in a catalogue that never set one — the default
+      // state, and not a fault in the report.
+      optional: true,
+    ),
   ],
   footnote:
       'In stock is the item\'s current balance. In and Out are this period\'s '
@@ -92,8 +99,12 @@ Future<List<ReportRow>> stockSummaryRows(
   final selected = selectedItemId(filters);
   final items = await allLiveItems(db, firmId, selected: selected);
   final categories = await itemCategoryNames(db, firmId, items);
-  final movements =
-      await movementsByItem(db, firmId, window, selected: selected);
+  final movements = await movementsByItem(
+    db,
+    firmId,
+    window,
+    selected: selected,
+  );
   final averages = await averageCostByItem(db, firmId, selected: selected);
 
   // Every item the firm still holds, even one with no movement in the period. A
@@ -121,7 +132,9 @@ Future<List<ReportRow>> stockSummaryRows(
         'in': m.inboundQty,
         'out': m.outboundQty,
         'rate': rate,
-        'value': info.currentStock * rate,
+        'value': info.currentStock > Decimal.zero
+            ? info.currentStock * rate
+            : Decimal.zero,
         // The reorder level, and only when one is set — a zero here would read
         // as "reorder at zero" and put every item on a purchase list.
         'low': info.lowStockAlert > Decimal.zero ? info.lowStockAlert : '',

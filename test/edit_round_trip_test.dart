@@ -22,7 +22,7 @@ void main() {
 
   setUp(() async {
     db = AppDatabase.test(NativeDatabase.memory());
-    final firm = await db.firmRepository.create(
+    final firm = await db.firmRepository.create(gstin: '29ABCDE1234F1Z5', 
       name: 'Shri Balaji Traders',
       stateCode: '29',
     );

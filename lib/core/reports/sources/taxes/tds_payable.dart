@@ -40,7 +40,11 @@ const ReportSpec tdsPayableSpec = ReportSpec(
     ReportColumn(key: 'pan', label: 'PAN', flex: 2),
     ReportColumn(key: 'section', label: 'Section'),
     ReportColumn(key: 'rate', label: 'Rate', kind: ReportValueKind.rate),
-    ReportColumn(key: 'taxable', label: 'Taxable value', kind: ReportValueKind.money),
+    ReportColumn(
+      key: 'taxable',
+      label: 'Taxable value',
+      kind: ReportValueKind.money,
+    ),
     ReportColumn(
       key: 'tds',
       label: 'TDS deducted',
@@ -74,11 +78,13 @@ Future<List<ReportRow>> tdsPayableRows(
   ReportWindow window,
   Map<String, Object?> filters,
 ) async {
-  final bills = await (db.select(db.purchaseBills)
-        ..where((d) =>
-            tdsScope(window, firmId, db.purchaseBills) &
-            TdsCommon.hasTds(db.purchaseBills)))
-      .get();
+  final bills =
+      await (db.select(db.purchaseBills)..where(
+            (d) =>
+                tdsScope(window, firmId, db.purchaseBills) &
+                TdsCommon.hasTds(db.purchaseBills),
+          ))
+          .get();
   if (bills.isEmpty) return const [];
 
   // The party name as filed, with the master's as a fallback for a bill whose
@@ -89,12 +95,13 @@ Future<List<ReportRow>> tdsPayableRows(
   };
   final missing = <String>{
     for (final bill in bills)
-      if (bill.partyId != null && !names.containsKey(bill.partyId)) bill.partyId!,
+      if (bill.partyId != null && !names.containsKey(bill.partyId))
+        bill.partyId!,
   };
   if (missing.isNotEmpty) {
-    final parties = await (db.select(db.parties)
-          ..where((p) => p.id.isIn(missing)))
-        .get();
+    final parties = await (db.select(
+      db.parties,
+    )..where((p) => p.id.isIn(missing))).get();
     for (final party in parties) {
       names[party.id] = party.name;
     }
@@ -122,6 +129,6 @@ Future<List<ReportRow>> tdsPayableRows(
 /// A function, not a string — the source's `notes` slot is
 /// `List<String> Function(ReportResult)`.
 List<String> _tdsPayableNotes(ReportResult result) => [
-      'Reads purchase bills and debit notes in the window. Only bills that '
+  'Reads purchase bills and debit notes in the window. Only bills that '
       'actually carried a deduction are listed.',
-    ];
+];

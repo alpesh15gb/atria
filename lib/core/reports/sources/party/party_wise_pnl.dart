@@ -151,8 +151,11 @@ List<String> _partyWisePnlNotes(ReportResult result) {
   // the best customer in the firm and is the most expensive kind of wrong
   // number this app can print.
   final uncosted = result.rows
-      .where((r) => r.number(_salesColumn) > Decimal.zero &&
-          r.number(_cogsColumn) == Decimal.zero)
+      .where(
+        (r) =>
+            r.number(_salesColumn) > Decimal.zero &&
+            r.number(_cogsColumn) == Decimal.zero,
+      )
       .map((r) => '${r.cells['party']}')
       .toList();
   if (uncosted.isNotEmpty) {

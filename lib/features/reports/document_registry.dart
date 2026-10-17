@@ -3,6 +3,10 @@ import 'package:flutter/widgets.dart';
 import '../../core/reports/engine/report_result.dart';
 import 'documents/balance_sheet_document.dart';
 import 'documents/cash_flow_document.dart';
+import 'documents/day_book_document.dart';
+import 'documents/gstr1_document.dart';
+import 'documents/gstr3b_document.dart';
+import 'documents/gstr9_document.dart';
 import 'documents/profit_and_loss_document.dart';
 import 'documents/stock_detail_document.dart';
 import 'documents/trial_balance_document.dart';
@@ -32,4 +36,8 @@ final Map<String, Widget? Function(BuildContext, ReportResult)> _builders = {
   'balance_sheet': buildBalanceSheet,
   'cash_flow': buildCashFlow,
   'stock_detail': buildStockDetail,
+  'gstr1': buildGstr1,
+  'gstr3b': buildGstr3b,
+  'gstr9': buildGstr9,
+  'day_book': buildDayBook,
 };

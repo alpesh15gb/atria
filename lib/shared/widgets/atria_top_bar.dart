@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../core/state/providers.dart';
 import '../../core/responsive/platform_ui.dart';
 import '../../core/theme/app_radius.dart';
+import 'adaptive_nav_shell.dart';
 import 'atria_avatar.dart';
 import 'atria_global_search.dart';
 import 'atria_logo.dart';
@@ -41,42 +41,50 @@ class AtriaTopBar extends ConsumerWidget {
 
     if (Theme.of(context).platform.isMobileUi) {
       return Material(
-        color: scheme.surface,
+        color: Theme.of(context).scaffoldBackgroundColor,
         child: SafeArea(
           bottom: false,
-          child: SizedBox(
-            height: 56,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 10, 14, 8),
             child: Row(
               children: [
-                const SizedBox(width: 12),
-                AtriaAvatar.initials(
-                  name: firm?.name ?? 'Apex Books',
-                  radius: AtriaAvatar.row,
-                ),
+                const AtriaLogo(size: 34),
+                const SizedBox(width: 10),
                 Expanded(
-                  child: _BusinessSwitcher(
-                    firmName: firm?.name ?? 'Apex Books',
-                    labelWidth: 180,
-                  ),
-                ),
-                const Padding(
-                  padding: EdgeInsets.only(right: 8),
-                  child: Text(
-                    'apex',
-                    style: TextStyle(fontSize: 25, fontWeight: FontWeight.w800),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'WORKSPACE',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          letterSpacing: 0.2,
+                          fontSize: 11,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      LayoutBuilder(
+                        builder: (context, constraints) => _BusinessSwitcher(
+                          firmName: firm?.name ?? 'Apex Books',
+                          labelWidth: (constraints.maxWidth - 40).clamp(0, 200),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 IconButton(
                   tooltip: 'Search',
                   onPressed: () => showAtriaGlobalSearch(context),
-                  icon: const Icon(Icons.search),
+                  icon: const Icon(Icons.search_rounded, size: 21),
                 ),
+                const SizedBox(width: 4),
+                _AccountMenu(firmName: firm?.name),
               ],
             ),
           ),
         ),
       );
     }
+
     return Material(
       color: scheme.surface,
       child: DecoratedBox(
@@ -179,7 +187,7 @@ class AtriaTopBar extends ConsumerWidget {
                       // navigator, outside the nav rail and bottom bar, and
                       // leaves Android Back unwinding to the pre-push screen
                       // instead of behaving like a tab.
-                      onPressed: () => context.go('/settings'),
+                      onPressed: () => goFromChrome(context, '/settings'),
                       icon: const Icon(PhosphorIconsRegular.gear, size: 18),
                     ),
                     _AccountMenu(firmName: firm?.name),
@@ -212,6 +220,7 @@ class _BusinessSwitcher extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final name = (firmName ?? '').trim();
+    final firms = ref.watch(allFirmsProvider).valueOrNull ?? const [];
     if (name.isEmpty) return const SizedBox.shrink();
 
     return PopupMenuButton<String>(
@@ -221,7 +230,25 @@ class _BusinessSwitcher extends ConsumerWidget {
       // `go`, not `push` — see the comment on the gear. These are all inside
       // the settings branch, so a push would host them on the root navigator,
       // outside the rail.
-      onSelected: (route) => context.go(route),
+      onSelected: (route) async {
+        if (route.startsWith('firm:')) {
+          try {
+            await ref
+                .read(activeFirmIdProvider.notifier)
+                .select(route.substring(5));
+          } catch (_) {
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Could not switch business. Please try again.'),
+                ),
+              );
+            }
+          }
+        } else {
+          goFromChrome(context, route);
+        }
+      },
       itemBuilder: (context) => [
         PopupMenuItem<String>(
           enabled: false,
@@ -235,6 +262,24 @@ class _BusinessSwitcher extends ConsumerWidget {
             ),
           ),
         ),
+        if (Theme.of(context).platform.isMobileUi)
+          for (final firm in firms)
+            PopupMenuItem<String>(
+              value: 'firm:${firm.id}',
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      firm.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (ref.read(activeFirmIdProvider) == firm.id)
+                    Icon(Icons.check, size: 18, color: scheme.primary),
+                ],
+              ),
+            ),
         const PopupMenuItem<String>(
           value: '/settings/firm',
           height: 38,
@@ -358,7 +403,7 @@ class _AccountMenu extends ConsumerWidget {
       offset: const Offset(-150, 40),
       position: PopupMenuPosition.under,
       // `go`, not `push` — see the comment on the gear.
-      onSelected: (route) => context.go(route),
+      onSelected: (route) => goFromChrome(context, route),
       itemBuilder: (context) => [
         PopupMenuItem<String>(
           enabled: false,

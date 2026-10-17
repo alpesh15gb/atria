@@ -73,13 +73,39 @@ Future<List<ReportRow>> itemCategoryPnlRows(
 ) async {
   final selected = selectedItemId(filters);
   final trading = await tradingByItem(db, firmId, window, selected: selected);
-  final movements =
-      await movementsByItem(db, firmId, window, selected: selected);
+  final movements = await movementsByItem(
+    db,
+    firmId,
+    window,
+    selected: selected,
+  );
   final items = await itemsById(db, firmId, trading.keys.toList());
   final categories = await itemCategoryNames(db, firmId, items);
 
+  // `trading` is a map keyed by item id, so its iteration order is arbitrary —
+  // the rows below come out in whatever order the hash produced.
+  //
+  // `ReportRunner.fold` sorts **only within a group**, by design ("a report that
+  // sorts globally reorders the groups too, which reads as random when the
+  // groups are months"), and the groups themselves keep source order. So this
+  // report — titled "P&L", declaring `sort: profit descending` — printed its
+  // category bands as `Ungrouped, Zebra, Alpha` for profits of 10, 9999 and
+  // 500. `sale_purchase_by_party_group.dart` sorts its own rows for exactly
+  // this reason; mirror it here.
   final rows = <ReportRow>[];
-  for (final entry in trading.entries) {
+  final ordered = trading.entries.toList()
+    ..sort((a, b) {
+      final profitA =
+          (a.value.saleValue -
+                  (movements[a.key]?.outboundValue ?? Decimal.zero))
+              .toDouble();
+      final profitB =
+          (b.value.saleValue -
+                  (movements[b.key]?.outboundValue ?? Decimal.zero))
+              .toDouble();
+      return profitB.compareTo(profitA);
+    });
+  for (final entry in ordered) {
     final t = entry.value;
     if (t.isEmpty) continue;
     final info = items[entry.key];

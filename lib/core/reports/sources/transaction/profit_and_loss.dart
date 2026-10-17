@@ -125,6 +125,19 @@ Future<List<ReportRow>> profitAndLossRows(
         'amount': pnl.costOfGoodsSold,
       }),
     ],
+    // Gross and net are **different numbers** and both belong on the
+    // statement. The document view used to derive one figure on screen
+    // (`totalIncome - totalExpenses`) and print it twice, under two different
+    // names — a CA reading the statement saw two identical lines and could not
+    // tell which was which. The repository has computed both, correctly and
+    // distinctly: gross is sales less cost of goods sold, net adds other income
+    // and operating expenses.
+    ReportRow({
+      'section': '',
+      'label': 'Gross profit',
+      'amount': pnl.grossProfit,
+    }),
+    ReportRow({'section': '', 'label': 'Net profit', 'amount': pnl.netProfit}),
   ];
 }
 

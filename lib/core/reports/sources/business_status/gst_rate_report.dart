@@ -31,9 +31,19 @@ const ReportSpec gstRateReportSpec = ReportSpec(
   category: 'Taxes',
   sort: ReportSort(columnKey: 'taxable', descending: true),
   columns: [
-    ReportColumn(key: 'rate', label: 'Rate', kind: ReportValueKind.rate, flex: 2, emphasise: true),
+    ReportColumn(
+      key: 'rate',
+      label: 'Rate',
+      kind: ReportValueKind.rate,
+      flex: 2,
+      emphasise: true,
+    ),
     ReportColumn(key: 'supply', label: 'Supply'),
-    ReportColumn(key: 'documents', label: 'Documents', kind: ReportValueKind.count),
+    ReportColumn(
+      key: 'documents',
+      label: 'Documents',
+      kind: ReportValueKind.count,
+    ),
     ReportColumn(
       key: 'taxable',
       label: 'Taxable value',
@@ -92,19 +102,24 @@ Future<List<ReportRow>> gstRateReportRows(
   ReportWindow window,
   Map<String, Object?> filters,
 ) async {
-  final docs = await (db.select(db.salesInvoices)
-        ..where((d) =>
-            d.firmId.equals(firmId) &
-            d.docType.isIn(kSalesDocTypes) &
-            ReportFilters.isLive(status: d.status, isDeleted: d.isDeleted) &
-            ReportFilters.within(d.invoiceDate, window)))
-      .get();
+  final docs =
+      await (db.select(db.salesInvoices)..where(
+            (d) =>
+                d.firmId.equals(firmId) &
+                d.docType.isIn(kSalesDocTypes) &
+                ReportFilters.isLive(status: d.status, isDeleted: d.isDeleted) &
+                ReportFilters.within(d.invoiceDate, window),
+          ))
+          .get();
   if (docs.isEmpty) return const [];
 
-  final lines = await (db.select(db.salesInvoiceItems)
-        ..where((l) =>
-            l.invoiceId.isIn(docs.map((d) => d.id)) & l.isDeleted.equals(false)))
-      .get();
+  final lines =
+      await (db.select(db.salesInvoiceItems)..where(
+            (l) =>
+                l.invoiceId.isIn(docs.map((d) => d.id)) &
+                l.isDeleted.equals(false),
+          ))
+          .get();
 
   // The sign is the document's, so a credit note comes off its own band.
   final signs = <String, int>{
@@ -116,12 +131,14 @@ Future<List<ReportRow>> gstRateReportRows(
   // in the label is better than filing a service silently under the goods
   // table.
   final itemKinds = <String, bool>{};
-  final items = await (db.select(db.items)
-        ..where((i) => i.id.isIn([
+  final items =
+      await (db.select(db.items)..where(
+            (i) => i.id.isIn([
               for (final line in lines)
                 if (line.itemId != null) line.itemId!,
-            ])))
-      .get();
+            ]),
+          ))
+          .get();
   for (final item in items) {
     itemKinds[item.id] = item.isService;
   }
@@ -136,14 +153,16 @@ Future<List<ReportRow>> gstRateReportRows(
     final rate = taxable <= Decimal.zero
         ? Decimal.zero
         : (tax * Decimal.fromInt(100) / taxable)
-            .toDecimal(scaleOnInfinitePrecision: 6)
-            .round();
+              .toDecimal(scaleOnInfinitePrecision: 6)
+              .round();
     final service = itemKinds[line.itemId] ?? false;
     final key = '${rate.toString()}|${service ? 'service' : 'goods'}';
-    final band = bands.putIfAbsent(
-      key,
-      () => (rate: rate, service: service, band: _RateBand()),
-    ).band;
+    final band = bands
+        .putIfAbsent(
+          key,
+          () => (rate: rate, service: service, band: _RateBand()),
+        )
+        .band;
 
     band.taxable += taxable * Decimal.fromInt(sign);
     band.cgst += dec(line.cgst) * Decimal.fromInt(sign);
@@ -172,6 +191,6 @@ Future<List<ReportRow>> gstRateReportRows(
 /// A function, not a string — the source's `notes` slot is
 /// `List<String> Function(ReportResult)`.
 List<String> _gstRateReportNotes(ReportResult result) => [
-      'Reads sales invoice lines in the window. Cancelled documents, and '
+  'Reads sales invoice lines in the window. Cancelled documents, and '
       'anything in the recycle bin, are excluded.',
-    ];
+];

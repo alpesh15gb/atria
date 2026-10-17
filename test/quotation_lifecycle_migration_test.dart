@@ -140,6 +140,6 @@ void main() {
       reason: 'cancelling it would wipe the only record that it was invoiced',
     );
 
-    expect(upgraded.schemaVersion, 12);
+    expect(upgraded.schemaVersion, 14);
   });
 }

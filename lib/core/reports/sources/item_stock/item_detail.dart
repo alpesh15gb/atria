@@ -40,11 +40,15 @@ const ReportSpec itemDetailSpec = ReportSpec(
   ],
   columns: [
     ReportColumn(key: 'item', label: 'Item', flex: 3, emphasise: true),
-    ReportColumn(key: 'sku', label: 'SKU', wideOnly: true),
-    ReportColumn(key: 'category', label: 'Category'),
+    ReportColumn(key: 'sku', label: 'SKU', wideOnly: true, optional: true),
+    ReportColumn(key: 'category', label: 'Category', optional: true),
     ReportColumn(key: 'unit', label: 'Unit'),
-    ReportColumn(key: 'hsn', label: 'HSN/SAC'),
-    ReportColumn(key: 'stock', label: 'In stock', kind: ReportValueKind.quantity),
+    ReportColumn(key: 'hsn', label: 'HSN/SAC', optional: true),
+    ReportColumn(
+      key: 'stock',
+      label: 'In stock',
+      kind: ReportValueKind.quantity,
+    ),
     ReportColumn(
       key: 'salePrice',
       label: 'Sale price',
@@ -55,11 +59,7 @@ const ReportSpec itemDetailSpec = ReportSpec(
       label: 'Purchase price',
       kind: ReportValueKind.rate,
     ),
-    ReportColumn(
-      key: 'sale',
-      label: 'Sold for',
-      kind: ReportValueKind.money,
-    ),
+    ReportColumn(key: 'sale', label: 'Sold for', kind: ReportValueKind.money),
     ReportColumn(key: 'saleQty', label: 'Sold', kind: ReportValueKind.quantity),
     ReportColumn(
       key: 'purchase',
@@ -111,8 +111,8 @@ Future<List<ReportRow>> itemDetailRows(
         'stock': info.isService
             ? 'Service'
             : isStockKeeping(item)
-                ? info.currentStock
-                : Decimal.zero,
+            ? info.currentStock
+            : Decimal.zero,
         'salePrice': info.salePrice,
         'purchasePrice': info.purchasePrice,
         'sale': t.saleValue,

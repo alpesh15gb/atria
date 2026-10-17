@@ -161,7 +161,12 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
             ? 1
             : _crossAxisCount(constraints.windowSize);
         return AtriaListPage(
-          title: 'Products and services',
+          title: Theme.of(context).platform.isMobileUi
+              ? 'Items'
+              : 'Products and services',
+          subtitle: Theme.of(context).platform.isMobileUi
+              ? 'Inventory & services'
+              : null,
           actions: [
             AtriaHeaderIconAction(
               icon: Icons.assignment_outlined,
@@ -178,8 +183,7 @@ class _ItemsScreenState extends ConsumerState<ItemsScreen> {
           ],
           body: CustomScrollView(
             slivers: [
-              if (!Theme.of(context).platform.isMobileUi)
-                SliverToBoxAdapter(child: _statsRow(context, stats)),
+              SliverToBoxAdapter(child: _statsRow(context, stats)),
               SliverToBoxAdapter(child: _searchRow(context, search, filter)),
               ..._itemSlivers(context, repo, visible, count),
             ],
@@ -507,57 +511,133 @@ class _ItemTile extends StatelessWidget {
     final unit = Unit.symbolOf(item.unit);
 
     if (Theme.of(context).platform.isMobileUi) {
+      final stockLabel = item.isService
+          ? 'Service'
+          : item.stockType != 'tracked'
+          ? 'Not tracked'
+          : item.currentStock <= 0
+          ? 'Out of stock'
+          : '${Formatters.qty(Money.of(item.currentStock))} $unit in stock';
       return AtriaCard(
         onTap: onTap,
         onLongPress: onLongPress,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-        child: Row(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(7),
-              ),
-              child: Icon(
-                item.isService
-                    ? Icons.design_services_outlined
-                    : Icons.inventory_2_outlined,
-                size: 23,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                item.name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Flexible(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
+            Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: low
+                        ? scheme.errorContainer
+                        : scheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
                     item.isService
-                        ? 'Service'
-                        : 'Qty: ${Formatters.qty(Money.of(item.currentStock))} $unit',
+                        ? Icons.design_services_outlined
+                        : Icons.inventory_2_outlined,
+                    size: 23,
+                    color: low ? scheme.error : scheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: text.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if ((item.sku ?? '').isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          'SKU: ${item.sku}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: text.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color:
+                        low ||
+                            (!item.isService &&
+                                item.stockType == 'tracked' &&
+                                item.currentStock <= 0)
+                        ? scheme.errorContainer
+                        : scheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: Text(
+                    stockLabel,
                     style: text.labelSmall?.copyWith(
-                      color: low || item.currentStock < 0
+                      color:
+                          low ||
+                              (!item.isService &&
+                                  item.stockType == 'tracked' &&
+                                  item.currentStock <= 0)
                           ? scheme.error
-                          : scheme.onSurfaceVariant,
+                          : scheme.primary,
                     ),
                   ),
-                  const SizedBox(height: 7),
-                  MobileAmount(
-                    Money.of(item.salePrice),
-                    style: text.titleSmall,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Divider(height: 1, color: scheme.outlineVariant),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.isService ? 'Rate' : 'Sale price',
+                        style: text.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: MobileAmount(
+                          Money.of(item.salePrice),
+                          style: text.titleMedium,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+                Text(
+                  'Details',
+                  style: text.labelMedium?.copyWith(color: scheme.primary),
+                ),
+                Icon(Icons.chevron_right, size: 18, color: scheme.primary),
+              ],
             ),
           ],
         ),

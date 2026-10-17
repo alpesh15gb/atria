@@ -40,5 +40,5 @@ extension WindowSizeX on BoxConstraints {
   bool get supportsTwoPane => maxWidth >= Breakpoints.medium;
 
   /// Ideal content max width for readable line lengths on large screens.
-  double get contentMaxWidth => isLarge ? 1280 : double.infinity;
+  double get contentMaxWidth => double.infinity;
 }

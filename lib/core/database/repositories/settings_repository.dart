@@ -93,6 +93,14 @@ class SettingsRepository with SyncQueueMixin {
 
   // ---- Global preference keys ----
   static const String kThemeMode = 'theme_mode'; // system | light | dark
+
+  /// The interface zoom factor, as a decimal string ("1.3").
+  ///
+  /// A **device** preference, not a firm's, and therefore never exported in a
+  /// backup: it describes the screen in front of the operator, not the books.
+  /// Read by [InterfaceScaleController]; see `interfaceScaleProvider`.
+  static const String kInterfaceScale = 'interface_scale';
+
   static const String kActiveFirmId = 'active_firm_id';
   static const String kOnboardingDone = 'onboarding_done';
   static const String kSeededDemo = 'seeded_demo';
@@ -458,10 +466,9 @@ class BackupRepository {
       // an error — an older file restores correctly instead of failing on a
       // null the schema never had.
       count += await _restore(db.bankAccounts, json['bank_accounts']);
-      // Loan transactions before loans, for the same children-first reason the
-      // journal lines above give.
-      count += await _restore(db.loanTransactions, json['loan_transactions']);
+      // Restore parents before their foreign-key children.
       count += await _restore(db.loans, json['loans']);
+      count += await _restore(db.loanTransactions, json['loan_transactions']);
       count += await _restore(db.gstr9Adjustments, json['gstr9_adjustments']);
       // Children before parents: journal lines reference their voucher, and
       // vouchers reference a firm that the first line above has restored.

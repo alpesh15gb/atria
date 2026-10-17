@@ -66,6 +66,7 @@ class ScannedBill {
     this.placeOfSupply,
     this.shippingCharge = 0,
     this.otherCharges = 0,
+    this.grandTotal,
     this.confidence = 'medium',
     this.warnings = const [],
   });
@@ -83,6 +84,7 @@ class ScannedBill {
   final List<ScannedLine> lines;
   final double shippingCharge;
   final double otherCharges;
+  final double? grandTotal;
 
   /// high | medium | low, straight from the model. Drives the review screen's
   /// headline ("Read confidently" / "Check this carefully").
@@ -146,9 +148,13 @@ class ScannedBill {
       lines: lines,
       shippingCharge: _num(json['shippingCharge']),
       otherCharges: _num(json['otherCharges']),
+      grandTotal: json['grandTotal'] == null
+          ? null
+          : double.tryParse('${json['grandTotal']}'),
       confidence: _string(json['confidence']) ?? 'medium',
       warnings: [
-        for (final w in (json['warnings'] is List ? json['warnings'] as List : const []))
+        for (final w
+            in (json['warnings'] is List ? json['warnings'] as List : const []))
           if (w is String && w.trim().isNotEmpty) w.trim(),
       ],
       model: _string(json['model']) ?? 'vision model',
@@ -162,7 +168,7 @@ class ScannedBill {
 /// the server; this client authenticates with the same Apex Books session every
 /// other call uses.
 class ScanClient {
-  ScanClient(this._config, {this.timeout = const Duration(seconds: 90)});
+  ScanClient(this._config, {this.timeout = const Duration(seconds: 270)});
 
   final ApiConfig _config;
 
@@ -176,18 +182,26 @@ class ScanClient {
     required List<int> imageBytes,
     required String mimeType,
     required String accessToken,
+    List<List<int>>? pages,
   }) async {
     final json = await ServerHttp.requestJson(
       uri: await _config.endpoint('/v1/firms/$firmId/scan-bill'),
       accessToken: accessToken,
       timeout: timeout,
       body: {
-        'imageBase64': base64Encode(imageBytes),
+        if (mimeType == 'application/pdf')
+          'documentBase64': base64Encode(imageBytes),
+        if (mimeType != 'application/pdf' &&
+            (pages == null || pages.length <= 1))
+          'imageBase64': base64Encode(imageBytes),
+        if (mimeType != 'application/pdf' && pages != null && pages.length > 1)
+          'imagesBase64': pages.map(base64Encode).toList(),
         // The server sniffs magic bytes and ignores this, but sending it
         // documents intent and helps future server-side logging.
         'mimeType': mimeType,
       },
-      timeoutMessage: 'Scanning took longer than ${timeout.inSeconds} '
+      timeoutMessage:
+          'Scanning took longer than ${timeout.inSeconds} '
           'seconds. Nothing was read; try again.',
     );
 

@@ -84,10 +84,10 @@ Future<List<ReportRow>> gstr1Rows(
 ) async {
   if (!await firmIsGstRegistered(db, firmId)) return const [];
 
-  final report = await GstReturnBuilder(db, firmId).buildGstr1(
-    from: windowFrom(window),
-    to: windowTo(window),
-  );
+  final report = await GstReturnBuilder(
+    db,
+    firmId,
+  ).buildGstr1(from: windowFrom(window), to: windowTo(window));
 
   final rows = <ReportRow>[];
 
@@ -108,16 +108,18 @@ Future<List<ReportRow>> gstr1Rows(
       b2bCess += _sum(invoice.itms, (i) => i.cess);
     }
   }
-  rows.add(_row(
-    table: '4A / 4B',
-    description: 'B2B — registered customers',
-    count: b2bCount,
-    taxable: b2bTaxable,
-    cgst: b2bCgst,
-    sgst: b2bSgst,
-    igst: b2bIgst,
-    cess: b2bCess,
-  ));
+  rows.add(
+    _row(
+      table: '4A / 4B',
+      description: 'B2B — registered customers',
+      count: b2bCount,
+      taxable: b2bTaxable,
+      cgst: b2bCgst,
+      sgst: b2bSgst,
+      igst: b2bIgst,
+      cess: b2bCess,
+    ),
+  );
 
   // ---- B2CL: Table 6 -----------------------------------------------------
   var b2clCount = 0;
@@ -136,16 +138,18 @@ Future<List<ReportRow>> gstr1Rows(
       b2clCess += _sum(invoice.itms, (i) => i.cess);
     }
   }
-  rows.add(_row(
-    table: '6B / 6C',
-    description: 'B2CL — inter-state, unregistered, over ₹2.5 lakh',
-    count: b2clCount,
-    taxable: b2clTaxable,
-    cgst: b2clCgst,
-    sgst: b2clSgst,
-    igst: b2clIgst,
-    cess: b2clCess,
-  ));
+  rows.add(
+    _row(
+      table: '6B / 6C',
+      description: 'B2CL — inter-state, unregistered, over ₹2.5 lakh',
+      count: b2clCount,
+      taxable: b2clTaxable,
+      cgst: b2clCgst,
+      sgst: b2clSgst,
+      igst: b2clIgst,
+      cess: b2clCess,
+    ),
+  );
 
   // ---- B2CS: Table 7 -----------------------------------------------------
   //
@@ -167,28 +171,34 @@ Future<List<ReportRow>> gstr1Rows(
     b2csIgst += row.igst;
     b2csCess += row.cess;
   }
-  rows.add(_row(
-    table: '7',
-    description: 'B2CS — small inter-state and all intra-state',
-    count: '—',
-    taxable: b2csTaxable,
-    cgst: b2csCgst,
-    sgst: b2csSgst,
-    igst: b2csIgst,
-    cess: b2csCess,
-  ));
+  rows.add(
+    _row(
+      table: '7',
+      description: 'B2CS — small inter-state and all intra-state',
+      count: '—',
+      taxable: b2csTaxable,
+      cgst: b2csCgst,
+      sgst: b2csSgst,
+      igst: b2csIgst,
+      cess: b2csCess,
+    ),
+  );
 
   // ---- Exports: 13A / 13B -------------------------------------------------
-  rows.add(_exportRow(
-    table: '13A',
-    description: 'Exports with payment — EXPWP',
-    blocks: report.expwp,
-  ));
-  rows.add(_exportRow(
-    table: '13B',
-    description: 'Exports without payment — EXPWOP',
-    blocks: report.expwop,
-  ));
+  rows.add(
+    _exportRow(
+      table: '13A',
+      description: 'Exports with payment — EXPWP',
+      blocks: report.expwp,
+    ),
+  );
+  rows.add(
+    _exportRow(
+      table: '13B',
+      description: 'Exports without payment — EXPWOP',
+      blocks: report.expwop,
+    ),
+  );
 
   // ---- Credit / debit notes: 9B / 9A / 10 --------------------------------
   var cdnrCount = 0;
@@ -224,30 +234,34 @@ Future<List<ReportRow>> gstr1Rows(
     cdnurIgst += note.igst;
     cdnurCess += note.cess;
   }
-  rows.add(_row(
-    table: '9B / 9A',
-    description: 'Credit / debit notes — CDNR, registered customers',
-    count: cdnrCount,
-    taxable: cdnrTaxable,
-    cgst: cdnrCgst,
-    sgst: cdnrSgst,
-    igst: cdnrIgst,
-    cess: cdnrCess,
-  ));
+  rows.add(
+    _row(
+      table: '9B / 9A',
+      description: 'Credit / debit notes — CDNR, registered customers',
+      count: cdnrCount,
+      taxable: cdnrTaxable,
+      cgst: cdnrCgst,
+      sgst: cdnrSgst,
+      igst: cdnrIgst,
+      cess: cdnrCess,
+    ),
+  );
   // The CDNUR rows carry their own taxable value and tax, which is why the
   // note totals above are accumulated across CDNR and CDNUR together and CDNR
   // gets its own line. Splitting the accumulators would let a reader add up
   // Table 9B and Table 10 and find they disagree with the invoices.
-  rows.add(_row(
-    table: '10',
-    description: 'Credit / debit notes — CDNUR, unregistered buyers',
-    count: cdnurCount,
-    taxable: cdnurTaxable,
-    cgst: cdnurCgst,
-    sgst: cdnurSgst,
-    igst: cdnurIgst,
-    cess: cdnurCess,
-  ));
+  rows.add(
+    _row(
+      table: '10',
+      description: 'Credit / debit notes — CDNUR, unregistered buyers',
+      count: cdnurCount,
+      taxable: cdnurTaxable,
+      cgst: cdnurCgst,
+      sgst: cdnurSgst,
+      igst: cdnurIgst,
+      cess: cdnurCess,
+    ),
+  );
 
   return rows;
 }
@@ -270,21 +284,21 @@ ReportRow _row({
   Decimal? sgst,
   Decimal? igst,
   Decimal? cess,
-}) =>
-    ReportRow({
-      'table': table,
-      'description': description,
-      'count': count is int ? Decimal.fromInt(count) : count,
-      'taxable': taxable,
-      'cgst': cgst ?? Decimal.zero,
-      'sgst': sgst ?? Decimal.zero,
-      'igst': igst ?? Decimal.zero,
-      'cess': cess ?? Decimal.zero,
-      'total': (cgst ?? Decimal.zero) +
-          (sgst ?? Decimal.zero) +
-          (igst ?? Decimal.zero) +
-          (cess ?? Decimal.zero),
-    }, label: '$table $description');
+}) => ReportRow({
+  'table': table,
+  'description': description,
+  'count': count is int ? Decimal.fromInt(count) : count,
+  'taxable': taxable,
+  'cgst': cgst ?? Decimal.zero,
+  'sgst': sgst ?? Decimal.zero,
+  'igst': igst ?? Decimal.zero,
+  'cess': cess ?? Decimal.zero,
+  'total':
+      (cgst ?? Decimal.zero) +
+      (sgst ?? Decimal.zero) +
+      (igst ?? Decimal.zero) +
+      (cess ?? Decimal.zero),
+}, label: '$table $description');
 
 ReportRow _exportRow({
   required String table,
@@ -318,8 +332,8 @@ Decimal _sum(List<Gstr1Item> items, Decimal Function(Gstr1Item) pick) =>
 /// A function, not a string — the source's `notes` slot is
 /// `List<String> Function(ReportResult)`.
 List<String> _gstr1Notes(ReportResult result) => [
-      'Computed by GstReturnBuilder from live documents in the window. This is '
+  'Computed by GstReturnBuilder from live documents in the window. This is '
       'the same report the portal JSON export is generated from. Table 7 shows '
       'no document count, because the portal aggregates it by place of supply '
       'and rate rather than by invoice.',
-    ];
+];

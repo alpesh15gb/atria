@@ -482,7 +482,7 @@ void main() {
       final container = ProviderContainer(
         overrides: [appDatabaseProvider.overrideWithValue(db)],
       );
-      final firm = await db.firmRepository.create(name: 'Apex Integrations');
+      final firm = await db.firmRepository.create(gstin: '29ABCDE1234F1Z5', name: 'Apex Integrations');
       await container.read(activeFirmIdProvider.notifier).select(firm.id);
       return (db, container, firm.id);
     }

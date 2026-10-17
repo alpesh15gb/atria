@@ -12,6 +12,7 @@ import '../../core/theme/app_radius.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/money.dart';
 import '../../shared/widgets/atria_field_icon.dart';
+import 'unsaved_guard.dart';
 
 /// Opens the global search panel from anywhere in the chrome.
 ///
@@ -67,13 +68,17 @@ class _GlobalSearchDialogState extends ConsumerState<_GlobalSearchDialog> {
         .toList();
   }
 
-  void _go(String route) {
+  Future<void> _go(String route) async {
     // Capture the router before dismissing the dialog; the context is dead
     // once the route pops.
     final router = GoRouter.of(context);
-    Navigator.of(context).pop();
     // A rail row that carries a query string cannot go through goBranch, so it
-    // is pushed; a bare path is the branch root and is a plain `go`.
+    // is pushed; a bare path is the branch root and is a plain `go` — which
+    // replaces the match list and so disposes an open editor rather than popping
+    // it. Ask first, or the typed invoice is simply gone.
+    final ok = await UnsavedChanges.confirmLeave(context);
+    if (!ok || !mounted) return;
+    Navigator.of(context).pop();
     if (route.contains('?')) {
       router.push(route);
     } else {

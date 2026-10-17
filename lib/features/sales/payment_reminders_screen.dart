@@ -128,9 +128,19 @@ class _OverdueRow extends StatelessWidget {
 
   final SalesInvoiceEntity invoice;
 
-  int get _daysLate => invoice.dueDate == null
-      ? 0
-      : DateTime.now().difference(invoice.dueDate!).inDays;
+  /// Days past the due date, never negative.
+  ///
+  /// `difference().inDays` truncates towards zero, so an invoice due *tomorrow*
+  /// reported −1 and the row printed "-1d late". The repository already filters
+  /// to genuinely-overdue documents; this is the belt to that pair of braces, so
+  /// a row can never claim to be late by a negative number even if a document
+  /// reaches here by another route (a restore, a deep link, a firm switch).
+  int get _daysLate {
+    final due = invoice.dueDate;
+    if (due == null) return 0;
+    final late = DateTime.now().difference(due).inDays;
+    return late < 0 ? 0 : late;
+  }
 
   String get _party => invoice.partyName ?? 'Walk-in customer';
 

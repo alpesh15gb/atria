@@ -4,9 +4,13 @@ import '../../database/app_database.dart';
 import '../engine/report_result.dart';
 import '../engine/report_runner.dart';
 import '../engine/report_source.dart';
+import '../sources/gst/gstr2_purchase.dart';
 import '../sources/business_status/bank_statement.dart';
 import '../sources/business_status/discount_report.dart';
 import '../sources/business_status/gst_rate_report.dart';
+import '../sources/expense/expense_category_report.dart';
+import '../sources/expense/expense_item_report.dart';
+import '../sources/expense/expense_report.dart';
 import '../sources/gst/gstr1.dart';
 import '../sources/gst/gstr2a_reconciliation.dart';
 import '../sources/gst/gstr3b.dart';
@@ -14,9 +18,14 @@ import '../sources/gst/gstr9.dart';
 import '../sources/gst/sac_report.dart';
 import '../sources/gst/sale_summary_by_hsn.dart';
 import '../sources/item_stock/item_category_pnl.dart';
+import '../sources/loan/loan_statement.dart';
+import '../sources/order/sp_order_items.dart';
+import '../sources/order/sp_orders.dart';
 import '../sources/taxes/form_27eq.dart';
+import '../sources/taxes/gst_report.dart';
 import '../sources/taxes/tcs_receivable.dart';
 import '../sources/taxes/tds_payable.dart';
+import '../sources/taxes/tds_receivable.dart';
 import '../sources/item_stock/item_detail.dart';
 import '../sources/item_stock/item_report_by_party.dart';
 import '../sources/item_stock/item_wise_discount.dart';
@@ -224,6 +233,7 @@ class ReportCatalogue {
     // ships as GSTR-2A Reconciliation, which is real work the app already does,
     // and the screen says so rather than printing a fake return.
     gstr2aReconciliation,
+    gstr2Purchase,
     gstr3b,
     gstr9,
     saleSummaryByHsn,
@@ -265,64 +275,26 @@ class ReportCatalogue {
   // the report to `tcs` would produce two identically-worded reports reading the
   // same number, which is worse than an honest empty one. It needs schema v13.
   static final List<ReportDefinition> _taxes = [
-    _placeholder('gst_report', 'GST Report', ReportCategory.taxes),
+    gstReport,
     gstRateReport,
     form27eq,
     tcsReceivable,
     tdsPayable,
-    _placeholder('tds_receivable', 'TDS Receivable', ReportCategory.taxes),
+    tdsReceivable,
   ];
 
   // ---- Expense (3) ----
   static final List<ReportDefinition> _expense = [
-    _placeholder('expense', 'Expense', ReportCategory.expense),
-    _placeholder(
-      'expense_category',
-      'Expense Category Report',
-      ReportCategory.expense,
-    ),
-    _placeholder('expense_item', 'Expense Item Report', ReportCategory.expense),
+    expenseReport,
+    expenseCategoryReport,
+    expenseItemReport,
   ];
 
   // ---- S/P Order (2) ----
-  static final List<ReportDefinition> _order = [
-    _placeholder('sp_orders', 'Sale/Purchase Orders', ReportCategory.order),
-    _placeholder(
-      'sp_order_items',
-      'Sale/Purchase Order Item',
-      ReportCategory.order,
-    ),
-  ];
+  static final List<ReportDefinition> _order = [spOrders, spOrderItems];
 
   // ---- Loan (1) ----
-  static final List<ReportDefinition> _loan = [
-    _placeholder('loan_statement', 'Loan Statement', ReportCategory.loan),
-  ];
-
-  static ReportDefinition _placeholder(
-    String id,
-    String title,
-    ReportCategory category, {
-    ReportLayout layout = ReportLayout.rows,
-    ReportGroupBy groupBy = ReportGroupBy.none,
-  }) {
-    final spec = ReportSpec(
-      id: id,
-      title: title,
-      category: category.label,
-      columns: const [
-        ReportColumn(key: 'label', label: 'Description'),
-        ReportColumn(
-          key: 'amount',
-          label: 'Amount',
-          kind: ReportValueKind.money,
-        ),
-      ],
-      layout: layout,
-      groupBy: groupBy,
-    );
-    return ReportDefinition(spec: spec, source: PlaceholderReportSource(id));
-  }
+  static final List<ReportDefinition> _loan = [loanStatement];
 }
 
 /// A registered report that has no implementation yet.

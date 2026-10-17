@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../core/database/repositories/party_repository.dart';
 import '../../core/database/repositories/report_repository.dart';
 import '../../core/responsive/breakpoints.dart';
 import '../../core/state/providers.dart';
@@ -12,6 +13,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../shared/widgets/common_widgets.dart';
 import '../../shared/widgets/money_text.dart';
+import 'party_statement_builder.dart';
 
 enum _DateRange { thisMonth, thisFY, allTime }
 
@@ -31,6 +33,9 @@ class _PartyStatementScreenState extends ConsumerState<PartyStatementScreen> {
   @override
   Widget build(BuildContext context) {
     final repository = ref.watch(reportRepositoryProvider);
+    // Only for the change signal — the statement itself is read through
+    // `ReportRepository`. See `PartyStatementBuilder`.
+    final parties = ref.watch(partyRepositoryProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -59,7 +64,9 @@ class _PartyStatementScreenState extends ConsumerState<PartyStatementScreen> {
                   // ledger row has to stop at the same place on both.
                   maxWidth: constraints.isCompact ? double.infinity : 980,
                 ),
-                child: repository == null ? _disabledState : _body(repository),
+                child: repository == null
+                    ? _disabledState
+                    : _body(repository, parties!),
               ),
             );
           },
@@ -90,15 +97,18 @@ class _PartyStatementScreenState extends ConsumerState<PartyStatementScreen> {
 
   DateTime? get _to => _range == _DateRange.allTime ? null : DateTime.now();
 
-  Widget _body(ReportRepository repository) {
+  Widget _body(ReportRepository repository, PartyRepository parties) {
     return Column(
       children: [
         _rangePills,
         const SizedBox(height: 12),
         Expanded(
-          child: FutureBuilder<PartyStatement>(
-            key: ValueKey('${widget.partyId}|${_range.name}'),
-            future: repository.partyStatement(
+          // Re-runs on every movement in the party's books — see the widget's
+          // note. A statement frozen at whatever it first read is the one
+          // report a shopkeeper cannot act on.
+          child: PartyStatementBuilder(
+            repo: parties,
+            query: () => repository.partyStatement(
               partyId: widget.partyId,
               from: _from,
               to: _to,

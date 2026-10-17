@@ -1,3 +1,5 @@
+import '../../core/domain/gst_registration.dart';
+
 import 'dart:async';
 
 import 'package:decimal/decimal.dart';
@@ -38,6 +40,7 @@ class SaleEditorScreen extends ConsumerStatefulWidget {
     required this.docType,
     this.editId,
     this.convertFromId,
+    this.duplicateFromId,
     this.presetPartyId,
   });
 
@@ -49,6 +52,17 @@ class SaleEditorScreen extends ConsumerStatefulWidget {
   /// copied, the number is fresh, and after save the source is marked
   /// `converted` so it cannot be converted twice.
   final String? convertFromId;
+
+  /// Seeds a new document from [duplicateFromId] **without** marking the source
+  /// converted.
+  ///
+  /// Duplicate and convert copy the same rows; they differ entirely in what
+  /// happens to the original. Sharing one parameter meant duplicating an
+  /// already-issued invoice stamped `convertedToInvoiceId` on it and replaced
+  /// its status with a link to the copy — copying a document must never mutate
+  /// it. Line ids are minted fresh on both paths, since both write into a new
+  /// document whose parent rows are still present.
+  final String? duplicateFromId;
 
   /// Preselects the customer once the party list loads (`/sales/new?party=`).
   final String? presetPartyId;
@@ -62,9 +76,16 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
   bool _loading = false;
   bool _isEditing = false;
 
+  /// Either seed source, whichever the route supplied — convert or duplicate.
+  /// They copy the same rows and differ only in what happens to the original.
+  String? get _seedFromId => widget.convertFromId ?? widget.duplicateFromId;
+
   /// The stored document's status, kept so an edit never re-activates a
   /// cancelled or converted document (was hardcoded to 'confirmed').
   String? _existingStatus;
+  bool _historicalGst = false;
+  bool? _savedInterState;
+  String? _savedPlaceOfSupply;
 
   // Document fields
   PartyEntity? _party;
@@ -87,6 +108,11 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
   /// it is saved, so a cash sale shows Paid instead of Unpaid.
   bool _markPaid = false;
 
+  /// Zero-rated export (IGST Act s.16): routes the invoice to GSTR-1 Table
+  /// 13A (`wp` = with payment of IGST) or 13B (`wop` = without payment / LUT).
+  bool _isExport = false;
+  String _exportType = 'wp';
+
   // Lines
   final List<_LineController> _lines = [];
 
@@ -102,7 +128,9 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
   StreamSubscription<List<ItemEntity>>? _itemsSub;
 
   bool _dirty = false;
-  void _markDirty() => _dirty = true;
+  void _markDirty() {
+    if (!_dirty && mounted) setState(() => _dirty = true);
+  }
 
   /// Party's current receivable (live documents only) and their credit
   /// limit — refreshed on party selection. Drives the advisory banner in
@@ -256,13 +284,19 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
       }
     }
 
-    if (widget.convertFromId != null) {
-      // Conversion: build the new document from a quotation / sales order.
+    if (_seedFromId != null) {
+      // Conversion or duplication: build the new document from a quotation /
+      // sales order, or from whatever the row menu's Duplicate was pointed at.
       // Stays in "new" mode — fresh number, docType from the route — and the
-      // source is marked converted only after a successful save.
+      // source is marked converted only after a successful save **and only for a
+      // convert**: duplicating must leave the original exactly as it was.
+      final isConvert = widget.convertFromId != null;
       final sales = ref.read(salesRepositoryProvider);
-      final doc = await sales?.getById(widget.convertFromId!);
+      final doc = await sales?.getById(_seedFromId!);
       if (doc != null && mounted) {
+        _historicalGst = doc.cgst + doc.sgst + doc.igst + doc.cess > 0;
+        _savedInterState = doc.isInterState;
+        _savedPlaceOfSupply = doc.placeOfSupply;
         _invoiceDate = DateTime.now();
         _dueDate = DateTime.now().add(const Duration(days: 15));
         _notesController.text = doc.notes ?? '';
@@ -275,6 +309,10 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
         _applyRoundOff =
             doc.roundOff.abs() > 0.000001 ||
             (doc.grandTotal - doc.grandTotal.round()).abs() < 0.001;
+        _isExport = doc.isExport;
+        _exportType = (doc.exportType ?? 'wp').toLowerCase() == 'wop'
+            ? 'wop'
+            : 'wp';
         _party = _parties
             .where((p) => p.id == doc.partyId)
             .cast<PartyEntity?>()
@@ -300,11 +338,19 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
         _lines.clear();
         for (final l in sourceLines) {
           _lines.add(
-            _LineController.fromEntity(l, _items, onChanged: _onLineChanged),
+            // `newId: true` — this is a COPY. The source's line rows are still
+            // in the table, and reusing their ids is a UNIQUE-constraint failure
+            // that rolls the whole save back.
+            _LineController.fromEntity(
+              l,
+              _items,
+              onChanged: _onLineChanged,
+              newId: true,
+            ),
           );
         }
         if (_lines.isEmpty) _addLine();
-        _convertSourceId = doc.id;
+        if (isConvert) _convertSourceId = doc.id;
         _recalcPartyDerived();
       }
     } else if (widget.editId != null) {
@@ -313,6 +359,9 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
       if (doc != null && mounted) {
         _isEditing = true;
         _existingStatus = doc.status;
+        _savedInterState = doc.isInterState;
+        _savedPlaceOfSupply = doc.placeOfSupply;
+        _historicalGst = doc.cgst + doc.sgst + doc.igst + doc.cess > 0;
         _invoiceDate = doc.invoiceDate;
         _dueDate = doc.dueDate;
         _notesController.text = doc.notes ?? '';
@@ -325,6 +374,10 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
         _applyRoundOff =
             doc.roundOff.abs() > 0.000001 ||
             (doc.grandTotal - doc.grandTotal.round()).abs() < 0.001;
+        _isExport = doc.isExport;
+        _exportType = (doc.exportType ?? 'wp').toLowerCase() == 'wop'
+            ? 'wop'
+            : 'wp';
         _party = _parties
             .where((p) => p.id == doc.partyId)
             .cast<PartyEntity?>()
@@ -404,6 +457,18 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
     });
   }
 
+  /// Removes a line, and offers it back.
+  ///
+  /// This is the **only** delete affordance for a line on a phone, and it sits
+  /// immediately right of the item-name field the user is typing in — so a
+  /// mis-tap destroyed the item, quantity, rate, discount and GST of that line
+  /// at once, with no confirmation and no undo. (`DocumentRowMenu` confirms its
+  /// deletions; there was no equivalent here.)
+  ///
+  /// Undo rather than a dialog: confirming every line removal turns normal
+  /// spreadsheet editing into a ritual, and the undo restores the *exact*
+  /// controller — so the half-typed name and the un-committed caret text come
+  /// back, which a "are you sure?" then a rebuild could not.
   void _removeLine(int index) {
     if (_lines.length == 1) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -411,17 +476,38 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
       );
       return;
     }
+    final removed = _lines[index];
     setState(() {
-      _lines[index].dispose();
       _lines.removeAt(index);
       _dirty = true;
     });
     _recalc();
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            'Removed ${removed.name.isEmpty ? 'line' : removed.name}',
+          ),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () {
+              setState(() {
+                _lines.insert(index.clamp(0, _lines.length), removed);
+                _dirty = true;
+              });
+              _recalc();
+            },
+          ),
+        ),
+      );
   }
 
   void _selectParty(PartyEntity? party) {
     setState(() {
       _party = party;
+      _savedInterState = null;
+      _savedPlaceOfSupply = null;
       _dirty = true;
     });
     _recalcPartyDerived();
@@ -429,21 +515,8 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
   }
 
   void _recalcPartyDerived() {
-    final firm = ref.read(activeFirmProvider).valueOrNull;
-    if (_party == null || firm == null) return;
-    setState(() {
-      for (final line in _lines) {
-        if (line.itemId != null) {
-          final item = _items.where((i) => i.id == line.itemId).firstOrNull;
-          if (item != null) {
-            line.gstRate = item.gstRate;
-            line.taxMode = item.taxMode == 'inclusive'
-                ? TaxMode.inclusive
-                : TaxMode.exclusive;
-          }
-        }
-      }
-    });
+    // Party changes affect the tax split, not historical line rates or modes.
+    // Item-master defaults are applied only when the user selects an item.
     _recalc();
   }
 
@@ -457,7 +530,7 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
 
   /// [GstSplit] with the Union-Territory case resolved, for LABELS only: the
   /// engine still computes with [_split] (an inter-state document charges IGST
-  /// whatever the state codes say), and an unregistered or state-less party
+  /// whatever the state codes say), and a state-less party
   /// stays intra-state, exactly as [_isInterState] decided.
   GstSplit get _documentSplit => _isInterState
       ? GstSplit.interState
@@ -467,11 +540,16 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
         );
 
   bool get _isInterState {
+    if (_isExport) return true;
+    if (_savedInterState != null) return _savedInterState!;
     final firm = ref.read(activeFirmProvider).valueOrNull;
-    if (_party == null || firm == null || _party!.stateCode == null) {
+    if (_party == null ||
+        firm == null ||
+        _party!.stateCode == null ||
+        firm.stateCode == null) {
       return false;
     }
-    if ((firm.gstin ?? '').isEmpty || (_party!.gstin ?? '').isEmpty) {
+    if (!firm.isGstRegistered) {
       return false;
     }
     return _party!.stateCode != firm.stateCode;
@@ -505,8 +583,20 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
     }
   }
 
+  bool get _gstRegistered =>
+      _historicalGst ||
+      (ref.read(activeFirmProvider).valueOrNull?.isGstRegistered ?? false);
+
   GstResult get _totals {
-    final lines = _lines.where((l) => l.isValid).map((l) => l.taxLine).toList();
+    final isExportWop = _isExport && _exportType == 'wop';
+    final lines = _lines
+        .where((l) => l.isValid)
+        .map(
+          (l) => (_gstRegistered && !isExportWop)
+              ? l.taxLine
+              : withoutGst(l.taxLine),
+        )
+        .toList();
     final discountPercent =
         Money.tryParse(_discountPercentController.text) ?? Decimal.zero;
     final discountAmount =
@@ -623,8 +713,10 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
         partyPhone: _party!.phone,
         billingAddress: _partyAddress(_party),
         shippingAddress: _partyAddress(_party),
-        placeOfSupply: _party!.stateCode,
+        placeOfSupply: _savedPlaceOfSupply ?? _party!.stateCode,
         isInterState: _isInterState,
+        isExport: _isExport,
+        exportType: _isExport ? _exportType : null,
         invoiceDiscountPercent: discountPercent,
         invoiceDiscountAmount: discountAmount,
         shippingCharge: shipping,
@@ -644,10 +736,13 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
       // Non-invoice document types must not touch stock or party balances:
       // the repository already special-cases credit notes and quotations,
       // and delivery notes get the same treatment.
-      final savedDoc = await sales.save(
-        draft,
-        affectStock: _affectsStockAndBalances,
-      );
+      final savedDoc = _convertSourceId == null
+          ? await sales.save(draft, affectStock: _affectsStockAndBalances)
+          : await sales.convertToInvoice(
+              draft,
+              sourceId: _convertSourceId!,
+              affectStock: _affectsStockAndBalances,
+            );
 
       // One-tap "Mark as fully paid": settle the invoice immediately with a
       // payment_in, the way a counter sale is completed on the desktop
@@ -698,7 +793,6 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
       // that something had happened, never what.
       final sourceId = _convertSourceId;
       if (sourceId != null) {
-        await sales.markConverted(sourceId, invoiceId: draft.id);
         _convertSourceId = null;
       }
 
@@ -741,6 +835,8 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
     setState(() {
       _isEditing = false;
       _markPaid = false;
+      _isExport = false;
+      _exportType = 'wp';
       _invoiceDate = DateTime.now();
       _dueDate = DateTime.now().add(const Duration(days: 15));
       _notesController.clear();
@@ -779,13 +875,13 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
   /// with the same eye movement.
   // The sheet is full-bleed, so the prose column carries the slack and the
   // figure columns stay tight enough to read a column of numbers down.
-  static const List<AtriaLineColumn> _lineColumns = [
+  List<AtriaLineColumn> get _lineColumns => [
     AtriaLineColumn('Item / Description', flex: 6),
     AtriaLineColumn('HSN/SAC', flex: 2),
     AtriaLineColumn('Qty', flex: 3, numeric: true),
     AtriaLineColumn('Rate', flex: 3, numeric: true),
     AtriaLineColumn('Disc %', flex: 2, numeric: true),
-    AtriaLineColumn('GST', flex: 3),
+    if (_gstRegistered) AtriaLineColumn('GST', flex: 3),
     AtriaLineColumn('Amount', flex: 3, numeric: true),
   ];
 
@@ -860,7 +956,12 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
     // incomplete line (no name, or no quantity) is excluded from the
     // document totals, so printing an amount next to it made the rows add up
     // to more than the invoice is worth.
-    final lineTotals = c.isValid ? c.totalsFor(_split) : LineTotals.empty();
+    final lineTotals = c.isValid
+        ? GstEngine.computeLine(
+            _gstRegistered ? c.taxLine : withoutGst(c.taxLine),
+            _split,
+          )
+        : LineTotals.empty();
 
     return [
       ItemTypeAheadField(
@@ -942,27 +1043,28 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
         textAlign: TextAlign.right,
         onSubmitted: advance,
       ),
-      Row(
-        key: ValueKey('${c.id}-gst'),
-        children: [
-          Expanded(
-            child: AtriaGstRatePicker(
-              value: c.gstRate,
-              onChanged: (rate) {
-                setState(() => c.gstRate = rate);
-                c.onChanged();
-              },
+      if (_gstRegistered)
+        Row(
+          key: ValueKey('${c.id}-gst'),
+          children: [
+            Expanded(
+              child: AtriaGstRatePicker(
+                value: c.gstRate,
+                onChanged: (rate) {
+                  setState(() => c.gstRate = rate);
+                  c.onChanged();
+                },
+              ),
             ),
-          ),
-          // Inclusive = the entered rate already contains GST. Off-standard
-          // rates keep the pill too, since they are still a real tax rate.
-          if (c.gstRate > 0)
-            AtriaTaxModePill(
-              value: c.taxMode,
-              onChanged: (mode) => c.taxMode = mode,
-            ),
-        ],
-      ),
+            // Inclusive = the entered rate already contains GST. Off-standard
+            // rates keep the pill too, since they are still a real tax rate.
+            if (c.gstRate > 0)
+              AtriaTaxModePill(
+                value: c.taxMode,
+                onChanged: (mode) => c.taxMode = mode,
+              ),
+          ],
+        ),
       Padding(
         key: ValueKey('${c.id}-amount'),
         padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -1002,6 +1104,7 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
     );
     return AtriaTotalsBlock(
       totals: totals,
+      showGst: _gstRegistered,
       // TCS and shipping are both added to the invoice value; the rows above
       // the total say where each one came from.
       extraCharges: shipping + tcs,
@@ -1087,7 +1190,9 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
       child: UnsavedGuard(
         hasChanges: _dirty && !_loading,
         child: EditorShell(
-          title: Theme.of(context).platform.isMobileUi && !_isEditing ? 'Create $_docNoun' : _title,
+          title: Theme.of(context).platform.isMobileUi && !_isEditing
+              ? 'Create $_docNoun'
+              : _title,
           actions: EditorActions(
             onSave: _save,
             onSaveAndNew: _isEditing ? null : _saveAndNew,
@@ -1159,7 +1264,15 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
                       // The totals sit under the last line, right-aligned,
                       // instead of in a side rail the eye has to travel back
                       // to on every edit.
-                      totals: Theme.of(context).platform.isMobileUi && !_mobileManualLine && !_lines.any((line) => line.nameController.text.trim().isNotEmpty) ? null : _totalsSection(totals),
+                      totals:
+                          Theme.of(context).platform.isMobileUi &&
+                              !_mobileManualLine &&
+                              !_lines.any(
+                                (line) =>
+                                    line.nameController.text.trim().isNotEmpty,
+                              )
+                          ? null
+                          : _totalsSection(totals),
                       sections: [
                         // QBO labels this block "Message on invoice", and it is
                         // visible on the page rather than hidden behind a link.
@@ -1188,6 +1301,17 @@ class _SaleEditorScreenState extends ConsumerState<SaleEditorScreen> {
                             applyRoundOff: _applyRoundOff,
                             onRoundOffChanged: (v) => setState(() {
                               _applyRoundOff = v;
+                              _dirty = true;
+                            }),
+                            showExport: _gstRegistered,
+                            isExport: _isExport,
+                            exportType: _exportType,
+                            onExportChanged: (v) => setState(() {
+                              _isExport = v;
+                              _dirty = true;
+                            }),
+                            onExportTypeChanged: (v) => setState(() {
+                              _exportType = v;
                               _dirty = true;
                             }),
                             onChanged: _recalc,
@@ -1256,18 +1380,30 @@ class _LineController {
     SalesInvoiceItemEntity e,
     List<ItemEntity> items, {
     required VoidCallback onChanged,
+
+    /// Mint a **fresh** row id instead of reusing the entity's.
+    ///
+    /// Only for the copy path — convert/duplicate, where the source document's
+    /// lines are still in the table. `sales_invoice_items.id` is the sole primary
+    /// key and `SalesRepository.save` inserts lines with a plain `.insert`, so a
+    /// reused id is `UNIQUE constraint failed: sales_invoice_items.id`, the whole
+    /// transaction rolls back and the editor reports "Could not save". Converting
+    /// a quotation therefore failed on every attempt.
+    ///
+    /// The **edit** path must keep the id: it re-inserts into the same document
+    /// after `save` has hard-deleted the old rows, so a new id there would
+    /// silently orphan every reference to the line.
+    bool newId = false,
   }) {
     final c = _LineController._(items: items, onChanged: onChanged);
-    c.id = e.id;
+    c.id = newId ? IdUtils.newId() : e.id;
     c.itemId = e.itemId;
     c._nameController.text = e.name;
     c._hsnController.text = e.hsn ?? '';
-    c._qtyController.text = Formatters.qty(
-      Decimal.parse(e.quantity.toString()),
-    );
+    c._qtyController.text = e.quantity.toString();
     c._unit = e.unit;
-    c._rateController.text = Formatters.indianGroup(e.rate.toStringAsFixed(2));
-    c._discountController.text = e.discountPercent.toStringAsFixed(2);
+    c._rateController.text = e.rate.toString();
+    c._discountController.text = e.discountPercent.toString();
     c.gstRate = e.gstRate;
     c.cessRate = e.cessRate;
     c.taxMode = e.taxMode == 'inclusive'
@@ -1549,29 +1685,34 @@ class _MetaSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return AtriaCard(
       padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Expanded(
-            child: _DateField(
-              label: isQuotation ? 'Quotation date' : 'Invoice date',
-              value: invoiceDate,
-              onChanged: onDateChanged,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _DateField(
-              label: isQuotation ? 'Valid till' : 'Due date',
-              value: dueDate,
-              onChanged: onDueChanged,
-              clearable: true,
-              // A due date before the invoice date is not a credit period,
-              // it is a bug: the invoice would land in the overdue reminders
-              // the moment it is saved.
-              firstDate: invoiceDate,
-            ),
-          ),
-        ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final date = _DateField(
+            label: isQuotation ? 'Quotation date' : 'Invoice date',
+            value: invoiceDate,
+            onChanged: onDateChanged,
+          );
+          final due = _DateField(
+            label: isQuotation ? 'Valid till' : 'Due date',
+            value: dueDate,
+            onChanged: onDueChanged,
+            clearable: true,
+            firstDate: invoiceDate,
+          );
+          if (constraints.maxWidth < 320) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [date, const SizedBox(height: 12), due],
+            );
+          }
+          return Row(
+            children: [
+              Expanded(child: date),
+              const SizedBox(width: 12),
+              Expanded(child: due),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1642,6 +1783,11 @@ class _AdjustmentsSection extends StatelessWidget {
     required this.tcsHint,
     required this.applyRoundOff,
     required this.onRoundOffChanged,
+    this.showExport = false,
+    this.isExport = false,
+    this.exportType = 'wp',
+    this.onExportChanged,
+    this.onExportTypeChanged,
     required this.onChanged,
   });
 
@@ -1652,6 +1798,11 @@ class _AdjustmentsSection extends StatelessWidget {
   final String tcsHint;
   final bool applyRoundOff;
   final ValueChanged<bool> onRoundOffChanged;
+  final bool showExport;
+  final bool isExport;
+  final String exportType;
+  final ValueChanged<bool>? onExportChanged;
+  final ValueChanged<String>? onExportTypeChanged;
   final VoidCallback onChanged;
 
   @override
@@ -1709,6 +1860,38 @@ class _AdjustmentsSection extends StatelessWidget {
           value: applyRoundOff,
           onChanged: onRoundOffChanged,
         ),
+        if (showExport && onExportChanged != null) ...[
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Zero-rated export supply'),
+            subtitle: const Text(
+              'Files under GSTR-1 Table 13A/13B & GSTR-3B Table 3.1(b)',
+            ),
+            value: isExport,
+            onChanged: onExportChanged,
+          ),
+          if (isExport && onExportTypeChanged != null) ...[
+            const SizedBox(height: 8),
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(
+                  value: 'wp',
+                  label: Text('With IGST payment (EXPWP)'),
+                ),
+                ButtonSegment(
+                  value: 'wop',
+                  label: Text('Under LUT / Bond (EXPWOP)'),
+                ),
+              ],
+              selected: {exportType},
+              onSelectionChanged: (selection) {
+                if (selection.isNotEmpty) {
+                  onExportTypeChanged!(selection.first);
+                }
+              },
+            ),
+          ],
+        ],
       ],
     );
   }

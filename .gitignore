@@ -82,3 +82,10 @@ ct.html
 gp.html
 half baked.txt
 mobile reference/
+
+# Temporary files and scratch outputs
+*.tmp
+/dist/
+/output/
+tool/failures/
+max portfolio/

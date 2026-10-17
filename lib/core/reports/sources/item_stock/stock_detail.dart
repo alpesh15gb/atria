@@ -45,6 +45,9 @@ const ReportSpec stockDetailSpec = ReportSpec(
   ],
   columns: [
     ReportColumn(key: 'item', label: 'Item', flex: 3, emphasise: true),
+    // Identity, not presentation. `wideOnly` keeps it out of the table and the
+    // exports while the Stock Detail document reads it to group by item.
+    ReportColumn(key: 'itemId', label: 'Item ID', wideOnly: true),
     ReportColumn(key: 'date', label: 'Date', kind: ReportValueKind.date),
     ReportColumn(key: 'kind', label: 'Type'),
     ReportColumn(key: 'number', label: 'Document', flex: 2),
@@ -54,7 +57,14 @@ const ReportSpec stockDetailSpec = ReportSpec(
     ReportColumn(
       key: 'balance',
       label: 'Balance',
-      kind: ReportValueKind.quantity,
+      // `running`, not `quantity`: a running balance is the account's position
+      // after each movement, and summing a column of them is meaningless.
+      // Declared as `quantity` it was summable, so `ReportRunner.fold` added
+      // every row's balance into the grand total — opening 100, sale −30,
+      // sale −20 printed a total of **220** where the closing balance is 50,
+      // in the table and in the CSV, Excel and PDF alike. `party_statement` and
+      // `cash_flow` already declare theirs `running`; this one missed.
+      kind: ReportValueKind.running,
       emphasise: true,
     ),
   ],
@@ -125,6 +135,14 @@ Future<List<ReportRow>> stockDetailRows(
     rows.add(
       ReportRow({
         'item': info?.name ?? '(deleted item)',
+        // The **id**, carried so anything that groups this report can key on
+        // identity rather than on the printed name. Two genuinely different items
+        // can share a name — an IT bag and a cement bag, or a 25 kg and a 50 kg
+        // variant both entered as "Cement 50" — and the Stock Detail document
+        // builds one card per item so a reader can follow one balance down. Keyed
+        // on the name, those two merge into a single card whose header shows
+        // whichever item happened to sort last.
+        'itemId': m.itemId,
         'date': m.date,
         'kind': movementKindLabel(m.kind),
         'number': m.sourceNumber ?? '',

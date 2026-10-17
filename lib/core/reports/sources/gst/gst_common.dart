@@ -14,16 +14,15 @@ export '../transaction/transaction_common.dart'
 /// The GST builders cannot: `buildGstr3b` and `buildGstr1` take concrete
 /// `from`/`to` and slice on them. So a GST report has to choose, and the choice
 /// is recorded here rather than made at each call site.
-DateTime windowFrom(ReportWindow window) =>
-    window.from ?? DateTime(2000, 1, 1);
+DateTime windowFrom(ReportWindow window) => window.from ?? DateTime(2000, 1, 1);
 
 /// The window's end, defaulted to the day after today.
 ///
 /// Mirrors [windowFrom]. A GST period always ends: an open-ended return is not
 /// a return, and defaulting the far end to the wall clock keeps an
 /// "all time" window from silently reading a century of documents.
-DateTime windowTo(ReportWindow window) => window.to ??
-    DateTime.now().add(const Duration(days: 1));
+DateTime windowTo(ReportWindow window) =>
+    window.to ?? DateTime.now().add(const Duration(days: 1));
 
 /// The **tax rate** a document's tax actually worked out at, as a percentage.
 ///
@@ -46,8 +45,7 @@ Decimal taxOf({
   required double sgst,
   required double igst,
   required double cess,
-}) =>
-    dec(cgst) + dec(sgst) + dec(igst) + dec(cess);
+}) => dec(cgst) + dec(sgst) + dec(igst) + dec(cess);
 
 Decimal effectiveRateOf({
   required double taxableValue,
@@ -70,8 +68,9 @@ Decimal effectiveRateOf({
   // would take the report down rather than print a rate. Converting at six
   // places then rounding HALF_UP once to a whole percent is what puts
   // 17.9934 into the 18% band the portal files it under.
-  final percent = (tax * Decimal.fromInt(100) / taxable)
-      .toDecimal(scaleOnInfinitePrecision: 6);
+  final percent = (tax * Decimal.fromInt(100) / taxable).toDecimal(
+    scaleOnInfinitePrecision: 6,
+  );
   return percent.round();
 }
 
@@ -96,8 +95,9 @@ String rateLabel(Decimal rate) {
 /// returns **no rows**, and its spec says why on the screen, rather than
 /// printing a return nobody has to file.
 Future<bool> firmIsGstRegistered(AppDatabase db, String firmId) async {
-  final firm = await (db.select(db.firms)..where((f) => f.id.equals(firmId)))
-      .getSingleOrNull();
+  final firm = await (db.select(
+    db.firms,
+  )..where((f) => f.id.equals(firmId))).getSingleOrNull();
   final gstin = (firm?.gstin ?? '').trim();
   // A GSTIN is 15 characters in a fixed shape; anything shorter is a firm that
   // never entered one, which is the answer this is asking for.

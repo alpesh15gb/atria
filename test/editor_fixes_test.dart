@@ -227,6 +227,7 @@ void main() {
 /// The model answer the review screen reads through [ScannedReviewState.fromBill]
 /// (typed `dynamic` there, so the reading can never crash the app).
 class _FakeBill {
+  final double? grandTotal = null;
   final String? supplierName = 'Khanna Hardware';
   final String? supplierGstin = null;
   final String? supplierPhone = null;

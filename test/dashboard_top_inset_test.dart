@@ -5,6 +5,7 @@ import 'package:atria/core/theme/app_theme.dart';
 import 'package:atria/features/dashboard/dashboard_screen.dart';
 import 'package:atria/shared/widgets/adaptive_nav_shell.dart';
 import 'package:atria/shared/widgets/atria_top_bar.dart';
+import 'package:atria/shared/widgets/common_widgets.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -70,16 +71,17 @@ void main() {
       initialLocation: '/dashboard',
       routes: [
         StatefulShellRoute.indexedStack(
-          builder: (context, state, shell) => AdaptiveNavShell(
-            navigationShell: shell,
-          ),
+          builder: (context, state, shell) =>
+              AdaptiveNavShell(navigationShell: shell),
           branches: [
-            StatefulShellBranch(routes: [
-              GoRoute(
-                path: '/dashboard',
-                builder: (context, state) => const DashboardScreen(),
-              ),
-            ]),
+            StatefulShellBranch(
+              routes: [
+                GoRoute(
+                  path: '/dashboard',
+                  builder: (context, state) => const DashboardScreen(),
+                ),
+              ],
+            ),
           ],
         ),
       ],
@@ -87,7 +89,10 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: MaterialApp.router(theme: AppTheme.light(), routerConfig: router),
+        child: MaterialApp.router(
+          theme: AppTheme.light(),
+          routerConfig: router,
+        ),
       ),
     );
     await tester.pump();
@@ -122,20 +127,21 @@ void main() {
     );
 
     // The phone no longer has a greeting app bar: its first content is the
-    // summary period. Measure the same no-double-status-inset contract there.
+    // summary card. Measure its surface rather than guessing its interior padding.
     // The greeting's first line, which renders whether or not the firm stream
     // has resolved — awaiting that drift `StreamProvider` inside a widget test
     // deadlocks, and it is not what is being measured. Both lines are
     // single-line and in the same toolbar row either way, so the row's position
     // does not depend on the firm having loaded.
-    final greetingTop = tester.getRect(find.text('This Year')).top - 16;
+    final greetingTop = tester.getRect(find.byType(AtriaCard).first).top;
 
     final gap = greetingTop - topBar.bottom;
 
     expect(
       gap,
       lessThan(statusBar),
-      reason: 'the greeting sits $gap px below the chrome, but the '
+      reason:
+          'the greeting sits $gap px below the chrome, but the '
           '$statusBar px status bar was already drawn above it — that band is '
           'dead space',
     );

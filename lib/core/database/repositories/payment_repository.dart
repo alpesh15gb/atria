@@ -1,10 +1,12 @@
 import 'package:drift/drift.dart';
 
 import '../../domain/member_role.dart';
+import '../../domain/gst_registration.dart';
 import '../../utils/id_utils.dart';
 import '../app_database.dart';
 import 'repository_extensions.dart';
 import 'sync_mixin.dart';
+import 'bank_balance.dart';
 
 /// Payments in/out against parties, optionally linked to a document.
 class PaymentRepository with SyncQueueMixin {
@@ -18,6 +20,7 @@ class PaymentRepository with SyncQueueMixin {
   // Checked before the transaction, not inside it. The session is in-memory,
   // so a refusal has nothing to read and nothing to roll back.
   Future<PaymentEntity> create({
+    String? paymentId,
     required String type, // payment_in | payment_out
     required String number,
     String? partyId,
@@ -30,15 +33,22 @@ class PaymentRepository with SyncQueueMixin {
     String? linkedInvoiceId,
     String? linkedInvoiceNumber,
     String? bankAccount,
+    String? bankAccountId,
     String? notes,
     int sequence = 0,
     // Callbacks to keep the linked document's balances in sync.
     Future<void> Function(String linkedId, double amount)? onLinked,
   }) async {
     db.assertPermission(Permission.recordPayment);
-    final id = 'pay_${IdUtils.newId()}';
+    final id = paymentId ?? 'pay_${IdUtils.newId()}';
     await db.transaction(() async {
       await db.assertDateEditable(firmId, date);
+      // The free-text name is what every caller has always passed; the row is
+      // what the Bank Statement report keys on. Resolving one from the other is
+      // what makes that report able to find a payment at all — `bankAccountId`
+      // was declared in the v12 migration and then **never written by anything**,
+      // so the report matched no payments and every account read ₹0.
+      final accountId = await _resolveAccountId(bankAccountId, bankAccount);
       await db
           .into(db.payments)
           .insert(
@@ -63,12 +73,14 @@ class PaymentRepository with SyncQueueMixin {
               linkedInvoiceId: Value(linkedInvoiceId),
               linkedInvoiceNumber: Value(linkedInvoiceNumber),
               bankAccount: Value(bankAccount),
+              bankAccountId: Value(accountId),
               notes: Value(notes),
               sequence: Value(sequence),
               createdAt: Value(DateTime.now()),
               updatedAt: Value(DateTime.now()),
             ),
           );
+      await rebuildBankBalances(db, firmId);
       if (onLinked != null && linkedInvoiceId != null) {
         await onLinked(linkedInvoiceId, amount);
       }
@@ -80,6 +92,56 @@ class PaymentRepository with SyncQueueMixin {
       );
     });
     return (await getById(id))!;
+  }
+
+  /// Money in is positive, money out negative — the one place that rule is
+  /// written down for the account cache.
+  /// The bank-account row a payment belongs to.
+  ///
+  /// An explicit [id] wins. Otherwise the free-text name is matched against the
+  /// firm's accounts, case-insensitively, because every existing caller passes a
+  /// name and never an id — resolving the two here is what connects the payment
+  /// screen's "HDFC main" to the Bank Statement's account of the same name.
+  Future<String?> _resolveAccountId(String? id, String? name) async {
+    if (id != null && id.trim().isNotEmpty) {
+      final account =
+          await (db.select(db.bankAccounts)
+                ..where((a) => a.id.equals(id) & a.firmId.equals(firmId)))
+              .getSingleOrNull();
+      if (account == null) {
+        throw StateError(
+          'This account does not belong to the current business.',
+        );
+      }
+      return account.id;
+    }
+    final wanted = (name ?? '').trim();
+    if (wanted.isEmpty) return null;
+    final rows = await (db.select(
+      db.bankAccounts,
+    )..where((a) => a.firmId.equals(firmId))).get();
+    for (final a in rows) {
+      if (a.name.trim().toLowerCase() == wanted.toLowerCase()) return a.id;
+    }
+    return null;
+  }
+
+  /// Linked orders/estimates carry deposits, not settlement of trade debt.
+  Future<Set<String>> advanceDocumentIds() async {
+    final sales =
+        await (db.select(db.salesInvoices)..where(
+              (t) =>
+                  t.firmId.equals(firmId) &
+                  t.docType.isIn(['quotation', 'sales_order', 'delivery_note']),
+            ))
+            .get();
+    final purchases =
+        await (db.select(db.purchaseBills)..where(
+              (t) =>
+                  t.firmId.equals(firmId) & t.docType.equals('purchase_order'),
+            ))
+            .get();
+    return {...sales.map((d) => d.id), ...purchases.map((d) => d.id)};
   }
 
   Future<PaymentEntity?> getById(String id) async {
@@ -97,6 +159,15 @@ class PaymentRepository with SyncQueueMixin {
     await db.transaction(() async {
       await db.assertDateEditable(firmId, payment.date);
       final original = await getById(payment.id);
+      if (original == null) throw StateError('Payment no longer exists.');
+      await db.assertDateEditable(firmId, original.date);
+      if (original.isDeleted) {
+        throw StateError('Restore the payment before editing it.');
+      }
+      final accountId = await _resolveAccountId(
+        payment.bankAccountId,
+        payment.bankAccount,
+      );
 
       // Invariant: `chequeStatus` describes a CHEQUE and nothing else.
       //
@@ -120,7 +191,7 @@ class PaymentRepository with SyncQueueMixin {
       // amount, date, reference or notes of a cheque must leave it exactly
       // where the bank had got to with it.
       final startingCheque =
-          payment.mode == 'cheque' && original?.mode != 'cheque';
+          payment.mode == 'cheque' && original.mode != 'cheque';
       final leavingCheque = payment.mode != 'cheque';
       final resetChequeState = startingCheque || leavingCheque;
       final chequeStatus = leavingCheque
@@ -151,10 +222,12 @@ class PaymentRepository with SyncQueueMixin {
           linkedInvoiceId: Value(payment.linkedInvoiceId),
           linkedInvoiceNumber: Value(payment.linkedInvoiceNumber),
           bankAccount: Value(payment.bankAccount),
+          bankAccountId: Value(accountId),
           notes: Value(payment.notes),
           updatedAt: Value(DateTime.now()),
         ),
       );
+      await rebuildBankBalances(db, firmId);
       await enqueue(
         firmId: firmId,
         entity: 'payments',
@@ -163,9 +236,7 @@ class PaymentRepository with SyncQueueMixin {
       );
       // The old link may differ from the new one — both documents'
       // balances must be derived again.
-      if (original != null) {
-        await _recomputeLinkedDoc(original);
-      }
+      await _recomputeLinkedDoc(original);
       await _recomputeLinkedDoc(payment);
       await db.auditRepository.log(
         action: 'update',
@@ -202,7 +273,7 @@ class PaymentRepository with SyncQueueMixin {
     if (to != null) {
       query.where((t) => t.date.isSmallerOrEqualValue(to));
     }
-    query.limit(limit);
+    if (limit > 0) query.limit(limit);
     return query.get();
   }
 
@@ -224,7 +295,7 @@ class PaymentRepository with SyncQueueMixin {
     if (to != null) {
       query.where((t) => t.date.isSmallerOrEqualValue(to));
     }
-    query.limit(limit);
+    if (limit > 0) query.limit(limit);
     return query.watch();
   }
 
@@ -268,7 +339,7 @@ class PaymentRepository with SyncQueueMixin {
       final query = db.select(db.payments)
         ..where((t) => t.id.equals(id) & t.firmId.equals(firmId));
       final payment = await query.getSingleOrNull();
-      if (payment == null) return;
+      if (payment == null || payment.isDeleted) return;
       await db.assertDateEditable(firmId, payment.date);
       await (db.update(db.payments)..where((t) => t.id.equals(id))).write(
         PaymentsCompanion(
@@ -280,6 +351,7 @@ class PaymentRepository with SyncQueueMixin {
       // A deleted payment must stop settling its linked document at once,
       // or the invoice keeps showing Paid with a bin holding its payment.
       await _recomputeLinkedDoc(payment);
+      await rebuildBankBalances(db, firmId);
       await enqueue(
         firmId: firmId,
         entity: 'payments',
@@ -307,7 +379,7 @@ class PaymentRepository with SyncQueueMixin {
       final query = db.select(db.payments)
         ..where((t) => t.id.equals(id) & t.firmId.equals(firmId));
       final payment = await query.getSingleOrNull();
-      if (payment == null) return;
+      if (payment == null || !payment.isDeleted) return;
       await db.assertDateEditable(firmId, payment.date);
       await (db.update(db.payments)..where((t) => t.id.equals(id))).write(
         PaymentsCompanion(
@@ -317,6 +389,7 @@ class PaymentRepository with SyncQueueMixin {
         ),
       );
       await _recomputeLinkedDoc(payment);
+      await rebuildBankBalances(db, firmId);
       await enqueue(
         firmId: firmId,
         entity: 'payments',
@@ -340,7 +413,18 @@ class PaymentRepository with SyncQueueMixin {
   /// This is the single source of truth for "what does a linked payment do to
   /// its document": applyPayment bumps the counters, delete/restore derive
   /// them back from the payments table.
-  Future<void> _recomputeLinkedDoc(PaymentEntity payment) async {
+  Future<void> rebuildLinkedSettlements() async {
+    final rows = await (db.select(db.payments)..where((t) => t.firmId.equals(firmId))).get();
+    final seen = <String>{};
+    for (final row in rows) {
+      final id = row.linkedInvoiceId;
+      if (id != null && seen.add(id)) {
+        await _recomputeLinkedDoc(row, updateRevision: false);
+      }
+    }
+  }
+
+  Future<void> _recomputeLinkedDoc(PaymentEntity payment, {bool updateRevision = true}) async {
     final linkId = payment.linkedInvoiceId;
     if (linkId == null || linkId.isEmpty) return;
 
@@ -380,6 +464,28 @@ class PaymentRepository with SyncQueueMixin {
     }
     paid = paid < 0 ? 0 : paid;
     if (invoice != null) {
+      // **A cancelled invoice keeps its zeroed balance.** `markCancelled`
+      // deliberately zeroes it so ageing stops counting the document, and
+      // `applyPayment` refuses new payments against it — but this method is
+      // reached from payment *edit / delete / restore / bounce* and had no such
+      // gate. Recording a receipt in full, cancelling the invoice, then binning
+      // that receipt left the cancelled invoice reading `balanceDue = 10000,
+      // paymentStatus: 'unpaid'`, and the sales table printed ₹10,000 beside a
+      // Cancelled chip. Mirrors `DocumentSettlement.settled`, which the save
+      // path uses for exactly this reason.
+      if (invoice.status == 'cancelled') {
+        await (db.update(
+          db.salesInvoices,
+        )..where((t) => t.id.equals(linkId))).write(
+          SalesInvoicesCompanion(
+            paidAmount: const Value(0),
+            balanceDue: const Value(0),
+            paymentStatus: const Value('paid'),
+            updatedAt: updateRevision ? Value(DateTime.now()) : const Value.absent(),
+          ),
+        );
+        return;
+      }
       final balance = invoice.grandTotal - paid;
       final status = balance <= 0.001
           ? 'paid'
@@ -391,7 +497,7 @@ class PaymentRepository with SyncQueueMixin {
           paidAmount: Value(paid),
           balanceDue: Value(balance < 0 ? 0 : balance),
           paymentStatus: Value(status),
-          updatedAt: Value(DateTime.now()),
+          updatedAt: updateRevision ? Value(DateTime.now()) : const Value.absent(),
         ),
       );
       return;
@@ -402,6 +508,20 @@ class PaymentRepository with SyncQueueMixin {
               ..where((t) => t.id.equals(linkId) & t.firmId.equals(firmId)))
             .getSingleOrNull();
     if (bill != null) {
+      // Same rule as the sales side, and for the same reason: a cancelled bill's
+      // balance is zeroed deliberately so ageing stops counting it.
+      if (bill.status == 'cancelled') {
+        await (db.update(
+          db.purchaseBills,
+        )..where((t) => t.id.equals(linkId))).write(
+          const PurchaseBillsCompanion(
+            paidAmount: Value(0),
+            balanceDue: Value(0),
+            paymentStatus: Value('paid'),
+          ),
+        );
+        return;
+      }
       final balance = bill.grandTotal - paid;
       final status = balance <= 0.001
           ? 'paid'
@@ -413,7 +533,7 @@ class PaymentRepository with SyncQueueMixin {
           paidAmount: Value(paid),
           balanceDue: Value(balance < 0 ? 0 : balance),
           paymentStatus: Value(status),
-          updatedAt: Value(DateTime.now()),
+          updatedAt: updateRevision ? Value(DateTime.now()) : const Value.absent(),
         ),
       );
     }
@@ -619,6 +739,7 @@ class PaymentRepository with SyncQueueMixin {
       await (db.update(db.payments)
             ..where((t) => t.id.equals(id) & t.firmId.equals(firmId)))
           .write(apply(at));
+      await rebuildBankBalances(db, firmId);
       await enqueue(
         firmId: firmId,
         entity: 'payments',
@@ -674,6 +795,7 @@ class PaymentRepository with SyncQueueMixin {
       await (db.delete(
         db.payments,
       )..where((t) => t.id.equals(id) & t.firmId.equals(firmId))).go();
+      await enqueue(firmId: firmId, entity: 'payments', entityId: id, operation: 'delete');
       await db.auditRepository.log(
         action: 'purge',
         entity: 'payments',
@@ -704,6 +826,7 @@ class ExpenseRepository with SyncQueueMixin {
     required DateTime date,
     String mode = 'cash',
     String? vendorName,
+    String? itemId,
     String? reference,
     double gstAmount = 0,
     String? notes,
@@ -711,6 +834,9 @@ class ExpenseRepository with SyncQueueMixin {
   }) async {
     db.assertPermission(Permission.createPurchases);
     final id = 'exp_${IdUtils.newId()}';
+    final firm = await db.firmRepository.getById(firmId);
+    if (firm == null) throw StateError('Business not found.');
+    if (type == 'income' && !firm.isGstRegistered) gstAmount = 0;
     await db.transaction(() async {
       await db.assertDateEditable(firmId, date);
       await db
@@ -726,8 +852,10 @@ class ExpenseRepository with SyncQueueMixin {
               date: date,
               mode: Value(mode),
               vendorName: Value(vendorName),
+              itemId: Value(itemId),
               reference: Value(reference),
               gstAmount: Value(gstAmount),
+              itcEligible: Value(firm.isGstRegistered),
               notes: Value(notes),
               sequence: Value(sequence),
               createdAt: Value(DateTime.now()),
@@ -774,7 +902,7 @@ class ExpenseRepository with SyncQueueMixin {
     if (to != null) {
       query.where((t) => t.date.isSmallerOrEqualValue(to));
     }
-    query.limit(limit);
+    if (limit > 0) query.limit(limit);
     return query.get();
   }
 
@@ -798,7 +926,7 @@ class ExpenseRepository with SyncQueueMixin {
     if (to != null) {
       query.where((t) => t.date.isSmallerOrEqualValue(to));
     }
-    query.limit(limit);
+    if (limit > 0) query.limit(limit);
     return query.watch();
   }
 
@@ -834,7 +962,16 @@ class ExpenseRepository with SyncQueueMixin {
   /// whether clearing a field writes NULL.
   Future<ExpenseEntity> update(ExpenseEntity expense) async {
     db.assertPermission(Permission.createPurchases);
+    final original = await getById(expense.id);
+    if (original == null || original.isDeleted) throw StateError('Expense not found.');
+    expense = expense.copyWith(itcEligible: original.itcEligible);
+    if (expense.type == 'income' && !original.itcEligible) {
+      expense = expense.copyWith(gstAmount: 0);
+    }
     await db.transaction(() async {
+      final current = await getById(expense.id);
+      if (current == null || current.isDeleted) throw StateError('Expense not found.');
+      await db.assertDateEditable(firmId, current.date);
       await db.assertDateEditable(firmId, expense.date);
       await db
           .update(db.expenses)
@@ -902,6 +1039,7 @@ class ExpenseRepository with SyncQueueMixin {
       await (db.delete(
         db.expenses,
       )..where((t) => t.id.equals(id) & t.firmId.equals(firmId))).go();
+      await enqueue(firmId: firmId, entity: 'expenses', entityId: id, operation: 'delete');
       await db.auditRepository.log(
         action: 'purge',
         entity: 'expenses',

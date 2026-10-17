@@ -1,3 +1,5 @@
+import '../../core/domain/gst_registration.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -5,16 +7,19 @@ import 'package:decimal/decimal.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:open_filex/open_filex.dart';
 import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/database/app_database.dart';
+import '../../core/database/repositories/repository_extensions.dart';
 import '../../core/reports/gst_export_service.dart';
 import '../../core/reports/gst_return_builder.dart';
 import '../../core/reports/gstr1_report.dart';
+import '../../core/reports/gstr2a_import.dart';
+import '../../core/reports/sources/gst/gstr2a_reconciliation.dart';
 import '../../core/state/providers.dart';
 import '../../core/utils/formatters.dart';
+import '../../core/services/save_export.dart';
 import '../../shared/widgets/atria_list_toolbar.dart';
 import '../../shared/widgets/common_widgets.dart';
 
@@ -53,7 +58,8 @@ String _fp(DateTime start) =>
 /// GSTR-1 / GSTR-3B / GSTR-2A in one screen. Period = one calendar month
 /// (the GST filing unit). Exports land in Documents\atria\gst\<fp>\.
 class GstReportsScreen extends ConsumerStatefulWidget {
-  const GstReportsScreen({super.key});
+  const GstReportsScreen({super.key, this.initialTab = 'gstr1'});
+  final String initialTab;
 
   @override
   ConsumerState<GstReportsScreen> createState() => _GstReportsScreenState();
@@ -62,10 +68,17 @@ class GstReportsScreen extends ConsumerStatefulWidget {
 class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
   DateTime _month = _monthStart(DateTime.now());
   String _tab = 'gstr1'; // gstr1 | gstr3b | gstr2a
+  bool _quarterly = false;
+  bool? _futuresQuarterly;
+  DateTime get _returnStart => _quarterly
+      ? DateTime(_month.year, ((_month.month - 1) ~/ 3) * 3 + 1)
+      : _month;
+  DateTime get _returnEnd => _quarterly
+      ? DateTime(_returnStart.year, _returnStart.month + 3, 0, 23, 59, 59)
+      : _monthEnd(_month);
+  int get _navigationStep => _quarterly && _tab != 'gstr2a' ? 3 : 1;
   bool _busy = false;
   String? _message;
-
-  Gstr2aReconciliation? _reconciliation;
 
   // Futures are held in state and re-created only when the month changes;
   // building them inline recomputed both returns on every rebuild (any
@@ -73,20 +86,62 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
   Future<Gstr1Report>? _gstr1Future;
   Future<Gstr3bReport>? _gstr3bFuture;
   DateTime? _futuresMonth;
+  // The firm is part of the cache key too, not just the month.
+  //
+  // `firmId` was a parameter that never reached the guard, so switching the
+  // active business without changing the month left the **previous** firm's
+  // GSTR-1 and 3B sitting on screen under the new firm's name — and the user
+  // files those numbers. This is the same regression `reports_screen.dart`
+  // documents at length for its trend cards ("Flutter reuses this State across
+  // a firm switch… a `late final` future was pinned to the previous firm's
+  // repository"); the guard just needed the second half of the key.
+  String? _futuresFirm;
+  int? _futuresRevision;
+  Future<Gstr2aReconciliation?>? _savedRecon;
+  String? _savedReconKey;
+
+  @override
+  void initState() {
+    super.initState();
+    if (['gstr1', 'gstr3b', 'gstr2a'].contains(widget.initialTab)) {
+      _tab = widget.initialTab;
+    }
+  }
 
   void _ensureFutures(AppDatabase db, String firmId) {
-    if (_futuresMonth == _month && _gstr1Future != null) return;
+    final revision = ref.read(bookRevisionProvider).valueOrNull;
+    if (_futuresMonth == _month &&
+        _futuresQuarterly == _quarterly &&
+        _futuresRevision == revision &&
+        _futuresFirm == firmId &&
+        _gstr1Future != null) {
+      return;
+    }
     _futuresMonth = _month;
-    _gstr1Future = GstReturnBuilder(db, firmId)
-        .buildGstr1(from: _month, to: _monthEnd(_month));
-    _gstr3bFuture =
-        buildGstr3b(db, firmId, from: _month, to: _monthEnd(_month));
+    _futuresQuarterly = _quarterly;
+    _futuresRevision = revision;
+    _futuresFirm = firmId;
+    _gstr1Future = GstReturnBuilder(
+      db,
+      firmId,
+    ).buildGstr1(from: _returnStart, to: _returnEnd);
+    _gstr3bFuture = buildGstr3b(db, firmId, from: _returnStart, to: _returnEnd);
   }
 
   static String _monthLabel(DateTime month) {
     const names = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${names[month.month - 1]} ${month.year}';
   }
@@ -96,6 +151,17 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
     final repo = ref.watch(reportRepositoryProvider);
     final db = ref.watch(appDatabaseProvider);
     final firmId = ref.watch(activeFirmIdProvider);
+    if ((true) &&
+        ref.watch(activeFirmProvider).valueOrNull?.isGstRegistered != true) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('GST reports')),
+        body: const EmptyState(
+          icon: Icons.info_outline,
+          title: 'GST registration required',
+          message: 'This business is not GST registered. Ordinary sales, purchase, profit and stock reports remain available.',
+        ),
+      );
+    }
     final scheme = Theme.of(context).colorScheme;
 
     if (repo == null || firmId == null) {
@@ -117,8 +183,7 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
             tooltip: 'Previous month',
             icon: const Icon(Icons.chevron_left_rounded),
             onPressed: () => setState(() {
-              _month = DateTime(_month.year, _month.month - 1, 1);
-              _reconciliation = null;
+              _month = DateTime(_month.year, _month.month - _navigationStep, 1);
               _futuresMonth = null; // re-compute for the new month
             }),
           ),
@@ -126,7 +191,9 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
             child: Text(
               // Was Formatters.date(...).substring(3) — silently broke if
               // the date format ever changed.
-              _monthLabel(_month),
+              _quarterly && _tab != 'gstr2a'
+                  ? '${_monthLabel(_returnStart)} – ${_monthLabel(_returnEnd)}'
+                  : _monthLabel(_month),
               style: Theme.of(context).textTheme.titleMedium,
             ),
           ),
@@ -134,8 +201,7 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
             tooltip: 'Next month',
             icon: const Icon(Icons.chevron_right_rounded),
             onPressed: () => setState(() {
-              _month = DateTime(_month.year, _month.month + 1, 1);
-              _reconciliation = null;
+              _month = DateTime(_month.year, _month.month + _navigationStep, 1);
               _futuresMonth = null; // re-compute for the new month
             }),
           ),
@@ -145,6 +211,21 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
       body: Column(
         children: [
           const SizedBox(height: 4),
+          AtriaSegmentedFilter<bool>(
+            segments: const [
+              AtriaSegment(value: false, label: 'Monthly'),
+              AtriaSegment(value: true, label: 'QRMP quarterly'),
+            ],
+            value: _quarterly,
+            onChanged: (value) => setState(() => _quarterly = value),
+          ),
+          if (_quarterly && _tab == 'gstr2a')
+            const Padding(
+              padding: EdgeInsets.all(8),
+              child: Text(
+                'GSTR-2A statements are imported and reconciled month by month.',
+              ),
+            ),
           AtriaSegmentedFilter<String>(
             segments: const [
               AtriaSegment(value: 'gstr1', label: 'GSTR-1'),
@@ -160,9 +241,8 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
               child: Text(
                 _message!,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: scheme.primary,
-                    ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: scheme.primary),
               ),
             ),
           Expanded(
@@ -183,9 +263,9 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
     // a failure is always worth retrying; the futures were previously cached
     // per month with no way to invalidate them.
     void retry() => setState(() {
-          _futuresMonth = null;
-          _ensureFutures(db, firmId);
-        });
+      _futuresMonth = null;
+      _ensureFutures(db, firmId);
+    });
 
     return FutureBuilder<Gstr1Report>(
       future: _gstr1Future,
@@ -198,7 +278,8 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
           return EmptyState(
             icon: Icons.error_outline_rounded,
             title: 'Could not compute GSTR-1',
-            message: 'This return could not be read from your books. Nothing '
+            message:
+                'This return could not be read from your books. Nothing '
                 'has been changed.',
             actionLabel: 'Try again',
             onAction: retry,
@@ -219,7 +300,8 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
               return EmptyState(
                 icon: Icons.error_outline_rounded,
                 title: 'Could not compute GSTR-3B',
-                message: 'This return could not be read from your books. '
+                message:
+                    'This return could not be read from your books. '
                     'Nothing has been changed.',
                 actionLabel: 'Try again',
                 onAction: retry,
@@ -230,8 +312,11 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
               children: [
                 if (_tab == 'gstr1') ...[
-                  _sectionTitle(context, 'Table 4 — B2B supplies'
-                      ' (${gstr1.b2b.length} customers)'),
+                  _sectionTitle(
+                    context,
+                    'Table 4 — B2B supplies'
+                    ' (${gstr1.b2b.length} customers)',
+                  ),
                   for (final g in gstr1.b2b)
                     for (final inv in g.invoices)
                       _lineTile(
@@ -242,22 +327,28 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
                             '${inv.idt} · POS ${inv.pos} · ${inv.itms.length} rates',
                         amount: inv.val,
                       ),
-                  if (gstr1.b2b.isEmpty) _emptyHint(context, 'No B2B invoices.'),
-                  _sectionTitle(context, 'Table 5 — B2C large supplies'
-                      ' (${gstr1.b2cl.length} states)'),
+                  if (gstr1.b2b.isEmpty)
+                    _emptyHint(context, 'No B2B invoices.'),
+                  _sectionTitle(
+                    context,
+                    'Table 5 — B2C large supplies'
+                    ' (${gstr1.b2cl.length} states)',
+                  ),
                   for (final b in gstr1.b2cl)
                     for (final inv in b.invoices)
                       _lineTile(
                         context,
                         leading: Icons.local_shipping_rounded,
                         title: '${inv.inum} · POS ${b.pos}',
-                        subtitle:
-                            '${inv.idt} · ${inv.itms.length} rates',
+                        subtitle: '${inv.idt} · ${inv.itms.length} rates',
                         amount: inv.val,
                       ),
-                  if (gstr1.b2cl.isEmpty) _emptyHint(context, 'No B2C large invoices.'),
-                  _sectionTitle(context,
-                      'Table 7 — B2C small supplies (${gstr1.b2cs.length})'),
+                  if (gstr1.b2cl.isEmpty)
+                    _emptyHint(context, 'No B2C large invoices.'),
+                  _sectionTitle(
+                    context,
+                    'Table 7 — B2C small supplies (${gstr1.b2cs.length})',
+                  ),
                   for (final b in gstr1.b2cs)
                     _lineTile(
                       context,
@@ -271,31 +362,40 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
                     ),
                   if (gstr1.b2cs.isEmpty)
                     _emptyHint(context, 'No B2C supplies.'),
-                  _sectionTitle(context, 'Table 9B — Credit / debit notes (registered)'
-                      ' (${gstr1.cdnr.length} parties)'),
+                  _sectionTitle(
+                    context,
+                    'Table 9B — Credit / debit notes (registered)'
+                    ' (${gstr1.cdnr.length} parties)',
+                  ),
                   for (final c in gstr1.cdnr)
                     for (final n in c.notes)
                       _lineTile(
                         context,
                         leading: Icons.assignment_return_rounded,
                         title: '${n.ntNum} · ${c.ctin}',
-                        subtitle:
-                            '${n.ntDt} · POS ${n.pos} · Type ${n.ntty}',
+                        subtitle: '${n.ntDt} · POS ${n.pos} · Type ${n.ntty}',
                         amount: n.val,
                       ),
-                  if (gstr1.cdnr.isEmpty) _emptyHint(context, 'No registered credit / debit notes.'),
-                  _sectionTitle(context, 'Table 10 — Credit / debit notes (unregistered)'
-                      ' (${gstr1.cdnur.length})'),
+                  if (gstr1.cdnr.isEmpty)
+                    _emptyHint(context, 'No registered credit / debit notes.'),
+                  _sectionTitle(
+                    context,
+                    'Table 10 — Credit / debit notes (unregistered)'
+                    ' (${gstr1.cdnur.length})',
+                  ),
                   for (final n in gstr1.cdnur)
                     _lineTile(
                       context,
                       leading: Icons.assignment_return_outlined,
                       title: '${n.ntNum} · POS ${n.pos}',
-                      subtitle:
-                          '${n.ntDt} · ${n.supplyType} · Type ${n.ntty}',
+                      subtitle: '${n.ntDt} · ${n.supplyType} · Type ${n.ntty}',
                       amount: n.val,
                     ),
-                  if (gstr1.cdnur.isEmpty) _emptyHint(context, 'No unregistered credit / debit notes.'),
+                  if (gstr1.cdnur.isEmpty)
+                    _emptyHint(
+                      context,
+                      'No unregistered credit / debit notes.',
+                    ),
                   _sectionTitle(context, 'Table 12 — HSN summary'),
                   for (final h in gstr1.hsn)
                     _lineTile(
@@ -330,57 +430,89 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
                   // worse than useless: it is a filing aid that disagrees
                   // with the file it produces.
                   _sectionTitle(context, 'Table 3.1 — Outward supplies'),
-                  _kv(context, '3.1(a) Outward taxable supplies',
-                      gstr3b.outwardTaxable),
+                  _kv(
+                    context,
+                    '3.1(a) Outward taxable supplies',
+                    gstr3b.outwardTaxable,
+                  ),
                   _kv(context, 'IGST', gstr3b.outwardIgst),
                   _kv(context, 'CGST', gstr3b.outwardCgst),
                   _kv(context, 'SGST', gstr3b.outwardSgst),
                   _kv(context, 'Cess', gstr3b.outwardCess),
-                  _kv(context, '3.1(b) Zero-rated (exports/SEZ)',
-                      gstr3b.zeroRated),
+                  _kv(
+                    context,
+                    '3.1(b) Zero-rated (exports/SEZ)',
+                    gstr3b.zeroRated,
+                  ),
                   _kv(context, '3.1(c) Nil-rated / exempt', gstr3b.nilRated),
                   // Cash reverse charge — payable in cash through the
                   // electronic cash ledger, never as input credit.
-                  _kv(context, '3.1(d) Reverse charge tax (pay in cash)',
-                      gstr3b.reverseChargeTax),
-                  _sectionTitle(context, 'Table 3.2 — Inter-state to'
-                      ' unregistered'),
+                  _kv(
+                    context,
+                    '3.1(d) Reverse charge tax (pay in cash)',
+                    gstr3b.reverseChargeTax,
+                  ),
+                  _sectionTitle(
+                    context,
+                    'Table 3.2 — Inter-state to'
+                    ' unregistered',
+                  ),
                   for (final s in gstr3b.interStateByPos)
-                    _kv2(
-                      context,
-                      'POS ${s.pos}',
-                      s.taxableValue,
-                      s.igst,
-                    ),
+                    _kv2(context, 'POS ${s.pos}', s.taxableValue, s.igst),
                   if (gstr3b.interStateByPos.isEmpty)
                     _emptyHint(context, 'None this period.'),
                   _sectionTitle(context, 'Table 4 — Input tax credit'),
                   _kv(context, 'ITC on imports (A1)', gstr3b.itcImport),
-                  _kv(context, 'ITC on reverse charge (A3)',
-                      gstr3b.itcReverseCharge),
-                  _kv(context, 'ITC inward from ISD (A4)',
-                      gstr3b.itcInwardIsd),
+                  _kv(
+                    context,
+                    'ITC on reverse charge (A3)',
+                    gstr3b.itcReverseCharge,
+                  ),
+                  _kv(context, 'ITC inward from ISD (A4)', gstr3b.itcInwardIsd),
                   _kv(context, 'All other ITC (A5)', gstr3b.itcAllOther),
-                  _kv(context, 'ITC reversed (B) — rules 42/43',
-                      gstr3b.itcReversedRule4243),
-                  _kv(context, 'ITC reversed (B) — others',
-                      gstr3b.itcReversedOther),
+                  _kv(
+                    context,
+                    'ITC reversed (B) — rules 42/43',
+                    gstr3b.itcReversedRule4243,
+                  ),
+                  _kv(
+                    context,
+                    'ITC reversed (B) — others',
+                    gstr3b.itcReversedOther,
+                  ),
                   _kv(context, 'ITC available (A)', gstr3b.itcAvailable),
                   _kv(context, 'Net ITC available (C)', gstr3b.netItc),
-                  _sectionTitle(context, 'Table 5 — Nil-rated / non-GST inward'),
-                  _kv(context, 'Nil-rated / exempt inward',
-                      gstr3b.inwardNilRated),
+                  _sectionTitle(
+                    context,
+                    'Table 5 — Nil-rated / non-GST inward',
+                  ),
+                  _kv(
+                    context,
+                    'Nil-rated / exempt inward',
+                    gstr3b.inwardNilRated,
+                  ),
                   _kv(context, 'Non-GST inward supplies', gstr3b.inwardNonGst),
                   _sectionTitle(context, 'Net position'),
-                  _kv(context, 'Output tax',
-                      gstr3b.outwardIgst + gstr3b.outwardCgst +
-                          gstr3b.outwardSgst + gstr3b.outwardCess),
-                  _kv(context, 'Less net ITC available',
-                      -gstr3b.netItc),
-                  _kv(context, 'Plus cash reverse charge',
-                      gstr3b.reverseChargeTax),
-                  _kv(context, 'Net tax payable', gstr3b.netPayable,
-                      emphasize: true),
+                  _kv(
+                    context,
+                    'Output tax',
+                    gstr3b.outwardIgst +
+                        gstr3b.outwardCgst +
+                        gstr3b.outwardSgst +
+                        gstr3b.outwardCess,
+                  ),
+                  _kv(context, 'Less net ITC available', -gstr3b.netItc),
+                  _kv(
+                    context,
+                    'Plus cash reverse charge',
+                    gstr3b.reverseChargeTax,
+                  ),
+                  _kv(
+                    context,
+                    'Net tax payable',
+                    gstr3b.netPayable,
+                    emphasize: true,
+                  ),
                 ],
                 const SizedBox(height: 16),
                 Row(
@@ -388,16 +520,12 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
                     Expanded(
                       child: FilledButton.icon(
                         icon: const Icon(Icons.file_download_rounded),
-                        // "JSON + CSV", not "JSON + Excel": the service writes one .json plus
-                        // six per-table .csv files and never a .xlsx. A
-                        // button that promises a format it does not produce
-                        // teaches the user that this screen's labels cannot
-                        // be trusted.
-                        label: Text(_tab == 'gstr1'
-                            ? 'Export GSTR-1 (JSON + CSV)'
-                            : 'Export GSTR-3B (JSON + CSV)'),
-                        onPressed:
-                            _busy ? null : () => _export(gstr1, gstr3b),
+                        label: Text(
+                          _tab == 'gstr1'
+                              ? 'Export GSTR-1 (Excel + JSON + CSV)'
+                              : 'Export GSTR-3B (Excel + JSON + CSV)',
+                        ),
+                        onPressed: _busy ? null : () => _export(gstr1, gstr3b),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -413,13 +541,23 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
                   ],
                 ),
                 const SizedBox(height: 6),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.table_chart_outlined),
+                  label: const Text('Save Excel workbook…'),
+                  onPressed: _busy
+                      ? null
+                      : () => _export(gstr1, gstr3b, excel: true),
+                ),
+                const Text(
+                  'Preparation drafts: review the exported ReadMe and reconcile GST credit with GSTR-2B before filing.',
+                ),
                 Text(
                   'Fiscal-year to date covers April to the month above, month by '
-                  'month, in one sheet. Returns are still filed a month at a '
-                  'time.',
+                  'month, in one sheet. Use the selected monthly or quarterly '
+                  'period for return preparation.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -428,11 +566,11 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
                   // omitted the <GSTIN> level that `_periodDir` actually
                   // inserts, so the folder it named did not exist.
                   'Files are written to your Documents folder under '
-                  'atria/gst/<your GSTIN>/${_fp(_month)}. Upload the JSON via '
-                  'the GST portal Returns Offline Tool.',
+                  'atria/gst/<your GSTIN>/${gstr1.fp}. Validate preparation '
+                  'files with the current GST utility before filing.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ],
             );
@@ -445,7 +583,52 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
   // ---------------- GSTR-2A ------------------------------------------
 
   Widget _gstr2aTab(BuildContext context, AppDatabase db, String firmId) {
-    final rec = _reconciliation;
+    final key =
+        '$firmId:${_fp(_month)}:${ref.watch(bookRevisionProvider).valueOrNull}';
+    if (_savedReconKey != key) {
+      _savedReconKey = key;
+      final month = _month;
+      _savedRecon = () async {
+        final raw = await db.settingsRepository.get(
+          gstr2aStorageKey(month),
+          firmId: firmId,
+        );
+        if (raw == null) return null;
+        final firm = await db.firmRepository.getById(firmId);
+        return Gstr2aReconciliation.fromPortalJson(
+          decodeGstr2a(utf8.encode(raw)),
+          db: db,
+          firmId: firmId,
+          from: month,
+          to: _monthEnd(month),
+          firmGstin: firm?.gstin ?? '',
+        );
+      }();
+    }
+    return FutureBuilder<Gstr2aReconciliation?>(
+      future: _savedRecon,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return const Center(
+            child: Text(
+              'The saved statement could not be read. Import the correct statement again.',
+            ),
+          );
+        }
+        return _gstr2aContents(context, db, firmId, snapshot.data);
+      },
+    );
+  }
+
+  Widget _gstr2aContents(
+    BuildContext context,
+    AppDatabase db,
+    String firmId,
+    Gstr2aReconciliation? rec,
+  ) {
     if (rec != null) {
       // Four ~120-150dp chips in a bare Row is ~550dp of children in 328dp of
       // a 360dp phone: a guaranteed overflow on every handset, in the middle
@@ -462,48 +645,48 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
           Wrap(spacing: 8, runSpacing: 4, children: chips),
           const SizedBox(height: 8),
           Text(
-          // Money through the app's own formatter, not `toStringAsFixed` on
-          // the raw double: this line is the screen's headline figure and it
-          // used to print an unformatted "12345.6".
-          'Portal ITC ${Formatters.money(_dec(rec.portalTotalTax))} · '
-          'Books ITC ${Formatters.money(_dec(rec.booksTotalTax))}',
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
-        const SizedBox(height: 8),
-        for (final row in rec.rows)
-          ListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            leading: Icon(
-              switch (row.status) {
-                'matched' => Icons.check_circle_outline_rounded,
-                'books_only' => Icons.edit_note_rounded,
-                'portal_only' => Icons.cloud_off_rounded,
-                _ => Icons.warning_amber_rounded,
-              },
-              color: switch (row.status) {
-                'matched' => Colors.green,
-                'books_only' => Colors.orange,
-                'portal_only' => Colors.blue,
-                _ => Colors.red,
-              },
-            ),
-            title: Text(row.invoiceNumber),
-            subtitle: Text(
-              'Books: ${row.booksTaxable == null ? '—' : Formatters.money(_dec(row.booksTaxable!))}'
-              ' / Portal: ${row.portalTaxable == null ? '—' : Formatters.money(_dec(row.portalTaxable!))}',
-            ),
+            // Money through the app's own formatter, not `toStringAsFixed` on
+            // the raw double: this line is the screen's headline figure and it
+            // used to print an unformatted "12345.6".
+            'Portal ITC ${Formatters.money(_dec(rec.portalTotalTax))} · '
+            'Books ITC ${Formatters.money(_dec(rec.booksTotalTax))}',
+            style: Theme.of(context).textTheme.bodyMedium,
           ),
-        const SizedBox(height: 8),
-        OutlinedButton.icon(
-          icon: const Icon(Icons.table_view_rounded),
-          // CSV, like the other two exports — this writes
-          // `gstr2a_reconciliation.csv`, never a workbook.
-          label: const Text('Export reconciliation (CSV)'),
-          onPressed: _busy ? null : () => _exportRecon(rec),
-        ),
-      ],
-    );
+          const SizedBox(height: 8),
+          for (final row in rec.rows)
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                switch (row.status) {
+                  'matched' => Icons.check_circle_outline_rounded,
+                  'books_only' => Icons.edit_note_rounded,
+                  'portal_only' => Icons.cloud_off_rounded,
+                  _ => Icons.warning_amber_rounded,
+                },
+                color: switch (row.status) {
+                  'matched' => Colors.green,
+                  'books_only' => Colors.orange,
+                  'portal_only' => Colors.blue,
+                  _ => Colors.red,
+                },
+              ),
+              title: Text(row.invoiceNumber),
+              subtitle: Text(
+                'Books: ${row.booksTaxable == null ? '—' : Formatters.money(_dec(row.booksTaxable!))}'
+                ' / Portal: ${row.portalTaxable == null ? '—' : Formatters.money(_dec(row.portalTaxable!))}',
+              ),
+            ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.table_view_rounded),
+            // CSV, like the other two exports — this writes
+            // `gstr2a_reconciliation.csv`, never a workbook.
+            label: const Text('Export reconciliation (Excel + JSON + CSV)'),
+            onPressed: _busy ? null : () => _exportRecon(rec),
+          ),
+        ],
+      );
     }
     // Nothing imported yet: explain the one thing this tab does.
     return Center(
@@ -520,7 +703,7 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
           const SizedBox(height: 16),
           FilledButton.icon(
             icon: const Icon(Icons.upload_file_rounded),
-            label: const Text('Import GSTR-2A JSON'),
+            label: const Text('Import GSTR-2A (JSON / ZIP / Excel)'),
             onPressed: _busy ? null : () => _import2a(db, firmId),
           ),
         ],
@@ -528,7 +711,12 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
     );
   }
 
-  Widget _reconChip(BuildContext context, String label, int count, Color color) {
+  Widget _reconChip(
+    BuildContext context,
+    String label,
+    int count,
+    Color color,
+  ) {
     // No trailing Padding — the wrapping [Wrap] owns the spacing now, and
     // keeping both doubled the gap on the wide layout.
     return Chip(
@@ -546,7 +734,7 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
     try {
       final picked = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['json'],
+        allowedExtensions: ['json', 'zip', 'xlsx'],
         withData: true,
       );
       if (picked == null || picked.files.isEmpty) return;
@@ -556,20 +744,18 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
       // busy supplier is comfortably over that, so `bytes!` threw a bare
       // "Null check operator used on a null value" and the user was told the
       // import failed on a file that was perfectly fine.
-      final String content;
-      if (picked2.bytes != null) {
-        content = utf8.decode(picked2.bytes!);
-      } else if ((picked2.path ?? '').isNotEmpty) {
-        content = await File(picked2.path!).readAsString();
-      } else {
-        setState(() => _message =
-            'That file could not be read. Try picking it again.');
-        return;
+      final bytes =
+          picked2.bytes ??
+          ((picked2.path ?? '').isNotEmpty
+              ? await File(picked2.path!).readAsBytes()
+              : null);
+      if (bytes == null) {
+        throw const FormatException('The selected file could not be read.');
       }
-      final json = jsonDecode(content) as Map<String, dynamic>;
-      final gstin = await (db.select(db.firms)
-            ..where((t) => t.id.equals(firmId)))
-          .getSingleOrNull();
+      final json = decodeGstr2a(bytes);
+      final gstin = await (db.select(
+        db.firms,
+      )..where((t) => t.id.equals(firmId))).getSingleOrNull();
       final rec = await Gstr2aReconciliation.fromPortalJson(
         json,
         db: db,
@@ -578,10 +764,12 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
         to: _monthEnd(_month),
         firmGstin: gstin?.gstin ?? '',
       );
+      await storeImportedGstr2a(db, firmId, _month, json);
       if (!mounted) return;
       setState(() {
-        _reconciliation = rec;
-        _message = 'Imported ${picked2.name} · '
+        _savedRecon = Future.value(rec);
+        _message =
+            'Imported ${picked2.name} · '
             '${rec.rows.length} supplier invoices matched against your books';
       });
     } catch (error) {
@@ -592,7 +780,11 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
     }
   }
 
-  Future<void> _export(Gstr1Report gstr1, Gstr3bReport? gstr3b) async {
+  Future<void> _export(
+    Gstr1Report gstr1,
+    Gstr3bReport? gstr3b, {
+    bool excel = false,
+  }) async {
     setState(() {
       _busy = true;
       _message = null;
@@ -628,17 +820,16 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
     // beside it for the accountant.
     final json = p.join(
       dir.path,
-      _tab == 'gstr1'
+      excel
+          ? '${_tab == 'gstr1' ? 'gstr1' : 'gstr3b'}_${gstr1.fp}.xlsx'
+          : _tab == 'gstr1'
           ? 'gstr1_${gstr1.firmGstin}_${gstr1.fp}.json'
           : 'gstr3b_${gstr3b!.fp}.json',
     );
     final opened = await _tryOpen(json);
     if (!mounted) return;
     setState(() {
-      _message = opened
-          ? '$label exported and opened.'
-          : '$label exported, but nothing on this device can open a .json '
-              'file. Use Share to send it to the GST portal’s offline tool.';
+      _message = opened ? '$label saved to your chosen location.' : 'Save cancelled or unavailable. The generated export can still be shared.';
     });
     if (!opened) _showExportActions(dir, json);
   }
@@ -672,18 +863,20 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
           from: cursor,
           to: _monthEnd(cursor),
         );
-        rows.add(FiscalYearGstRow(
-          period: '${cursor.month.toString().padLeft(2, '0')}-${cursor.year}',
-          taxable: report.outwardTaxable,
-          igst: report.outwardIgst,
-          cgst: report.outwardCgst,
-          sgst: report.outwardSgst,
-          cess: report.outwardCess,
-          itc: report.netItc,
-          netPayable: report.netPayable,
-          zeroRated: report.zeroRated,
-          nilRated: report.nilRated,
-        ));
+        rows.add(
+          FiscalYearGstRow(
+            period: '${cursor.month.toString().padLeft(2, '0')}-${cursor.year}',
+            taxable: report.outwardTaxable,
+            igst: report.outwardIgst,
+            cgst: report.outwardCgst,
+            sgst: report.outwardSgst,
+            cess: report.outwardCess,
+            itc: report.netItc,
+            netPayable: report.netPayable,
+            zeroRated: report.zeroRated,
+            nilRated: report.nilRated,
+          ),
+        );
         cursor = DateTime(cursor.year, cursor.month + 1, 1);
       }
       dir = await GstExportService().exportFiscalYear(
@@ -706,9 +899,9 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
     if (!mounted) return;
     setState(() {
       _message = opened
-          ? 'Fiscal year $label exported and opened.'
+          ? 'Fiscal year $label saved to your chosen location.'
           : 'Fiscal year $label exported. Use Share to send the summary to '
-              'your accountant.';
+                'your accountant.';
     });
     if (!opened) _showExportActions(dir, file);
   }
@@ -721,9 +914,12 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
     Directory? dir;
     String? file;
     try {
-      dir = await GstExportService()
-          .exportReconciliation(rec, rec.firmGstin, _fp(_month));
-      file = p.join(dir.path, 'gstr2a_reconciliation.csv');
+      dir = await GstExportService().exportReconciliation(
+        rec,
+        rec.firmGstin,
+        _fp(_month),
+      );
+      file = p.join(dir.path, 'gstr2a_reconciliation.xlsx');
     } catch (error) {
       if (!mounted) return;
       setState(() => _message = _humanError('Reconciliation export', error));
@@ -738,9 +934,9 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
     if (!mounted) return;
     setState(() {
       _message = opened
-          ? 'Reconciliation exported and opened.'
+          ? 'Reconciliation saved to your chosen location.'
           : 'Reconciliation exported. Use Share to send it to your '
-              'accountant.';
+                'accountant.';
     });
     if (!opened) _showExportActions(dir, file);
   }
@@ -752,8 +948,8 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
   Future<bool> _tryOpen(String path) async {
     try {
       if (!File(path).existsSync()) return false;
-      final result = await OpenFilex.open(path);
-      return result.type == ResultType.done;
+      final saved = await saveExportAs(File(path));
+      return saved != null;
     } catch (error) {
       debugPrint('gst-reports: could not open $path: $error');
       return false;
@@ -773,44 +969,41 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
     // No path in the copy. On Android the file lives somewhere no file
     // manager goes, so "saved to /storage/emulated/0/Android/data/…" is
     // information the user cannot use; the two actions are the whole message.
-    messenger.showSnackBar(SnackBar(
-      content: const Text(
-        'Nothing on this device can show that file type. Share it to your '
-        'accountant or to the GST portal’s offline tool.',
-      ),
-      duration: const Duration(seconds: 8),
-      action: SnackBarAction(
-        label: 'Share',
-        onPressed: () => Share.shareXFiles(
-          [XFile(primary)],
-          subject: p.basenameWithoutExtension(primary),
+    messenger.showSnackBar(
+      SnackBar(
+        content: const Text(
+          'You can share the generated export with your accountant.',
+        ),
+        duration: const Duration(seconds: 8),
+        action: SnackBarAction(
+          label: 'Share',
+          onPressed: () => Share.shareXFiles([
+            XFile(primary),
+          ], subject: p.basenameWithoutExtension(primary)),
         ),
       ),
-    ));
+    );
   }
 
   // ---------------- Small pieces --------------------------------------
 
   Widget _sectionTitle(BuildContext context, String text) => Padding(
-        padding: const EdgeInsets.only(top: 18, bottom: 6),
-        child: Text(
-          text,
-          style: Theme.of(context)
-              .textTheme
-              .titleSmall
-              ?.copyWith(fontWeight: FontWeight.w700),
-        ),
-      );
+    padding: const EdgeInsets.only(top: 18, bottom: 6),
+    child: Text(
+      text,
+      style: Theme.of(context).textTheme.titleSmall
+          ?.copyWith(fontWeight: FontWeight.w700),
+    ),
+  );
 
   Widget _emptyHint(BuildContext context, String text) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Text(
-          text,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-        ),
-      );
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: Text(
+      text,
+      style: Theme.of(context).textTheme.bodySmall
+          ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+    ),
+  );
 
   Widget _lineTile(
     BuildContext context, {
@@ -827,9 +1020,7 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
       subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
       trailing: Text(
         Formatters.money(amount),
-        style: Theme.of(context)
-            .textTheme
-            .bodyMedium
+        style: Theme.of(context).textTheme.bodyMedium
             ?.copyWith(fontWeight: FontWeight.w600),
       ),
     );
@@ -871,8 +1062,12 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
     );
   }
 
-  Widget _kv(BuildContext context, String label, Decimal value,
-      {bool emphasize = false}) {
+  Widget _kv(
+    BuildContext context,
+    String label,
+    Decimal value, {
+    bool emphasize = false,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -881,22 +1076,18 @@ class _GstReportsScreenState extends ConsumerState<GstReportsScreen> {
             child: Text(
               label,
               style: emphasize
-                  ? Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w700)
+                  ? Theme.of(context).textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w700)
                   : Theme.of(context).textTheme.bodyMedium,
             ),
           ),
           Text(
             Formatters.money(value),
             style: emphasize
-                ? Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700)
-                : Theme.of(context)
-                    .textTheme
-                    .bodyMedium
-                    ?.copyWith(fontWeight: FontWeight.w600),
+                ? Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700)
+                : Theme.of(context).textTheme.bodyMedium
+                      ?.copyWith(fontWeight: FontWeight.w600),
           ),
         ],
       ),

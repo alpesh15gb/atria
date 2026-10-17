@@ -1,3 +1,4 @@
+import '../domain/gst_registration.dart';
 import 'package:decimal/decimal.dart';
 
 import '../database/app_database.dart';
@@ -263,7 +264,9 @@ class ThermalPrinterService {
 
     return ReceiptDocument(
       firmName: firm.name,
-      title: _receiptTitle(invoice.docType),
+      title: invoice.docType == 'invoice' && !firm.isGstRegistered &&
+          invoice.cgst + invoice.sgst + invoice.igst + invoice.cess == 0
+          ? 'Invoice' : _receiptTitle(invoice.docType),
       number: invoice.number,
       dateLine: Formatters.date(invoice.invoiceDate),
       firmGstin: firm.gstin,

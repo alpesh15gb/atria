@@ -26,16 +26,16 @@ Widget? buildProfitAndLoss(BuildContext context, ReportResult result) {
 
   final totalIncome = _totalFor(result, 'Total income');
   final totalExpenses = _totalFor(result, 'Total expenses');
-  // Gross profit and net are *derived on screen* from the two totals the source
-  // printed, rather than read from their own rows.
+  // Gross and net are **read from the source's own rows**, not derived here.
   //
-  // Deriving is the point: if the source's own gross-profit row disagreed with
-  // income less expenses, the screen would silently print whichever it was told
-  // and the error would only show up when someone checked the addition. Here
-  // the printed arithmetic is the printed statement, so the two cannot drift.
-  // The trial balance's independent figure is in the notes strip above, which is
-  // where a genuine disagreement belongs.
-  final grossProfit = totalIncome - totalExpenses;
+  // They used to be derived as one figure (`totalIncome - totalExpenses`) and
+  // then printed twice, under two different names — so the statement showed
+  // "Gross profit" and "Net profit" as the identical number and a CA could not
+  // tell which was which. They are genuinely different: gross is sales less
+  // cost of goods sold, net additionally absorbs other income and operating
+  // expenses. `ProfitAndLoss` computes both.
+  final grossProfit = _totalFor(result, 'Gross profit');
+  final netProfit = _totalFor(result, 'Net profit');
 
   return SingleChildScrollView(
     padding: const EdgeInsets.symmetric(
@@ -94,10 +94,10 @@ Widget? buildProfitAndLoss(BuildContext context, ReportResult result) {
           ),
           DocumentPair(
             label: 'Net profit',
-            value: _plain(grossProfit),
+            value: _plain(netProfit),
             emphasis: true,
             colorize: true,
-            negative: grossProfit < Decimal.zero,
+            negative: netProfit < Decimal.zero,
           ),
         ],
       ],

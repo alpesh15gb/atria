@@ -1,3 +1,7 @@
+import '../../core/domain/gst_registration.dart';
+import '../../core/responsive/platform_ui.dart';
+
+import '../../shared/widgets/unsaved_guard.dart';
 import 'package:decimal/decimal.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -66,6 +70,7 @@ class _CartLine {
 }
 
 class _PosScreenState extends ConsumerState<PosScreen> {
+  bool _reviewPayment = false;
   final TextEditingController _search = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
 
@@ -89,7 +94,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   PartyEntity? _party;
   bool _fullyPaid = true;
   String _mode = 'cash';
-  bool _printLabels = true;
+  bool _printLabels = false;
   bool _busy = false;
 
   /// The last completed sale, so the operator can reprint its labels without
@@ -141,8 +146,12 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     quantity: line.quantity,
     unit: line.item.unit,
     rate: line.rate,
-    gstRate: line.item.gstRate,
-    cessRate: line.item.cessRate,
+    gstRate: ref.read(activeFirmProvider).valueOrNull?.isGstRegistered == true
+        ? line.item.gstRate
+        : 0,
+    cessRate: ref.read(activeFirmProvider).valueOrNull?.isGstRegistered == true
+        ? line.item.cessRate
+        : 0,
     taxMode: _taxModeOf(line.item),
   );
 
@@ -171,7 +180,11 @@ class _PosScreenState extends ConsumerState<PosScreen> {
       }
       _search.clear();
     });
-    _searchFocus.requestFocus();
+    if (Theme.of(context).platform.isMobileUi) {
+      FocusScope.of(context).unfocus();
+    } else {
+      _searchFocus.requestFocus();
+    }
   }
 
   /// Removes one line, and can be taken back.
@@ -607,7 +620,10 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   @override
   Widget build(BuildContext context) {
     final printer = ref.watch(defaultPrinterProvider).valueOrNull;
-    return Scaffold(
+    return UnsavedGuard(
+      hasChanges: _lines.isNotEmpty,
+      message: 'Discard this counter sale and its items?',
+      child: Scaffold(
       appBar: AppBar(
         title: const Text('Counter sale'),
         // The rail does not reach this screen and `go` left nothing to pop, so
@@ -669,19 +685,78 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                   busy: _busy,
                   onComplete: _complete,
                 );
+                if (!wide && Theme.of(context).platform.isMobileUi) {
+                  return Column(
+                    children: [
+                      Expanded(child: _reviewPayment ? side : cart),
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surface,
+                          borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(24),
+                          ),
+                        ),
+                        child: Flex(
+                          direction: constraints.maxWidth < 420 || MediaQuery.textScalerOf(context).scale(16) > 20
+                              ? Axis.vertical : Axis.horizontal,
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Flexible(
+                              fit: FlexFit.loose,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    '${_lines.length} ${_lines.length == 1 ? 'item' : 'items'} in order',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelSmall,
+                                  ),
+                                  Text(
+                                    Formatters.money(_totals.grandTotal),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleLarge,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12, height: 8),
+                            FilledButton.icon(
+                              onPressed: _busy || _lines.isEmpty
+                                  ? null
+                                  : () => setState(
+                                      () => _reviewPayment = !_reviewPayment,
+                                    ),
+                              icon: Icon(
+                                _reviewPayment
+                                    ? Icons.expand_more
+                                    : Icons.payments_outlined,
+                              ),
+                              label: Text(
+                                _reviewPayment
+                                    ? 'Back to items'
+                                    : 'Review payment',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  );
+                }
                 if (!wide) {
-                  // The pane is taller than a short phone's body — party, tax
-                  // breakdown, two switches, the payment mode and the Complete
-                  // button do not all fit below the cart. Left at its natural
-                  // height it takes ~570px of a 640px screen and squeezes the
-                  // cart to a sliver, so it is bounded to a little over half
-                  // the body and scrolls to reach the rest.
-                  final paneHeight = constraints.maxHeight * 0.55;
                   return Column(
                     children: [
                       Expanded(child: cart),
                       const Divider(height: 1),
-                      SizedBox(height: paneHeight, child: side),
+                      SizedBox(
+                        height: constraints.maxHeight * .55,
+                        child: side,
+                      ),
                     ],
                   );
                 }
@@ -701,7 +776,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
           ),
         ),
       ),
-    );
+    ));
   }
 }
 
@@ -748,7 +823,7 @@ class _CartPane extends StatelessWidget {
           child: TextField(
             controller: search,
             focusNode: searchFocus,
-            autofocus: true,
+            autofocus: !Theme.of(context).platform.isMobileUi,
             textInputAction: TextInputAction.search,
             onSubmitted: onSubmitted,
             decoration: InputDecoration(
@@ -792,15 +867,15 @@ class _CartPane extends StatelessWidget {
           ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: Row(
+          child: Wrap(
+            spacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               Text('Cart', style: text.titleSmall),
-              const SizedBox(width: 8),
               Text(
                 '${lines.length} line${lines.length == 1 ? '' : 's'}',
                 style: text.bodySmall?.copyWith(color: colors.onSurfaceVariant),
               ),
-              const Spacer(),
               if (lines.isNotEmpty)
                 TextButton.icon(
                   onPressed: busy ? null : onClear,
@@ -874,55 +949,48 @@ class _CartRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
     final colors = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
+    final detail = InkWell(
+      onTap: onEdit,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: InkWell(
-              onTap: onEdit,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(line.item.name, style: text.bodyMedium),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${Formatters.money(line.rate)} × ${_trimDecimal(line.quantity)} '
-                    '${line.item.unit}'
-                    '${line.item.gstRate > 0 ? ' · GST ${line.item.gstRate}%' : ''}',
-                    style: text.bodySmall?.copyWith(
-                      color: colors.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          IconButton(
-            onPressed: onStep == null ? null : () => onStep!(-Decimal.one),
-            icon: const Icon(PhosphorIconsRegular.minus, size: 18),
-            tooltip: 'One less',
-          ),
-          IconButton(
-            onPressed: onStep == null ? null : () => onStep!(Decimal.one),
-            icon: const Icon(PhosphorIconsRegular.plus, size: 18),
-            tooltip: 'One more',
-          ),
-          SizedBox(
-            width: 96,
-            child: Text(
-              Formatters.money(line.amount),
-              textAlign: TextAlign.right,
-              style: text.bodyMedium,
-            ),
-          ),
-          IconButton(
-            onPressed: onRemove,
-            icon: const Icon(PhosphorIconsRegular.x, size: 18),
-            tooltip: 'Remove',
+          Text(line.item.name, style: text.bodyMedium),
+          const SizedBox(height: 2),
+          Text(
+            '${Formatters.money(line.rate)} × ${_trimDecimal(line.quantity)} '
+            '${line.item.unit}'
+            '${line.item.gstRate > 0 ? ' · GST ${line.item.gstRate}%' : ''}',
+            style: text.bodySmall?.copyWith(color: colors.onSurfaceVariant),
           ),
         ],
       ),
+    );
+    final controls = <Widget>[
+      Text(Formatters.money(line.amount), textAlign: TextAlign.right, style: text.bodyMedium),
+      IconButton(
+        onPressed: onStep == null ? null : () => onStep!(-Decimal.one),
+        icon: const Icon(PhosphorIconsRegular.minus, size: 18), tooltip: 'One less',
+      ),
+      IconButton(
+        onPressed: onStep == null ? null : () => onStep!(Decimal.one),
+        icon: const Icon(PhosphorIconsRegular.plus, size: 18), tooltip: 'One more',
+      ),
+      IconButton(onPressed: onRemove,
+        icon: const Icon(PhosphorIconsRegular.x, size: 18), tooltip: 'Remove'),
+    ];
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: LayoutBuilder(builder: (context, constraints) {
+        if (constraints.maxWidth < 460) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [detail, const SizedBox(height: 8),
+              Wrap(alignment: WrapAlignment.end, crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 4, children: controls)],
+          );
+        }
+        return Row(children: [Expanded(child: detail), const SizedBox(width: 12), ...controls]);
+      }),
     );
   }
 }
@@ -1104,8 +1172,9 @@ class _TotalsPane extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'F4 on a keyboard. The bill is numbered, stock moves and the '
-              'receipt is recorded exactly as it would be from the sales screen.',
+              Theme.of(context).platform.isMobileUi
+                  ? 'Complete the sale to save the invoice and update stock.'
+                  : 'F4 on a keyboard. The bill is numbered, stock moves and the receipt is recorded exactly as it would be from the sales screen.',
               textAlign: TextAlign.center,
               style: text.bodySmall?.copyWith(color: colors.onSurfaceVariant),
             ),

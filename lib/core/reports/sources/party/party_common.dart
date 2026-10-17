@@ -25,10 +25,11 @@ Future<List<ReportFilterOption<Object?>>> partyFilterOptions(
   AppDatabase db,
   String firmId,
 ) async {
-  final parties = await (db.select(db.parties)
-        ..where((p) => p.firmId.equals(firmId) & p.isDeleted.equals(false))
-        ..orderBy([(p) => OrderingTerm.asc(p.name)]))
-      .get();
+  final parties =
+      await (db.select(db.parties)
+            ..where((p) => p.firmId.equals(firmId) & p.isDeleted.equals(false))
+            ..orderBy([(p) => OrderingTerm.asc(p.name)]))
+          .get();
   return [
     for (final party in parties)
       ReportFilterOption<Object?>(value: party.id, label: party.name),
@@ -159,7 +160,8 @@ Future<PartyMoney> partyMoney(
   );
 }
 
-Future<({Map<String, Decimal> value, Map<String, Decimal> tax})> _salesAggregate(
+Future<({Map<String, Decimal> value, Map<String, Decimal> tax})>
+_salesAggregate(
   AppDatabase db,
   String firmId,
   ReportWindow window,
@@ -175,7 +177,8 @@ Future<({Map<String, Decimal> value, Map<String, Decimal> tax})> _salesAggregate
   //
   // `cess`, not `cessAmount`: the latter is the *line* table's spelling and does
   // not exist on a document header.
-  final tax = invoices.cgst.sum() +
+  final tax =
+      invoices.cgst.sum() +
       invoices.sgst.sum() +
       invoices.igst.sum() +
       invoices.cess.sum();
@@ -190,7 +193,8 @@ Future<({Map<String, Decimal> value, Map<String, Decimal> tax})> _salesAggregate
   return _collect(query, taxable, tax, invoices.partyId, invoices.docType);
 }
 
-Future<({Map<String, Decimal> value, Map<String, Decimal> tax})> _purchaseAggregate(
+Future<({Map<String, Decimal> value, Map<String, Decimal> tax})>
+_purchaseAggregate(
   AppDatabase db,
   String firmId,
   ReportWindow window,
@@ -240,7 +244,8 @@ Future<({Map<String, Decimal> value, Map<String, Decimal> tax})> _collect(
     if (id == null) continue;
     final type = '${row.read(docType)}';
     final sign = Decimal.fromInt(signFor(type));
-    value[id] = (value[id] ?? Decimal.zero) + sign * dec(row.read(taxable) ?? 0);
+    value[id] =
+        (value[id] ?? Decimal.zero) + sign * dec(row.read(taxable) ?? 0);
     taxes[id] = (taxes[id] ?? Decimal.zero) + sign * dec(row.read(tax) ?? 0);
   }
   return (value: value, tax: taxes);
@@ -332,14 +337,14 @@ Future<PartyCost> costOfGoodsByParty(
   // The movement knows which document it came from but not who that document was
   // for, so the join is by document id: one query for the invoices in the
   // window, one for the movements belonging to them.
-  final invoices = await (db.select(db.salesInvoices)
-        ..where(
-          (_) =>
-              liveSalesIn(window, firmId, db.salesInvoices) &
-              db.salesInvoices.partyId.isNotNull() &
-              partyScope(db.salesInvoices.partyId, selected),
-        ))
-      .get();
+  final invoices =
+      await (db.select(db.salesInvoices)..where(
+            (_) =>
+                liveSalesIn(window, firmId, db.salesInvoices) &
+                db.salesInvoices.partyId.isNotNull() &
+                partyScope(db.salesInvoices.partyId, selected),
+          ))
+          .get();
   if (invoices.isEmpty) return PartyCost.none;
 
   final partyByInvoice = <String, String>{};

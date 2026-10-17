@@ -30,6 +30,8 @@ class PdfLineItem {
     this.sgst = 0,
     this.igst = 0,
     this.gstRate = 0,
+    this.unit = 'pcs',
+    this.cess = 0,
   });
 
   factory PdfLineItem.fromSales(SalesInvoiceItemEntity e) => PdfLineItem(
@@ -43,6 +45,8 @@ class PdfLineItem {
         sgst: e.sgst,
         igst: e.igst,
         gstRate: e.gstRate,
+        unit: e.unit,
+        cess: e.cessAmount,
       );
 
   factory PdfLineItem.fromPurchase(PurchaseBillItemEntity e) => PdfLineItem(
@@ -56,6 +60,8 @@ class PdfLineItem {
         sgst: e.sgst,
         igst: e.igst,
         gstRate: e.gstRate,
+        unit: e.unit,
+        cess: e.cessAmount,
       );
 
   final String name;
@@ -68,6 +74,8 @@ class PdfLineItem {
   final num sgst;
   final num igst;
   final num gstRate;
+  final String unit;
+  final num cess;
 }
 
 /// One addressee on a printed document.
@@ -444,10 +452,11 @@ abstract class PdfSections {
     List<PdfLineItem> items, {
     required bool interState,
     required String secondHead,
+    bool showTax = true,
   }) {
     return pw.Table(
       border: pw.TableBorder.all(color: style.line, width: 0.7),
-      columnWidths: interState
+      columnWidths: !showTax ? const {0: pw.FixedColumnWidth(26), 1: pw.FlexColumnWidth(4), 2: pw.FixedColumnWidth(52), 3: pw.FixedColumnWidth(46), 4: pw.FixedColumnWidth(58), 5: pw.FixedColumnWidth(64)} : interState
           // IGST branch: #, Item, HSN, Qty, Rate, Taxable, IGST, Amount.
           ? const {
               0: pw.FixedColumnWidth(26),
@@ -482,10 +491,10 @@ abstract class PdfSections {
             _headCell('HSN/SAC'),
             _headCell('Qty'),
             _headCell('Rate'),
-            _headCell('Taxable'),
-            if (interState)
+            if (showTax) _headCell('Taxable'),
+            if (showTax && interState)
               _headCell('IGST')
-            else ...[
+            else if (showTax) ...[
               _headCell('CGST'),
               _headCell(secondHead),
             ],
@@ -503,13 +512,13 @@ abstract class PdfSections {
               _bodyCell(items[i].hsn ?? '-'),
               _bodyCell(Formatters.qty(dec(items[i].quantity))),
               _bodyCell(Formatters.money(dec(items[i].rate))),
-              _bodyCell(Formatters.money(dec(items[i].taxableValue))),
-              if (interState)
+              if (showTax) _bodyCell(Formatters.money(dec(items[i].taxableValue))),
+              if (showTax && interState)
                 _bodyCell(items[i].igst > 0
                     ? '${Formatters.money(dec(items[i].igst))}\n'
                         '${_rateLabel(items[i].gstRate)}'
                     : '-'),
-              if (!interState) ...[
+              if (showTax && !interState) ...[
                 _bodyCell(items[i].cgst > 0
                     ? '${Formatters.money(dec(items[i].cgst))}\n'
                         '${_rateLabel(items[i].gstRate / 2)}'

@@ -34,7 +34,7 @@ final _expenseRowsProvider = StreamProvider<List<ExpenseEntity>>((ref) {
     type: 'expense',
     from: range.from,
     to: range.to,
-    limit: 1000,
+    limit: 0,
   );
 });
 
@@ -46,7 +46,7 @@ final _incomeRowsProvider = StreamProvider<List<ExpenseEntity>>((ref) {
     type: 'income',
     from: range.from,
     to: range.to,
-    limit: 1000,
+    limit: 0,
   );
 });
 

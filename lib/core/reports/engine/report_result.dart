@@ -276,8 +276,14 @@ extension ReportIntegrityChecks on ReportIntegrity {
     // 3. A declared column nothing ever filled. Not caught by (1) — every row
     //    *has* the key, it is just always null — and it is the most misleading
     //    case there is: a full column of blanks where figures should be.
+    //
+    //    A column declared `optional` is exempt: its being empty on every row is
+    //    a fact about the business (no item in this catalogue has a reorder level
+    //    or an HSN), not a fault in the source, and saying so out loud put a red
+    //    "do not use these totals" banner over correct figures.
     if (result.rows.isNotEmpty) {
       for (final column in spec.columns) {
+        if (column.optional) continue;
         var filled = 0;
         for (final row in result.rows) {
           final value = row.cells[column.key];

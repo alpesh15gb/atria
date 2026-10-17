@@ -4,6 +4,7 @@ import 'package:atria/core/reports/engine/report_result.dart';
 import 'package:atria/core/reports/engine/report_source.dart';
 import 'package:atria/core/reports/spec/report_spec.dart';
 import 'package:atria/core/reports/window/report_window.dart';
+import 'package:atria/core/utils/money.dart';
 import 'package:decimal/decimal.dart';
 import 'package:drift/drift.dart';
 
@@ -89,8 +90,13 @@ Future<List<ReportRow>> itemReportByPartyRows(
 ) async {
   final selected = selectedItemId(filters);
   final sales = await _partyLines(db, firmId, window, selected, sale: true);
-  final purchases =
-      await _partyLines(db, firmId, window, selected, sale: false);
+  final purchases = await _partyLines(
+    db,
+    firmId,
+    window,
+    selected,
+    sale: false,
+  );
   final rows = [...sales, ...purchases];
   if (rows.isEmpty) return rows;
 
@@ -138,11 +144,21 @@ Future<List<ReportRow>> _partyLines(
     final invoices = db.salesInvoices;
     final qty = lines.quantity.sum();
     final value = lines.taxableValue.sum();
-    final tax = lines.cgst.sum() + lines.sgst.sum() + lines.igst.sum() +
+    final tax =
+        lines.cgst.sum() +
+        lines.sgst.sum() +
+        lines.igst.sum() +
         lines.cessAmount.sum();
     final query = db.selectOnly(lines)
       ..join([innerJoin(invoices, invoices.id.equalsExp(lines.invoiceId))])
-      ..addColumns([invoices.partyId, invoices.docType, lines.name, qty, value, tax])
+      ..addColumns([
+        invoices.partyId,
+        invoices.docType,
+        lines.name,
+        qty,
+        value,
+        tax,
+      ])
       ..where(
         invoices.firmId.equals(firmId) &
             invoices.docType.isIn(const ['invoice', 'credit_note']) &
@@ -174,7 +190,10 @@ Future<List<ReportRow>> _partyLines(
   final bills = db.purchaseBills;
   final qty = lines.quantity.sum();
   final value = lines.taxableValue.sum();
-  final tax = lines.cgst.sum() + lines.sgst.sum() + lines.igst.sum() +
+  final tax =
+      lines.cgst.sum() +
+      lines.sgst.sum() +
+      lines.igst.sum() +
       lines.cessAmount.sum();
   final query = db.selectOnly(lines)
     ..join([innerJoin(bills, bills.id.equalsExp(lines.billId))])
@@ -182,7 +201,10 @@ Future<List<ReportRow>> _partyLines(
     ..where(
       bills.firmId.equals(firmId) &
           bills.docType.isIn(const ['bill', 'debit_note']) &
-          ReportFilters.isLive(status: bills.status, isDeleted: bills.isDeleted) &
+          ReportFilters.isLive(
+            status: bills.status,
+            isDeleted: bills.isDeleted,
+          ) &
           ReportFilters.within(bills.billDate, window) &
           itemScope(lines.itemId, selected),
     )
@@ -246,7 +268,14 @@ List<ReportRow> _rows(
         // see the return inside the sale rather than hunting for it elsewhere.
         'direction': label,
         'qty': qty,
-        'rate': value / qty,
+        // `Decimal /` returns a **Rational**, not a Decimal, and neither
+        // `ReportRow.text()` nor `ReportRow.number()` has a Rational branch —
+        // so ₹100 over 3 units printed the literal "100/3" in the Rate column
+        // and counted as **zero** in every total. `Money.div` is the project's
+        // one rounding division; `item_common.marginPercent` and
+        // `gst_common.effectiveRateOf` already go through `.toDecimal(...)` for
+        // exactly this reason.
+        'rate': Money.div(value, qty),
         'value': value,
         'tax': sign * taxOf(row),
       }, label: partyId),

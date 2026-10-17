@@ -298,6 +298,10 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   /// Registers a firm on the server, so a later change push has somewhere to
+  Future<ServerAccount> cloudAccount(String accessToken) =>
+      _client.me(accessToken: accessToken);
+
+  /// Registers a firm on the server, so a later change push has somewhere to
   /// land. Idempotent: the server answers 409 for a firm it already has, and
   /// [AuthClient] reports that as success.
   ///

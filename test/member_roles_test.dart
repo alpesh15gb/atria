@@ -678,7 +678,7 @@ void main() {
         //    real.
         final upgraded = AppDatabase.test(NativeDatabase(file));
         addTearDown(upgraded.close);
-        expect(upgraded.schemaVersion, 12);
+        expect(upgraded.schemaVersion, 14);
 
         final member = await upgraded
             .membersRepositoryFor(firm.id)

@@ -161,7 +161,8 @@ class CallbackReportSource extends ReportSource {
     String firmId,
     ReportSpec spec,
     String filterId,
-  ) => options?.call(db, firmId, spec, filterId) ??
+  ) =>
+      options?.call(db, firmId, spec, filterId) ??
       super.optionsFor(db, firmId, spec, filterId);
 }
 

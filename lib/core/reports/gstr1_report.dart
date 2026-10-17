@@ -19,9 +19,16 @@ class Gstr1Report {
     this.expwp = const [],
     this.expwop = const [],
     this.hash = '',
+    this.firmName = '',
+    this.from,
+    this.to,
+    this.bookRows = const [],
   });
 
   final String firmGstin;
+  final String firmName;
+  final DateTime? from, to;
+  final List<Map<String, Object?>> bookRows;
 
   /// Envelope hash — the offline utility checks this over the payload. We
   /// emit the SHA-256 of the canonical JSON of the tables, hex-encoded; the
@@ -47,56 +54,91 @@ class Gstr1Report {
   final List<Gstr1Export> expwop;
 
   Map<String, Object?> toJson() => {
-        // The offline utility requires the envelope fields on every upload.
-        'version': '1.1',
-        'hash': hash,
-        'gstin': firmGstin,
-        'fp': fp,
-        'gtin': firmGstin,
-        'b2b': [for (final g in b2b) g.toJson()],
-        'b2cl': [for (final g in b2cl) g.toJson()],
-        'b2cs': [for (final g in b2cs) g.toJson()],
-        'expwp': [for (final g in expwp) g.toJson()],
-        'expwop': [for (final g in expwop) g.toJson()],
-        'cdnr': [for (final g in cdnr) g.toJson()],
-        'cdnur': [for (final g in cdnur) g.toJson()],
-        'hsn': {
-          'data': [for (var i = 0; i < hsn.length; i++) _hsnJson(hsn[i], i)],
-        },
-        'doc_issue': {
-          'doc_det': docIssue.asMap().entries.map((e) => {
-                'doc_num': e.value.docNum,
-                'docs': [
+    // Preparation data. The current GSTN utility owns its upload envelope;
+    // a locally calculated SHA-256 must not impersonate GSTN's hash/version.
+    'gstin': firmGstin,
+    'fp': fp,
+    'b2b': [for (final g in b2b) g.toJson()],
+    'b2cl': [for (final g in b2cl) g.toJson()],
+    'b2cs': [for (final g in b2cs) g.toJson()],
+    'exp': [
+      for (final entry in {'WP': expwp, 'WOP': expwop}.entries)
+        if (entry.value.isNotEmpty)
+          {
+            'exp_typ': entry.key,
+            'inv': [
+              for (final group in entry.value)
+                for (final inv in group.invoices)
                   {
-                    'num': 1,
-                    'from': e.value.from,
-                    'to': e.value.to,
-                    'totnum': e.value.total,
-                    'cancel': e.value.cancelled,
-                    'net_issue': e.value.netIssue,
-                  }
-                ],
-              }).toList(),
-        },
-      };
+                    'inum': inv.inum,
+                    'idt': inv.idt,
+                    'val': _num(inv.val),
+                    'itms': [
+                      for (final item in inv.itms)
+                        {
+                          'rt': item.rate,
+                          'txval': _num(item.taxableValue),
+                          'iamt': _num(item.igst),
+                          'csamt': _num(item.cess),
+                        },
+                    ],
+                  },
+            ],
+          },
+    ],
+    'cdnr': [for (final g in cdnr) g.toJson()],
+    'cdnur': [for (final g in cdnur) g.toJson()],
+    'hsn': {
+      if (int.parse(fp.substring(2) + fp.substring(0, 2)) < 202505)
+        'data': [for (var i = 0; i < hsn.length; i++) _hsnJson(hsn[i], i)]
+      else ...{
+        'hsn_b2b': _hsnGroup(true),
+        'hsn_b2c': _hsnGroup(false),
+      },
+    },
+    'doc_issue': {
+      'doc_det': [
+        for (final type in docIssue.map((d) => d.docNum).toSet())
+          {
+            'doc_num': type,
+            'docs': [
+              for (final e in docIssue.where((d) => d.docNum == type).indexed)
+                {
+                  'num': e.$1 + 1,
+                  'from': e.$2.from,
+                  'to': e.$2.to,
+                  'totnum': e.$2.total,
+                  'cancel': e.$2.cancelled,
+                  'net_issue': e.$2.netIssue,
+                },
+            ],
+          },
+      ],
+    },
+  };
 
   static Map<String, Object?> _hsnJson(Gstr1Hsn h, int index) => {
-        'num': index + 1,
-        'hsn_sc': h.hsn,
-        'desc': h.description,
-        'uqc': h.uqc,
-        // Table 12 is rate-wise: the same HSN sold at 5% and at 18% is two
-        // rows, and without `rt` the utility rejects the file (every other
-        // table in this payload emits it — see Gstr1Item.toJson).
-        'rt': h.rate,
-        'qty': _num(h.quantity),
-        'val': _num(h.totalValue),
-        'txval': _num(h.taxableValue),
-        'iamt': _num(h.igst),
-        'camt': _num(h.cgst),
-        'samt': _num(h.sgst),
-        'csamt': _num(h.cess),
-      };
+    'num': index + 1,
+    'hsn_sc': h.hsn,
+    'desc': h.description,
+    'uqc': h.uqc,
+    // Table 12 is rate-wise: the same HSN sold at 5% and at 18% is two
+    // rows, and without `rt` the utility rejects the file (every other
+    // table in this payload emits it — see Gstr1Item.toJson).
+    'rt': h.rate,
+    'qty': _num(h.quantity),
+    'val': _num(h.totalValue),
+    'txval': _num(h.taxableValue),
+    'iamt': _num(h.igst),
+    'camt': _num(h.cgst),
+    'samt': _num(h.sgst),
+    'csamt': _num(h.cess),
+  };
+
+  List<Map<String, Object?>> _hsnGroup(bool b2b) {
+    final rows = hsn.where((row) => row.isB2b == b2b).toList();
+    return [for (var i = 0; i < rows.length; i++) _hsnJson(rows[i], i)];
+  }
 
   static Object _num(Decimal d) => double.tryParse(d.toStringAsFixed(2)) ?? 0;
 
@@ -104,19 +146,16 @@ class Gstr1Report {
 }
 
 class Gstr1B2b {
-  const Gstr1B2b({
-    required this.ctin,
-    required this.invoices,
-  });
+  const Gstr1B2b({required this.ctin, required this.invoices});
 
   /// Customer GSTIN.
   final String ctin;
   final List<Gstr1Invoice> invoices;
 
   Map<String, Object?> toJson() => {
-        'ctin': ctin,
-        'inv': [for (final i in invoices) i.toJson()],
-      };
+    'ctin': ctin,
+    'inv': [for (final i in invoices) i.toJson()],
+  };
 }
 
 class Gstr1Invoice {
@@ -143,29 +182,26 @@ class Gstr1Invoice {
   final List<Gstr1Item> itms;
 
   Map<String, Object?> toJson() => {
-        'inum': inum,
-        'idt': idt,
-        'val': Gstr1Report._numPublic(val),
-        'pos': pos,
-        'rchrg': reverseCharge ? 'Y' : 'N',
-        'inv_typ': invoiceType,
-        'itms': [for (final i in itms) i.toJson()],
-      };
+    'inum': inum,
+    'idt': idt,
+    'val': Gstr1Report._numPublic(val),
+    'pos': pos,
+    'rchrg': reverseCharge ? 'Y' : 'N',
+    'inv_typ': invoiceType,
+    'itms': [for (final i in itms) i.toJson()],
+  };
 }
 
 class Gstr1B2cl {
-  const Gstr1B2cl({
-    required this.pos,
-    required this.invoices,
-  });
+  const Gstr1B2cl({required this.pos, required this.invoices});
 
   final String pos;
   final List<Gstr1Invoice> invoices;
 
   Map<String, Object?> toJson() => {
-        'pos': pos,
-        'inv': [for (final i in invoices) i.toJson()],
-      };
+    'pos': pos,
+    'inv': [for (final i in invoices) i.toJson()],
+  };
 }
 
 /// Tables 13A (EXPWP) and 13B (EXPWOP): zero-rated exports grouped by place of
@@ -175,18 +211,15 @@ class Gstr1B2cl {
 /// Same row shape as B2CL (`pos` + `inv`), which is what the offline utility
 /// expects for both tables.
 class Gstr1Export {
-  const Gstr1Export({
-    required this.pos,
-    required this.invoices,
-  });
+  const Gstr1Export({required this.pos, required this.invoices});
 
   final String pos;
   final List<Gstr1Invoice> invoices;
 
   Map<String, Object?> toJson() => {
-        'pos': pos,
-        'inv': [for (final i in invoices) i.toJson()],
-      };
+    'pos': pos,
+    'inv': [for (final i in invoices) i.toJson()],
+  };
 }
 
 class Gstr1B2cs {
@@ -212,31 +245,28 @@ class Gstr1B2cs {
   final Decimal cess;
 
   Map<String, Object?> toJson() => {
-        'sply_tp': supplyType,
-        'pos': pos,
-        'typ': 'OE',
-        'rt': rate,
-        'txval': Gstr1Report._numPublic(taxableValue),
-        'iamt': Gstr1Report._numPublic(igst),
-        'camt': Gstr1Report._numPublic(cgst),
-        'samt': Gstr1Report._numPublic(sgst),
-        'csamt': Gstr1Report._numPublic(cess),
-      };
+    'sply_tp': supplyType,
+    'pos': pos,
+    'typ': 'OE',
+    'rt': rate,
+    'txval': Gstr1Report._numPublic(taxableValue),
+    'iamt': Gstr1Report._numPublic(igst),
+    'camt': Gstr1Report._numPublic(cgst),
+    'samt': Gstr1Report._numPublic(sgst),
+    'csamt': Gstr1Report._numPublic(cess),
+  };
 }
 
 class Gstr1Cdnr {
-  const Gstr1Cdnr({
-    required this.ctin,
-    required this.notes,
-  });
+  const Gstr1Cdnr({required this.ctin, required this.notes});
 
   final String ctin;
   final List<Gstr1Note> notes;
 
   Map<String, Object?> toJson() => {
-        'ctin': ctin,
-        'nt': [for (final n in notes) n.toJson()],
-      };
+    'ctin': ctin,
+    'nt': [for (final n in notes) n.toJson()],
+  };
 }
 
 /// Table 10: unregistered / overseas note row. The portal wants the note's
@@ -290,8 +320,7 @@ class Gstr1Cdnur {
   final Decimal? customSgst;
   final Decimal? customCess;
 
-  double get rate =>
-      customRate ?? (itms.isNotEmpty ? itms.first.rate : 0.0);
+  double get rate => customRate ?? (itms.isNotEmpty ? itms.first.rate : 0.0);
   Decimal get taxableValue =>
       customTaxableValue ??
       itms.fold(Decimal.zero, (s, i) => s + i.taxableValue);
@@ -355,15 +384,15 @@ class Gstr1Note {
   final List<Gstr1Item> itms;
 
   Map<String, Object?> toJson() => {
-        'nt_num': ntNum,
-        'nt_dt': ntDt,
-        'val': Gstr1Report._numPublic(val),
-        'ntty': ntty,
-        'pos': pos,
-        'rchrg': reverseCharge ? 'Y' : 'N',
-        'inv_typ': 'R',
-        'itms': [for (final i in itms) i.toJson()],
-      };
+    'nt_num': ntNum,
+    'nt_dt': ntDt,
+    'val': Gstr1Report._numPublic(val),
+    'ntty': ntty,
+    'pos': pos,
+    'rchrg': reverseCharge ? 'Y' : 'N',
+    'inv_typ': 'R',
+    'itms': [for (final i in itms) i.toJson()],
+  };
 }
 
 class Gstr1Item {
@@ -386,20 +415,21 @@ class Gstr1Item {
   final Decimal cess;
 
   Map<String, Object?> toJson() => {
-        'num': num,
-        'itm_det': {
-          'rt': rate,
-          'txval': Gstr1Report._numPublic(taxableValue),
-          'iamt': Gstr1Report._numPublic(igst),
-          'camt': Gstr1Report._numPublic(cgst),
-          'samt': Gstr1Report._numPublic(sgst),
-          'csamt': Gstr1Report._numPublic(cess),
-        },
-      };
+    'num': num,
+    'itm_det': {
+      'rt': rate,
+      'txval': Gstr1Report._numPublic(taxableValue),
+      'iamt': Gstr1Report._numPublic(igst),
+      'camt': Gstr1Report._numPublic(cgst),
+      'samt': Gstr1Report._numPublic(sgst),
+      'csamt': Gstr1Report._numPublic(cess),
+    },
+  };
 }
 
 class Gstr1Hsn {
   const Gstr1Hsn({
+    this.isB2b = true,
     required this.hsn,
     required this.rate,
     required this.description,
@@ -414,6 +444,7 @@ class Gstr1Hsn {
   });
 
   final String hsn;
+  final bool isB2b;
 
   /// GST rate of the row, in whole percent (Table 12 is rate-wise).
   final double rate;

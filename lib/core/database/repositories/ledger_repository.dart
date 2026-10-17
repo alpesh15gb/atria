@@ -23,6 +23,8 @@ class LedgerCodes {
   static const chequesInHand = '1020';
   static const debtors = '1100';
   static const inventory = '1200';
+  static const supplierAdvances = '1400';
+  static const customerAdvances = '2200';
   static const inputGst = '1300';
   static const tdsReceivable = '1310';
 
@@ -44,6 +46,7 @@ class LedgerCodes {
 
   // Expenses and the movement accounts.
   static const purchases = '5000';
+
   /// Where an expense category that no longer matches its account lands, so a
   /// posting is never dropped just because somebody renamed an account.
   static const otherExpenses = '6900';
@@ -67,10 +70,42 @@ const List<(String, String, String, String, bool)> kSeedChart = [
   (LedgerCodes.chequesInHand, 'Cheques in hand', 'asset', 'Cash & bank', true),
   (LedgerCodes.debtors, 'Sundry debtors', 'asset', 'Sundry debtors', true),
   (LedgerCodes.inventory, 'Closing stock', 'asset', 'Stock in hand', true),
+  (
+    LedgerCodes.supplierAdvances,
+    'Advances to suppliers',
+    'asset',
+    'Other current assets',
+    true,
+  ),
+  (
+    LedgerCodes.customerAdvances,
+    'Advances from customers',
+    'liability',
+    'Other current liabilities',
+    true,
+  ),
   (LedgerCodes.inputGst, 'Input GST credit', 'asset', 'Duties & taxes', true),
-  (LedgerCodes.tdsReceivable, 'TDS receivable', 'asset', 'Duties & taxes', true),
-  (LedgerCodes.creditors, 'Sundry creditors', 'liability', 'Sundry creditors', true),
-  (LedgerCodes.outputGst, 'Output GST payable', 'liability', 'Duties & taxes', true),
+  (
+    LedgerCodes.tdsReceivable,
+    'TDS receivable',
+    'asset',
+    'Duties & taxes',
+    true,
+  ),
+  (
+    LedgerCodes.creditors,
+    'Sundry creditors',
+    'liability',
+    'Sundry creditors',
+    true,
+  ),
+  (
+    LedgerCodes.outputGst,
+    'Output GST payable',
+    'liability',
+    'Duties & taxes',
+    true,
+  ),
   (LedgerCodes.tcsPayable, 'TCS payable', 'liability', 'Duties & taxes', true),
   (LedgerCodes.tdsPayable, 'TDS payable', 'liability', 'Duties & taxes', true),
   (LedgerCodes.capital, 'Capital account', 'equity', 'Capital', true),
@@ -80,7 +115,13 @@ const List<(String, String, String, String, bool)> kSeedChart = [
   (LedgerCodes.salesReturns, 'Sales returns', 'income', 'Sales', true),
   (LedgerCodes.otherIncome, 'Other income', 'income', 'Other income', true),
   (LedgerCodes.purchases, 'Purchases', 'expense', 'Purchases', true),
-  (LedgerCodes.purchaseReturns, 'Purchase returns', 'expense', 'Purchases', true),
+  (
+    LedgerCodes.purchaseReturns,
+    'Purchase returns',
+    'expense',
+    'Purchases',
+    true,
+  ),
   (LedgerCodes.otherExpenses, 'Other expenses', 'expense', 'Expenses', true),
   (LedgerCodes.rounding, 'Round off', 'expense', 'Adjustments', true),
   (LedgerCodes.suspense, 'Suspense', 'liability', 'Adjustments', true),
@@ -135,8 +176,7 @@ class TrialBalance {
 
   const TrialBalance({required this.asOf, this.from, required this.rows});
 
-  double get totalOpeningDebit =>
-      rows.fold(0.0, (s, r) => s + r.openingDebit);
+  double get totalOpeningDebit => rows.fold(0.0, (s, r) => s + r.openingDebit);
   double get totalOpeningCredit =>
       rows.fold(0.0, (s, r) => s + r.openingCredit);
   double get totalDebit => rows.fold(0.0, (s, r) => s + r.debit);
@@ -147,8 +187,7 @@ class TrialBalance {
 
   /// True when closing debits equal closing credits to the paisa. Everything
   /// else in this file exists to keep this true.
-  bool get isBalanced =>
-      (totalClosingDebit - totalClosingCredit).abs() < 0.01;
+  bool get isBalanced => (totalClosingDebit - totalClosingCredit).abs() < 0.01;
 
   double get difference => totalClosingDebit - totalClosingCredit;
 }
@@ -196,13 +235,11 @@ class BalanceSheet {
 
   double get totalAssets => assets.fold(0.0, (s, g) => s + g.total);
   double get totalLiabilities => liabilities.fold(0.0, (s, g) => s + g.total);
-  double get totalEquity =>
-      equity.fold(0.0, (s, g) => s + g.total) + netProfit;
+  double get totalEquity => equity.fold(0.0, (s, g) => s + g.total) + netProfit;
 
   /// Assets less (liabilities + equity). Zero when the books agree — which,
   /// with double entry, they always do unless a posting was dropped.
-  double get difference =>
-      totalAssets - (totalLiabilities + totalEquity);
+  double get difference => totalAssets - (totalLiabilities + totalEquity);
 
   bool get isBalanced => difference.abs() < 0.01;
 }
@@ -246,8 +283,7 @@ class AccountLedger {
     required this.rows,
   });
 
-  double get closing =>
-      rows.fold(opening, (s, r) => s + r.debit - r.credit);
+  double get closing => rows.fold(opening, (s, r) => s + r.debit - r.credit);
   double get totalDebit => rows.fold(0.0, (s, r) => s + r.debit);
   double get totalCredit => rows.fold(0.0, (s, r) => s + r.credit);
 }
@@ -312,14 +348,16 @@ class _Postings {
       c = 0;
     }
     if (d == 0 && c == 0) return;
-    rows.add(_Row(
-      date: date,
-      code: code,
-      debit: d,
-      credit: c,
-      narration: narration,
-      document: document,
-    ));
+    rows.add(
+      _Row(
+        date: date,
+        code: code,
+        debit: d,
+        credit: c,
+        narration: narration,
+        document: document,
+      ),
+    );
   }
 }
 
@@ -348,13 +386,15 @@ class _MergedStream extends Stream<void> {
 
     controller.onCancel = teardown;
     for (final source in _sources) {
-      subs.add(source.listen(
-        controller.add,
-        onError: controller.addError,
-        // A source finishing does not finish the merge: the other tables are
-        // still live, and the books are not done until all of them are.
-        cancelOnError: cancelOnError,
-      ));
+      subs.add(
+        source.listen(
+          controller.add,
+          onError: controller.addError,
+          // A source finishing does not finish the merge: the other tables are
+          // still live, and the books are not done until all of them are.
+          cancelOnError: cancelOnError,
+        ),
+      );
     }
     return controller.stream.listen(
       onData,
@@ -395,17 +435,21 @@ class LedgerRepository with SyncQueueMixin {
     await db.transaction(() async {
       for (final seed in kSeedChart) {
         if (haveCode.contains(seed.$1)) continue;
-        await db.into(db.accounts).insert(AccountsCompanion.insert(
-              id: 'acc_${IdUtils.newId()}',
-              firmId: firmId,
-              code: seed.$1,
-              name: seed.$2,
-              type: seed.$3,
-              groupName: Value(seed.$4),
-              isSystem: Value(seed.$5),
-              createdAt: Value(now),
-              updatedAt: Value(now),
-            ));
+        await db
+            .into(db.accounts)
+            .insert(
+              AccountsCompanion.insert(
+                id: 'acc_${IdUtils.newId()}',
+                firmId: firmId,
+                code: seed.$1,
+                name: seed.$2,
+                type: seed.$3,
+                groupName: Value(seed.$4),
+                isSystem: Value(seed.$5),
+                createdAt: Value(now),
+                updatedAt: Value(now),
+              ),
+            );
         added++;
       }
       // One account per expense/income category actually used, so the P&L's
@@ -417,15 +461,19 @@ class LedgerRepository with SyncQueueMixin {
   }
 
   Future<int> _seedCategoryAccounts(DateTime now) async {
-    final expenseRows = await (db.selectOnly(db.expenses, distinct: true)
-          ..addColumns([db.expenses.category])
-          ..where(db.expenses.firmId.equals(firmId)))
-        .get();
-    final incomeRows = await (db.selectOnly(db.expenses, distinct: true)
-          ..addColumns([db.expenses.category])
-          ..where(db.expenses.firmId.equals(firmId) &
-              db.expenses.type.equals('income')))
-        .get();
+    final expenseRows =
+        await (db.selectOnly(db.expenses, distinct: true)
+              ..addColumns([db.expenses.category])
+              ..where(db.expenses.firmId.equals(firmId)))
+            .get();
+    final incomeRows =
+        await (db.selectOnly(db.expenses, distinct: true)
+              ..addColumns([db.expenses.category])
+              ..where(
+                db.expenses.firmId.equals(firmId) &
+                    db.expenses.type.equals('income'),
+              ))
+            .get();
     var added = 0;
     for (final r in expenseRows) {
       final id = r.read(db.expenses.category);
@@ -442,7 +490,8 @@ class LedgerRepository with SyncQueueMixin {
 
   /// The account a category posts into, seedable and looked up by name.
   Future<AccountEntity> accountForCategory(String category) async {
-    final label = ExpenseCategory.byId(category)?.label ??
+    final label =
+        ExpenseCategory.byId(category)?.label ??
         IncomeCategory.byId(category)?.label ??
         category;
     final isExpense = ExpenseCategory.byId(category) != null;
@@ -455,8 +504,11 @@ class LedgerRepository with SyncQueueMixin {
         return a;
       }
     }
-    await _ensureCategoryAccount(category, isExpense ? 'expense' : 'income',
-        DateTime.now());
+    await _ensureCategoryAccount(
+      category,
+      isExpense ? 'expense' : 'income',
+      DateTime.now(),
+    );
     final again = await allAccounts();
     for (final a in again) {
       if (a.name.toLowerCase() == label.toLowerCase() &&
@@ -468,44 +520,74 @@ class LedgerRepository with SyncQueueMixin {
     }
     // A user renamed the auto-created account; fall back to the catch-all so a
     // posting is never lost.
-    return (await byCode(isExpense ? LedgerCodes.purchases : LedgerCodes.sales))!;
+    return (await byCode(
+      isExpense ? LedgerCodes.purchases : LedgerCodes.sales,
+    ))!;
   }
 
   /// Creates the account for [category] if it is not there yet. Returns true
   /// when it created one.
   Future<bool> _ensureCategoryAccount(
-      String category, String type, DateTime now) async {
-    final label = ExpenseCategory.byId(category)?.label ??
+    String category,
+    String type,
+    DateTime now,
+  ) async {
+    final label =
+        ExpenseCategory.byId(category)?.label ??
         IncomeCategory.byId(category)?.label ??
         category;
-    final accounts = await allAccounts();
-    for (final a in accounts) {
+    // **Every** account, archived included, for the *code* check below. The
+    // unique index is `uq_accounts_code` on `(firmId, code)` and does not care
+    // whether a row is active, so reading active-only made an archived account's
+    // code look free: archive "6001 Rent", record a Rent expense, and this
+    // method computed 6001, tried to insert it and took `UNIQUE constraint
+    // failed` out of the caller's transaction. `ensureChart()` runs at the top of
+    // trialBalance, accountLedger and createJournal, so that permanently broke
+    // the Trial Balance, the Balance Sheet and the Payments screen for the firm,
+    // with no way back.
+    final all = await allAccounts(includeInactive: true);
+    for (final a in all) {
       if (a.name.toLowerCase() == label.toLowerCase() && a.type == type) {
+        // An archived account still owns its code. Re-activating it is the
+        // honest answer — creating a second "Rent" beside it would split every
+        // past posting across two accounts.
+        if (!a.isActive) {
+          await (db.update(db.accounts)..where((t) => t.id.equals(a.id))).write(
+            AccountsCompanion(isActive: const Value(true)),
+          );
+        }
         return false;
       }
     }
-    final start =
-        type == 'income' ? LedgerCodes.firstIncomeCode : LedgerCodes.firstExpenseCode;
-    final used = accounts.map((a) => a.code).toSet();
+    final start = type == 'income'
+        ? LedgerCodes.firstIncomeCode
+        : LedgerCodes.firstExpenseCode;
+    final used = all.map((a) => a.code).toSet();
     var code = start;
     while (used.contains('$code')) {
       code++;
     }
-    await db.into(db.accounts).insert(AccountsCompanion.insert(
-          id: 'acc_${IdUtils.newId()}',
-          firmId: firmId,
-          code: '$code',
-          name: label,
-          type: type,
-          groupName: Value(type == 'income' ? 'Other income' : 'Expenses'),
-          isSystem: const Value(false),
-          createdAt: Value(now),
-          updatedAt: Value(now),
-        ));
+    await db
+        .into(db.accounts)
+        .insert(
+          AccountsCompanion.insert(
+            id: 'acc_${IdUtils.newId()}',
+            firmId: firmId,
+            code: '$code',
+            name: label,
+            type: type,
+            groupName: Value(type == 'income' ? 'Other income' : 'Expenses'),
+            isSystem: const Value(false),
+            createdAt: Value(now),
+            updatedAt: Value(now),
+          ),
+        );
     return true;
   }
 
-  Future<List<AccountEntity>> allAccounts({bool includeInactive = false}) async {
+  Future<List<AccountEntity>> allAccounts({
+    bool includeInactive = false,
+  }) async {
     final q = db.select(db.accounts)
       ..where((t) => t.firmId.equals(firmId))
       ..orderBy([(t) => OrderingTerm(expression: t.code)]);
@@ -546,27 +628,42 @@ class LedgerRepository with SyncQueueMixin {
   }) async {
     _assertAccountType(type);
     final now = DateTime.now();
-    final accounts = await allAccounts();
+    // Two different questions, two different reads:
+    //
+    //  * **Has this code been taken?** Archived rows included. `uq_accounts_code`
+    //    is on `(firmId, code)` and ignores `isActive`, so an active-only read
+    //    missed collisions and surfaced a raw `UNIQUE constraint failed:
+    //    uq_accounts_code` in the user's face.
+    //  * **What is the next free code?** Active accounts only, which is the
+    //    existing behaviour and is deliberate: the chart seeds reserved slots
+    //    (1400 "supplier advances") as inactive, and numbering must step over
+    //    them rather than hand them to the first account someone creates.
+    final active = await allAccounts();
+    final all = await allAccounts(includeInactive: true);
     final resolved = (code == null || code.trim().isEmpty)
-        ? await _nextCode(type, accounts)
+        ? await _nextCode(type, active)
         : code.trim();
-    if (accounts.any((a) => a.code == resolved)) {
+    if (all.any((a) => a.code == resolved)) {
       throw StateError('Account code $resolved is already in use.');
     }
     final id = 'acc_${IdUtils.newId()}';
-    await db.into(db.accounts).insert(AccountsCompanion.insert(
-          id: id,
-          firmId: firmId,
-          code: resolved,
-          name: name.trim(),
-          type: type,
-          groupName: Value(groupName),
-          openingBalance: Value(openingBalance),
-          openingType: Value(openingType),
-          description: Value(description),
-          createdAt: Value(now),
-          updatedAt: Value(now),
-        ));
+    await db
+        .into(db.accounts)
+        .insert(
+          AccountsCompanion.insert(
+            id: id,
+            firmId: firmId,
+            code: resolved,
+            name: name.trim(),
+            type: type,
+            groupName: Value(groupName),
+            openingBalance: Value(openingBalance),
+            openingType: Value(openingType),
+            description: Value(description),
+            createdAt: Value(now),
+            updatedAt: Value(now),
+          ),
+        );
     await db.auditRepository.log(
       action: 'create',
       entity: 'accounts',
@@ -575,7 +672,11 @@ class LedgerRepository with SyncQueueMixin {
       summary: 'Created account $resolved ${name.trim()}',
     );
     await enqueue(
-        firmId: firmId, entity: 'accounts', entityId: id, operation: 'insert');
+      firmId: firmId,
+      entity: 'accounts',
+      entityId: id,
+      operation: 'insert',
+    );
     return (await accountById(id))!;
   }
 
@@ -583,8 +684,13 @@ class LedgerRepository with SyncQueueMixin {
   /// editable once documents have posted into it.
   Future<void> updateAccount(AccountEntity account) async {
     _assertAccountType(account.type);
-    await db.update(db.accounts).replace(
-          account.copyWith(name: account.name.trim(), updatedAt: DateTime.now()),
+    await db
+        .update(db.accounts)
+        .replace(
+          account.copyWith(
+            name: account.name.trim(),
+            updatedAt: DateTime.now(),
+          ),
         );
     await db.auditRepository.log(
       action: 'update',
@@ -594,7 +700,11 @@ class LedgerRepository with SyncQueueMixin {
       summary: 'Updated account ${account.code} ${account.name}',
     );
     await enqueue(
-        firmId: firmId, entity: 'accounts', entityId: account.id, operation: 'update');
+      firmId: firmId,
+      entity: 'accounts',
+      entityId: account.id,
+      operation: 'update',
+    );
   }
 
   /// Retires an account: it stays in the chart for the entries that reference
@@ -604,14 +714,16 @@ class LedgerRepository with SyncQueueMixin {
     if (account == null) return;
     if (!active && account.isSystem) {
       throw StateError(
-          '${account.name} is a system account the documents post into; it '
-          'cannot be switched off.');
+        '${account.name} is a system account the documents post into; it '
+        'cannot be switched off.',
+      );
     }
-    await (db.update(db.accounts)..where((t) => t.id.equals(id)))
-        .write(AccountsCompanion(
-      isActive: Value(active),
-      updatedAt: Value(DateTime.now()),
-    ));
+    await (db.update(db.accounts)..where((t) => t.id.equals(id))).write(
+      AccountsCompanion(
+        isActive: Value(active),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
     await db.auditRepository.log(
       action: active ? 'restore' : 'archive',
       entity: 'accounts',
@@ -620,7 +732,11 @@ class LedgerRepository with SyncQueueMixin {
       summary: '${active ? 'Reactivated' : 'Archived'} account ${account.name}',
     );
     await enqueue(
-        firmId: firmId, entity: 'accounts', entityId: id, operation: 'update');
+      firmId: firmId,
+      entity: 'accounts',
+      entityId: id,
+      operation: 'update',
+    );
   }
 
   /// Deletes an account outright. Refused for system accounts and for any
@@ -631,16 +747,21 @@ class LedgerRepository with SyncQueueMixin {
     final account = await accountById(id);
     if (account == null) return;
     if (account.isSystem) {
-      throw StateError('${account.name} is a system account and cannot be '
-          'deleted. Archive it instead.');
+      throw StateError(
+        '${account.name} is a system account and cannot be '
+        'deleted. Archive it instead.',
+      );
     }
-    final used = await (db.selectOnly(db.journalLines)
-          ..addColumns([db.journalLines.id.count()])
-          ..where(db.journalLines.accountId.equals(id)))
-        .getSingle();
+    final used =
+        await (db.selectOnly(db.journalLines)
+              ..addColumns([db.journalLines.id.count()])
+              ..where(db.journalLines.accountId.equals(id)))
+            .getSingle();
     if ((used.read(db.journalLines.id.count()) ?? 0) > 0) {
-      throw StateError('${account.name} is used by journal vouchers. Archive it '
-          'rather than deleting it.');
+      throw StateError(
+        '${account.name} is used by journal vouchers. Archive it '
+        'rather than deleting it.',
+      );
     }
     await (db.delete(db.accounts)..where((t) => t.id.equals(id))).go();
     await db.auditRepository.log(
@@ -651,7 +772,11 @@ class LedgerRepository with SyncQueueMixin {
       summary: 'Deleted unused account ${account.name}',
     );
     await enqueue(
-        firmId: firmId, entity: 'accounts', entityId: id, operation: 'delete');
+      firmId: firmId,
+      entity: 'accounts',
+      entityId: id,
+      operation: 'delete',
+    );
   }
 
   void _assertAccountType(String type) {
@@ -699,18 +824,22 @@ class LedgerRepository with SyncQueueMixin {
     await db.transaction(() async {
       final seq = await _nextJournalSequence();
       final number = 'JV/${seq.toString().padLeft(4, '0')}';
-      await db.into(db.journalEntries).insert(JournalEntriesCompanion.insert(
-            id: id,
-            firmId: firmId,
-            number: number,
-            date: date,
-            narration: narration.trim(),
-            reference: Value(reference),
-            createdBy: Value(createdBy),
-            sequence: Value(seq),
-            createdAt: Value(now),
-            updatedAt: Value(now),
-          ));
+      await db
+          .into(db.journalEntries)
+          .insert(
+            JournalEntriesCompanion.insert(
+              id: id,
+              firmId: firmId,
+              number: number,
+              date: date,
+              narration: narration.trim(),
+              reference: Value(reference),
+              createdBy: Value(createdBy),
+              sequence: Value(seq),
+              createdAt: Value(now),
+              updatedAt: Value(now),
+            ),
+          );
       await _insertLines(id, lines);
       entry = await journalById(id);
     });
@@ -722,10 +851,11 @@ class LedgerRepository with SyncQueueMixin {
       summary: 'Journal ${entry?.number} — ${narration.trim()}',
     );
     await enqueue(
-        firmId: firmId,
-        entity: 'journal_entries',
-        entityId: id,
-        operation: 'insert');
+      firmId: firmId,
+      entity: 'journal_entries',
+      entityId: id,
+      operation: 'insert',
+    );
     return entry!;
   }
 
@@ -746,15 +876,18 @@ class LedgerRepository with SyncQueueMixin {
     }
     _validateLines(lines);
     await db.transaction(() async {
-      await (db.delete(db.journalLines)..where((t) => t.entryId.equals(id))).go();
+      await (db.delete(
+        db.journalLines,
+      )..where((t) => t.entryId.equals(id))).go();
       await _insertLines(id, lines);
-      await (db.update(db.journalEntries)..where((t) => t.id.equals(id)))
-          .write(JournalEntriesCompanion(
-        date: Value(date),
-        narration: Value(narration.trim()),
-        reference: Value(reference),
-        updatedAt: Value(DateTime.now()),
-      ));
+      await (db.update(db.journalEntries)..where((t) => t.id.equals(id))).write(
+        JournalEntriesCompanion(
+          date: Value(date),
+          narration: Value(narration.trim()),
+          reference: Value(reference),
+          updatedAt: Value(DateTime.now()),
+        ),
+      );
     });
     await db.auditRepository.log(
       action: 'update',
@@ -764,10 +897,11 @@ class LedgerRepository with SyncQueueMixin {
       summary: 'Updated journal ${existing?.number ?? id}',
     );
     await enqueue(
-        firmId: firmId,
-        entity: 'journal_entries',
-        entityId: id,
-        operation: 'update');
+      firmId: firmId,
+      entity: 'journal_entries',
+      entityId: id,
+      operation: 'update',
+    );
   }
 
   /// Bins a voucher. Vouchers are soft-deleted so the sequence stays intact and
@@ -775,12 +909,13 @@ class LedgerRepository with SyncQueueMixin {
   Future<void> deleteJournal(String id) async {
     final entry = await journalById(id);
     if (entry == null) return;
-    await (db.update(db.journalEntries)..where((t) => t.id.equals(id)))
-        .write(JournalEntriesCompanion(
-      isDeleted: const Value(true),
-      deletedAt: Value(DateTime.now()),
-      updatedAt: Value(DateTime.now()),
-    ));
+    await (db.update(db.journalEntries)..where((t) => t.id.equals(id))).write(
+      JournalEntriesCompanion(
+        isDeleted: const Value(true),
+        deletedAt: Value(DateTime.now()),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
     await db.auditRepository.log(
       action: 'delete',
       entity: 'journal_entries',
@@ -789,19 +924,21 @@ class LedgerRepository with SyncQueueMixin {
       summary: 'Binned journal ${entry.number}',
     );
     await enqueue(
-        firmId: firmId,
-        entity: 'journal_entries',
-        entityId: id,
-        operation: 'delete');
+      firmId: firmId,
+      entity: 'journal_entries',
+      entityId: id,
+      operation: 'delete',
+    );
   }
 
   Future<void> restoreJournal(String id) async {
-    await (db.update(db.journalEntries)..where((t) => t.id.equals(id)))
-        .write(JournalEntriesCompanion(
-      isDeleted: const Value(false),
-      deletedAt: const Value(null),
-      updatedAt: Value(DateTime.now()),
-    ));
+    await (db.update(db.journalEntries)..where((t) => t.id.equals(id))).write(
+      JournalEntriesCompanion(
+        isDeleted: const Value(false),
+        deletedAt: const Value(null),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
     await db.auditRepository.log(
       action: 'restore',
       entity: 'journal_entries',
@@ -810,17 +947,19 @@ class LedgerRepository with SyncQueueMixin {
       summary: 'Restored a binned journal voucher',
     );
     await enqueue(
-        firmId: firmId,
-        entity: 'journal_entries',
-        entityId: id,
-        operation: 'update');
+      firmId: firmId,
+      entity: 'journal_entries',
+      entityId: id,
+      operation: 'update',
+    );
   }
 
   Future<int> _nextJournalSequence() async {
-    final row = await (db.selectOnly(db.journalEntries)
-          ..addColumns([db.journalEntries.sequence.max()])
-          ..where(db.journalEntries.firmId.equals(firmId)))
-        .getSingle();
+    final row =
+        await (db.selectOnly(db.journalEntries)
+              ..addColumns([db.journalEntries.sequence.max()])
+              ..where(db.journalEntries.firmId.equals(firmId)))
+            .getSingle();
     final max = row.read(db.journalEntries.sequence.max()) ?? 0;
     return max + 1;
   }
@@ -842,29 +981,39 @@ class LedgerRepository with SyncQueueMixin {
       credit += l.credit;
     }
     if ((debit - credit).abs() > 0.005) {
-      throw StateError('The voucher does not balance: debits are '
-          '${debit.toStringAsFixed(2)} and credits ${credit.toStringAsFixed(2)}.');
+      throw StateError(
+        'The voucher does not balance: debits are '
+        '${debit.toStringAsFixed(2)} and credits ${credit.toStringAsFixed(2)}.',
+      );
     }
   }
 
-  Future<void> _insertLines(String entryId, List<JournalLineDraft> lines) async {
+  Future<void> _insertLines(
+    String entryId,
+    List<JournalLineDraft> lines,
+  ) async {
     var order = 0;
     for (final l in lines) {
       final id = 'jvl_${IdUtils.newId()}';
-      await db.into(db.journalLines).insert(JournalLinesCompanion.insert(
-            id: id,
-            entryId: entryId,
-            accountId: l.accountId,
-            debit: Value(l.debit),
-            credit: Value(l.credit),
-            narration: Value(l.narration),
-            sortOrder: Value(order++),
-          ));
+      await db
+          .into(db.journalLines)
+          .insert(
+            JournalLinesCompanion.insert(
+              id: id,
+              entryId: entryId,
+              accountId: l.accountId,
+              debit: Value(l.debit),
+              credit: Value(l.credit),
+              narration: Value(l.narration),
+              sortOrder: Value(order++),
+            ),
+          );
       await enqueue(
-          firmId: firmId,
-          entity: 'journal_lines',
-          entityId: id,
-          operation: 'insert');
+        firmId: firmId,
+        entity: 'journal_lines',
+        entityId: id,
+        operation: 'insert',
+      );
     }
   }
 
@@ -891,8 +1040,7 @@ class LedgerRepository with SyncQueueMixin {
     if (!includeDeleted) q.where((t) => t.isDeleted.equals(false));
     if (search.trim().isNotEmpty) {
       final s = '%${search.trim().toLowerCase()}%';
-      q.where((t) =>
-          t.narration.lower().like(s) | t.number.lower().like(s));
+      q.where((t) => t.narration.lower().like(s) | t.number.lower().like(s));
     }
     q.orderBy([
       (t) => OrderingTerm(expression: t.date, mode: OrderingMode.desc),
@@ -901,7 +1049,9 @@ class LedgerRepository with SyncQueueMixin {
     return q.watch();
   }
 
-  Future<List<JournalEntryEntity>> journals({bool includeDeleted = false}) async {
+  Future<List<JournalEntryEntity>> journals({
+    bool includeDeleted = false,
+  }) async {
     final q = db.select(db.journalEntries)
       ..where((t) => t.firmId.equals(firmId))
       ..orderBy([
@@ -925,6 +1075,7 @@ class LedgerRepository with SyncQueueMixin {
     // different generated types, and a loop loses the per-table type the
     // `where` clause needs to see `firmId`.
     final sources = <Stream<void>>[
+      (db.select(db.bankAccounts)..where((t) => t.firmId.equals(firmId))..limit(1)).watch(),
       (db.select(db.salesInvoices)
             ..where((t) => t.firmId.equals(firmId))
             ..limit(1))
@@ -985,77 +1136,99 @@ class LedgerRepository with SyncQueueMixin {
     final byCode = {for (final a in accounts) a.code: a};
     final byId = {for (final a in accounts) a.id: a};
     final p = _Postings();
+    final banks = await (db.select(db.bankAccounts)..where((t) =>
+      t.firmId.equals(firmId) & t.createdAt.isSmallerOrEqualValue(end))).get();
+    for (final bank in banks) {
+      final amount = bank.openingBalance;
+      if (amount == 0) continue;
+      final code = byId[bank.ledgerAccountId]?.code ??
+          (bank.type == 'cash' ? LedgerCodes.cash : LedgerCodes.bank);
+      p.post(code, date: bank.createdAt, narration: 'Opening balance - ${bank.name}',
+        debit: amount > 0 ? amount : 0, credit: amount < 0 ? -amount : 0);
+      p.post(LedgerCodes.capital, date: bank.createdAt, narration: 'Opening balance - ${bank.name}',
+        debit: amount < 0 ? -amount : 0, credit: amount > 0 ? amount : 0);
+    }
 
     // Quotations, orders and delivery notes are not transactions, and a
     // cancelled document never happened. Both rules match the P&L and the GST
     // returns, so the reports agree with each other.
-    final invoices = await (db.select(db.salesInvoices)
-          ..where((t) =>
-              t.firmId.equals(firmId) &
-              t.isDeleted.equals(false) &
-              t.docType.isIn(['invoice', 'credit_note']) &
-              t.status.equals('cancelled').not() &
-              t.invoiceDate.isSmallerOrEqualValue(end)))
-        .get();
+    final invoices =
+        await (db.select(db.salesInvoices)..where(
+              (t) =>
+                  t.firmId.equals(firmId) &
+                  t.isDeleted.equals(false) &
+                  t.docType.isIn(['invoice', 'credit_note']) &
+                  t.status.equals('cancelled').not() &
+                  t.invoiceDate.isSmallerOrEqualValue(end),
+            ))
+            .get();
     for (final d in invoices) {
       _postSale(p, d);
     }
 
-    final bills = await (db.select(db.purchaseBills)
-          ..where((t) =>
-              t.firmId.equals(firmId) &
-              t.isDeleted.equals(false) &
-              t.docType.isIn(['bill', 'debit_note']) &
-              t.status.equals('cancelled').not() &
-              t.billDate.isSmallerOrEqualValue(end)))
-        .get();
+    final bills =
+        await (db.select(db.purchaseBills)..where(
+              (t) =>
+                  t.firmId.equals(firmId) &
+                  t.isDeleted.equals(false) &
+                  t.docType.isIn(['bill', 'debit_note']) &
+                  t.status.equals('cancelled').not() &
+                  t.billDate.isSmallerOrEqualValue(end),
+            ))
+            .get();
     for (final d in bills) {
       _postPurchase(p, d);
     }
 
-    final payments = await (db.select(db.payments)
-          ..where((t) =>
-              t.firmId.equals(firmId) &
-              t.isDeleted.equals(false) &
-              // A bounced cheque is money that never arrived — the payment
-              // repository already stops it settling its document, so the
-              // ledger has to agree or the books show a phantom asset in
-              // Cheques in hand against a receivable that is still owed.
-              // The `isNull() |` matters: a cash/bank payment has a null
-              // status, and `not(equals(...))` on a null is null in SQL,
-              // which would silently drop every non-cheque payment too.
-              (t.chequeStatus.isNull() |
-                  t.chequeStatus.equals('bounced').not()) &
-              t.date.isSmallerOrEqualValue(end)))
-        .get();
+    final payments =
+        await (db.select(db.payments)..where(
+              (t) =>
+                  t.firmId.equals(firmId) &
+                  t.isDeleted.equals(false) &
+                  // A bounced cheque is money that never arrived — the payment
+                  // repository already stops it settling its document, so the
+                  // ledger has to agree or the books show a phantom asset in
+                  // Cheques in hand against a receivable that is still owed.
+                  // The `isNull() |` matters: a cash/bank payment has a null
+                  // status, and `not(equals(...))` on a null is null in SQL,
+                  // which would silently drop every non-cheque payment too.
+                  (t.chequeStatus.isNull() |
+                      t.chequeStatus.equals('bounced').not()) &
+                  t.date.isSmallerOrEqualValue(end),
+            ))
+            .get();
+    final advances = await db.paymentRepositoryFor(firmId).advanceDocumentIds();
     for (final pay in payments) {
-      _postPayment(p, pay);
+      _postPayment(p, pay, isAdvance: advances.contains(pay.linkedInvoiceId));
     }
 
-    final expenses = await (db.select(db.expenses)
-          ..where((t) =>
-              t.firmId.equals(firmId) &
-              t.isDeleted.equals(false) &
-              t.date.isSmallerOrEqualValue(end)))
-        .get();
+    final expenses =
+        await (db.select(db.expenses)..where(
+              (t) =>
+                  t.firmId.equals(firmId) &
+                  t.isDeleted.equals(false) &
+                  t.date.isSmallerOrEqualValue(end),
+            ))
+            .get();
     for (final e in expenses) {
       _postExpense(p, e, byCode);
     }
 
     // Hand-keyed vouchers, over the top of the documents.
-    final entries = await (db.select(db.journalEntries)
-          ..where((t) =>
-              t.firmId.equals(firmId) &
-              t.isDeleted.equals(false) &
-              t.date.isSmallerOrEqualValue(end)))
-        .get();
+    final entries =
+        await (db.select(db.journalEntries)..where(
+              (t) =>
+                  t.firmId.equals(firmId) &
+                  t.isDeleted.equals(false) &
+                  t.date.isSmallerOrEqualValue(end),
+            ))
+            .get();
     for (final chunk in _chunks(entries.map((e) => e.id).toList(), 400)) {
-      final lines = await (db.select(db.journalLines)
-            ..where((t) => t.entryId.isIn(chunk)))
-          .get();
+      final lines = await (db.select(
+        db.journalLines,
+      )..where((t) => t.entryId.isIn(chunk))).get();
       for (final line in lines) {
-        final entry =
-            entries.firstWhere((e) => e.id == line.entryId);
+        final entry = entries.firstWhere((e) => e.id == line.entryId);
         final account = byId[line.accountId];
         p.post(
           account?.code ?? LedgerCodes.suspense,
@@ -1084,12 +1257,27 @@ class LedgerRepository with SyncQueueMixin {
     // The contra is capital, which is where an opening balance sheet's
     // balancing figure lives — the same account `createAccount`'s callers put
     // their own openings against.
-    final parties = await (db.select(db.parties)
-          ..where((t) =>
-              t.firmId.equals(firmId) &
-              t.isDeleted.equals(false) &
-              t.openingBalance.isBiggerThanValue(0)))
-        .get();
+    // **Bounded by the period end, like every other source in `_book`.** This
+    // query was the only one without a date predicate, so a trial balance "as of
+    // 31 Mar 2025" still booked the opening of every customer added since —
+    // showing debtors and capital higher than the books were on that date, by
+    // exactly the parties created afterwards.
+    //
+    // It also counts **soft-deleted** parties. The comment above promises the
+    // books agree with `outstandingFor` and the party statement, and both of
+    // those read the party row regardless of `isDeleted`. Filtering here made
+    // binning a customer with a ₹40,000 opening silently drop both halves of
+    // their entry — which still balances, so nothing looks wrong — while their
+    // statement kept showing the ₹40,000. A recycle bin is a UI state, not an
+    // accounting one.
+    final parties =
+        await (db.select(db.parties)..where(
+              (t) =>
+                  t.firmId.equals(firmId) &
+                  t.openingBalance.isBiggerThanValue(0) &
+                  t.createdAt.isSmallerOrEqualValue(end),
+            ))
+            .get();
     for (final party in parties) {
       final isDr = party.openingBalanceType != 'cr';
       p.post(
@@ -1130,42 +1318,53 @@ class LedgerRepository with SyncQueueMixin {
     final negate = d.docType == 'credit_note';
     final revenue = negate ? LedgerCodes.salesReturns : LedgerCodes.sales;
     final tax = d.cgst + d.sgst + d.igst + d.cess;
-    final narration = '${negate ? 'Credit note' : 'Invoice'} ${d.number}'
+    final narration =
+        '${negate ? 'Credit note' : 'Invoice'} ${d.number}'
         '${d.partyName == null ? '' : ' - ${d.partyName}'}';
     // Shipping is charged to the customer but is not consideration for the
     // goods, so it sits with revenue rather than inside the taxable value. The
     // same split the GST engine makes.
     final consideration = d.taxableValue + d.shippingCharge;
-    p.post(LedgerCodes.debtors,
-        date: d.invoiceDate,
-        narration: narration,
-        document: d.number,
-        debit: d.grandTotal,
-        negate: negate);
-    p.post(revenue,
-        date: d.invoiceDate,
-        narration: narration,
-        document: d.number,
-        credit: consideration,
-        negate: negate);
-    p.post(LedgerCodes.outputGst,
-        date: d.invoiceDate,
-        narration: narration,
-        document: d.number,
-        credit: tax,
-        negate: negate);
-    p.post(LedgerCodes.tcsPayable,
-        date: d.invoiceDate,
-        narration: narration,
-        document: d.number,
-        credit: d.tcs,
-        negate: negate);
-    p.post(LedgerCodes.rounding,
-        date: d.invoiceDate,
-        narration: narration,
-        document: d.number,
-        credit: d.roundOff,
-        negate: negate);
+    p.post(
+      LedgerCodes.debtors,
+      date: d.invoiceDate,
+      narration: narration,
+      document: d.number,
+      debit: d.grandTotal,
+      negate: negate,
+    );
+    p.post(
+      revenue,
+      date: d.invoiceDate,
+      narration: narration,
+      document: d.number,
+      credit: consideration,
+      negate: negate,
+    );
+    p.post(
+      LedgerCodes.outputGst,
+      date: d.invoiceDate,
+      narration: narration,
+      document: d.number,
+      credit: tax,
+      negate: negate,
+    );
+    p.post(
+      LedgerCodes.tcsPayable,
+      date: d.invoiceDate,
+      narration: narration,
+      document: d.number,
+      credit: d.tcs,
+      negate: negate,
+    );
+    p.post(
+      LedgerCodes.rounding,
+      date: d.invoiceDate,
+      narration: narration,
+      document: d.number,
+      credit: d.roundOff,
+      negate: negate,
+    );
   }
 
   /// A purchase bill debits the cost and input tax, credits the supplier, and
@@ -1175,44 +1374,56 @@ class LedgerRepository with SyncQueueMixin {
     final negate = d.docType == 'debit_note';
     final cost = negate ? LedgerCodes.purchaseReturns : LedgerCodes.purchases;
     final tax = d.cgst + d.sgst + d.igst + d.cess;
-    final narration = '${negate ? 'Debit note' : 'Bill'} ${d.number}'
+    final narration =
+        '${negate ? 'Debit note' : 'Bill'} ${d.number}'
         '${d.partyName == null ? '' : ' - ${d.partyName}'}';
     // Freight and other charges on an inward bill are part of what the goods
     // cost, so they ride with the purchase rather than with expenses.
-    final landed = d.taxableValue + d.shippingCharge + d.otherCharges;
-    p.post(cost,
-        date: d.billDate,
-        narration: narration,
-        document: d.number,
-        debit: landed,
-        negate: negate);
-    p.post(LedgerCodes.inputGst,
-        date: d.billDate,
-        narration: narration,
-        document: d.number,
-        debit: tax,
-        negate: negate);
-    p.post(LedgerCodes.tdsPayable,
-        date: d.billDate,
-        narration: narration,
-        document: d.number,
-        credit: d.tds,
-        negate: negate);
-    p.post(LedgerCodes.rounding,
-        date: d.billDate,
-        narration: narration,
-        document: d.number,
-        debit: d.roundOff,
-        negate: negate);
-    p.post(LedgerCodes.creditors,
-        date: d.billDate,
-        narration: narration,
-        document: d.number,
-        credit: d.grandTotal,
-        negate: negate);
+    final landed = d.taxableValue + d.shippingCharge + d.otherCharges +
+        (d.itcEligible ? 0 : tax);
+    p.post(
+      cost,
+      date: d.billDate,
+      narration: narration,
+      document: d.number,
+      debit: landed,
+      negate: negate,
+    );
+    p.post(
+      LedgerCodes.inputGst,
+      date: d.billDate,
+      narration: narration,
+      document: d.number,
+      debit: d.itcEligible ? tax : 0,
+      negate: negate,
+    );
+    p.post(
+      LedgerCodes.tdsPayable,
+      date: d.billDate,
+      narration: narration,
+      document: d.number,
+      credit: d.tds,
+      negate: negate,
+    );
+    p.post(
+      LedgerCodes.rounding,
+      date: d.billDate,
+      narration: narration,
+      document: d.number,
+      debit: d.roundOff,
+      negate: negate,
+    );
+    p.post(
+      LedgerCodes.creditors,
+      date: d.billDate,
+      narration: narration,
+      document: d.number,
+      credit: d.grandTotal,
+      negate: negate,
+    );
   }
 
-  void _postPayment(_Postings p, PaymentEntity pay) {
+  void _postPayment(_Postings p, PaymentEntity pay, {bool isAdvance = false}) {
     final isIn = pay.type == 'payment_in';
     final isCheque = pay.mode == 'cheque' && pay.chequeStatus != 'cleared';
     final money = pay.mode == 'cash'
@@ -1221,18 +1432,24 @@ class LedgerRepository with SyncQueueMixin {
     final narration = isIn
         ? 'Receipt ${pay.number}${pay.partyName == null ? '' : ' - ${pay.partyName}'}'
         : 'Payment ${pay.number}${pay.partyName == null ? '' : ' - ${pay.partyName}'}';
-    p.post(money,
-        date: pay.date,
-        narration: narration,
-        document: pay.number,
-        debit: isIn ? pay.amount : 0,
-        credit: isIn ? 0 : pay.amount);
-    p.post(isIn ? LedgerCodes.debtors : LedgerCodes.creditors,
-        date: pay.date,
-        narration: narration,
-        document: pay.number,
-        debit: isIn ? 0 : pay.amount,
-        credit: isIn ? pay.amount : 0);
+    p.post(
+      money,
+      date: pay.date,
+      narration: narration,
+      document: pay.number,
+      debit: isIn ? pay.amount : 0,
+      credit: isIn ? 0 : pay.amount,
+    );
+    p.post(
+      isAdvance
+          ? (isIn ? LedgerCodes.customerAdvances : LedgerCodes.supplierAdvances)
+          : (isIn ? LedgerCodes.debtors : LedgerCodes.creditors),
+      date: pay.date,
+      narration: narration,
+      document: pay.number,
+      debit: isIn ? 0 : pay.amount,
+      credit: isIn ? pay.amount : 0,
+    );
   }
 
   /// An expense is money out and a cost; the GST inside it is input credit and
@@ -1243,51 +1460,66 @@ class LedgerRepository with SyncQueueMixin {
     Map<String, AccountEntity> byCode,
   ) {
     final isIncome = e.type == 'income';
-    final gst = e.gstAmount.clamp(0, e.amount).toDouble();
+    final gst = (e.type == 'income' || e.itcEligible)
+        ? e.gstAmount.clamp(0, e.amount).toDouble() : 0.0;
     final net = e.amount - gst;
     final money = e.mode == 'cash' ? LedgerCodes.cash : LedgerCodes.bank;
     final account = _categoryCode(e.category, byCode);
-    final narration = '${isIncome ? 'Income' : 'Expense'} ${e.number}'
+    final narration =
+        '${isIncome ? 'Income' : 'Expense'} ${e.number}'
         '${e.vendorName == null ? '' : ' - ${e.vendorName}'}';
     if (isIncome) {
-      p.post(money,
-          date: e.date,
-          narration: narration,
-          document: e.number,
-          debit: e.amount);
-      p.post(account,
-          date: e.date,
-          narration: narration,
-          document: e.number,
-          credit: net);
-      p.post(LedgerCodes.outputGst,
-          date: e.date,
-          narration: narration,
-          document: e.number,
-          credit: gst);
+      p.post(
+        money,
+        date: e.date,
+        narration: narration,
+        document: e.number,
+        debit: e.amount,
+      );
+      p.post(
+        account,
+        date: e.date,
+        narration: narration,
+        document: e.number,
+        credit: net,
+      );
+      p.post(
+        LedgerCodes.outputGst,
+        date: e.date,
+        narration: narration,
+        document: e.number,
+        credit: gst,
+      );
     } else {
-      p.post(account,
-          date: e.date,
-          narration: narration,
-          document: e.number,
-          debit: net);
-      p.post(LedgerCodes.inputGst,
-          date: e.date,
-          narration: narration,
-          document: e.number,
-          debit: gst);
-      p.post(money,
-          date: e.date,
-          narration: narration,
-          document: e.number,
-          credit: e.amount);
+      p.post(
+        account,
+        date: e.date,
+        narration: narration,
+        document: e.number,
+        debit: net,
+      );
+      p.post(
+        LedgerCodes.inputGst,
+        date: e.date,
+        narration: narration,
+        document: e.number,
+        debit: gst,
+      );
+      p.post(
+        money,
+        date: e.date,
+        narration: narration,
+        document: e.number,
+        credit: e.amount,
+      );
     }
   }
 
   /// The code for an expense/income category, from the chart when it is there
   /// and the catch-all when the user has renamed the account behind it.
   String _categoryCode(String category, Map<String, AccountEntity> byCode) {
-    final label = ExpenseCategory.byId(category)?.label ??
+    final label =
+        ExpenseCategory.byId(category)?.label ??
         IncomeCategory.byId(category)?.label ??
         category;
     for (final a in byCode.values) {
@@ -1330,12 +1562,14 @@ class LedgerRepository with SyncQueueMixin {
         credit += m.credit;
       }
       if (opening == 0 && debit == 0 && credit == 0) continue;
-      rows.add(LedgerAccountBalance(
-        account: account,
-        opening: opening,
-        debit: debit,
-        credit: credit,
-      ));
+      rows.add(
+        LedgerAccountBalance(
+          account: account,
+          opening: opening,
+          debit: debit,
+          credit: credit,
+        ),
+      );
     }
     rows.sort((a, b) => a.account.code.compareTo(b.account.code));
     return TrialBalance(asOf: asOf, from: from, rows: rows);
@@ -1370,14 +1604,16 @@ class LedgerRepository with SyncQueueMixin {
         continue;
       }
       running += m.debit - m.credit;
-      rows.add(LedgerEntryRow(
-        date: m.date,
-        narration: m.narration,
-        document: m.document,
-        debit: m.debit,
-        credit: m.credit,
-        balance: running,
-      ));
+      rows.add(
+        LedgerEntryRow(
+          date: m.date,
+          narration: m.narration,
+          document: m.document,
+          debit: m.debit,
+          credit: m.credit,
+          balance: running,
+        ),
+      );
     }
     return AccountLedger(account: account, opening: opening, rows: rows);
   }
@@ -1424,7 +1660,9 @@ class LedgerRepository with SyncQueueMixin {
   List<BalanceSheetGroup> _group(List<LedgerAccountBalance> rows, String type) {
     final byGroup = <String, List<LedgerAccountBalance>>{};
     for (final r in rows) {
-      final key = r.account.groupName.isEmpty ? r.account.type : r.account.groupName;
+      final key = r.account.groupName.isEmpty
+          ? r.account.type
+          : r.account.groupName;
       (byGroup[key] ??= []).add(r);
     }
     final titles = byGroup.keys.toList()..sort();
@@ -1445,12 +1683,17 @@ class LedgerRepository with SyncQueueMixin {
     required DateTime to,
   }) async {
     final q = db.select(db.expenses)
-      ..where((t) =>
-          t.firmId.equals(firmId) &
-          t.isDeleted.equals(false) &
-          t.type.equals('expense') &
-          t.gstAmount.isBiggerThanValue(0) &
-          t.date.isSmallerOrEqualValue(DateTime(to.year, to.month, to.day, 23, 59, 59)));
+      ..where(
+        (t) =>
+            t.firmId.equals(firmId) &
+            t.isDeleted.equals(false) &
+            t.type.equals('expense') &
+            t.itcEligible.equals(true) &
+            t.gstAmount.isBiggerThanValue(0) &
+            t.date.isSmallerOrEqualValue(
+              DateTime(to.year, to.month, to.day, 23, 59, 59),
+            ),
+      );
     if (from != null) q.where((t) => t.date.isBiggerOrEqualValue(from));
     var total = 0.0;
     for (final e in await q.get()) {
@@ -1466,12 +1709,16 @@ class LedgerRepository with SyncQueueMixin {
     required DateTime to,
   }) async {
     final q = db.select(db.expenses)
-      ..where((t) =>
-          t.firmId.equals(firmId) &
-          t.isDeleted.equals(false) &
-          t.type.equals('income') &
-          t.gstAmount.isBiggerThanValue(0) &
-          t.date.isSmallerOrEqualValue(DateTime(to.year, to.month, to.day, 23, 59, 59)));
+      ..where(
+        (t) =>
+            t.firmId.equals(firmId) &
+            t.isDeleted.equals(false) &
+            t.type.equals('income') &
+            t.gstAmount.isBiggerThanValue(0) &
+            t.date.isSmallerOrEqualValue(
+              DateTime(to.year, to.month, to.day, 23, 59, 59),
+            ),
+      );
     if (from != null) q.where((t) => t.date.isBiggerOrEqualValue(from));
     var total = 0.0;
     for (final e in await q.get()) {

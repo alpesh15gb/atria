@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/responsive/platform_ui.dart';
+import 'unsaved_guard.dart';
+
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_sizes.dart';
@@ -42,11 +45,11 @@ class AtriaExitButton extends StatelessWidget {
       // Same 44dp floor as [AtriaPageHeader]'s own back button, and for the
       // same reason: a bare glyph is below the platform minimum at 36.
       constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-      onPressed: () {
+      onPressed: () async {
         if (Navigator.of(context).canPop()) {
           Navigator.of(context).maybePop();
         } else {
-          context.go(fallback);
+          if (await UnsavedChanges.confirmLeave(context) && context.mounted) context.go(fallback);
         }
       },
     );
@@ -165,6 +168,7 @@ class AtriaPageHeader extends StatelessWidget {
               ],
             )
           : Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Expanded(child: heading),
@@ -234,16 +238,19 @@ class AtriaPrimaryAction extends StatelessWidget {
           // under WCAG AA, and this is the app's most-clicked label. #248615 is
           // 4.67:1 and is QBO's own hover tone, so the brand still reads as the
           // brand.
-          backgroundColor: isLight
+          backgroundColor: isLight && !Theme.of(context).platform.isMobileUi
               ? AppColors.primaryDark
               : Theme.of(context).colorScheme.primary,
           foregroundColor: Theme.of(context).colorScheme.onPrimary,
-          minimumSize: const Size(0, 40),
+          minimumSize: Size(0, Theme.of(context).platform.isMobileUi ? 48 : 40),
           padding: const EdgeInsets.symmetric(horizontal: 14),
-          shape: const RoundedRectangleBorder(borderRadius: AppRadius.smAll),
-          textStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+          shape: RoundedRectangleBorder(
+            borderRadius: Theme.of(context).platform.isMobileUi
+                ? BorderRadius.circular(16)
+                : AppRadius.smAll,
+          ),
+          textStyle: Theme.of(context).textTheme.labelLarge
+              ?.copyWith(fontWeight: FontWeight.w700),
         ),
       ),
     );

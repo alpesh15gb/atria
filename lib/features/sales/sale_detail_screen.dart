@@ -1,3 +1,5 @@
+import '../../core/domain/gst_registration.dart';
+
 import 'dart:io';
 
 import 'package:decimal/decimal.dart';
@@ -27,6 +29,7 @@ import '../../core/utils/formatters.dart';
 import '../../core/utils/number_words.dart';
 import '../../core/domain/document_status.dart';
 import '../../core/utils/whatsapp_links.dart';
+import 'whatsapp_share_screen.dart';
 import '../../shared/widgets/atria_line_grid.dart';
 import '../../shared/widgets/atria_pdf_preview.dart';
 import '../../shared/widgets/common_widgets.dart';
@@ -48,6 +51,7 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
   SalesInvoiceEntity? _invoice;
   List<SalesInvoiceItemEntity> _items = const [];
   bool _loading = true;
+  int _loadGeneration = 0;
 
   @override
   void initState() {
@@ -59,11 +63,14 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
     // Called again after a cancel/refresh; the screen may have been popped
     // while the write was in flight, and `ref` throws on a disposed state.
     if (!mounted) return;
+    final generation = ++_loadGeneration;
     final sales = ref.read(salesRepositoryProvider);
     if (sales == null) return;
     final invoice = await sales.getById(widget.id);
     final items = await sales.itemsFor(widget.id);
-    if (mounted) {
+    if (mounted &&
+        generation == _loadGeneration &&
+        identical(sales, ref.read(salesRepositoryProvider))) {
       setState(() {
         _invoice = invoice;
         _items = items;
@@ -81,6 +88,19 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(salesRepositoryProvider, (previous, next) {
+      if (previous != next) {
+        setState(() {
+          _loading = true;
+          _invoice = null;
+          _items = const [];
+        });
+        _load();
+      }
+    });
+    ref.listen(bookRevisionProvider, (previous, next) {
+      if (previous != null && next.hasValue) _load();
+    });
     if (_loading) {
       return Scaffold(
         appBar: AppBar(),
@@ -106,7 +126,7 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
         slivers: [
           SliverAppBar(
             pinned: true,
-            expandedHeight: 132,
+            expandedHeight: kToolbarHeight,
             title: Text(invoice.number),
             actions: [
               IconButton(
@@ -124,7 +144,7 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
                       break;
                     case 'convert':
                       context.push(
-                        '/sales/new?type=invoice&from=${invoice.id}',
+                        '/sales/new?type=invoice&convertFrom=${invoice.id}',
                       );
                       break;
                     case 'pdf':
@@ -218,7 +238,7 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
             sliver: SliverToBoxAdapter(
               child: Center(
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 1080),
+                  constraints: const BoxConstraints(maxWidth: double.infinity),
                   child: Column(
                     children: [
                       _StatusHero(invoice: invoice),
@@ -227,17 +247,38 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
                         invoice: invoice,
                         items: _items,
                         firmStateCode: _firm()?.stateCode,
+                        showGst:
+                            _firm()?.isGstRegistered == true ||
+                            invoice.cgst +
+                                    invoice.sgst +
+                                    invoice.igst +
+                                    invoice.cess >
+                                0,
                       ),
                       const SizedBox(height: 16),
                       _ItemsTable(
                         invoice: invoice,
                         items: _items,
                         firmStateCode: _firm()?.stateCode,
+                        showGst:
+                            _firm()?.isGstRegistered == true ||
+                            invoice.cgst +
+                                    invoice.sgst +
+                                    invoice.igst +
+                                    invoice.cess >
+                                0,
                       ),
                       const SizedBox(height: 16),
                       _AmountBreakdown(
                         invoice: invoice,
                         firmStateCode: _firm()?.stateCode,
+                        showGst:
+                            _firm()?.isGstRegistered == true ||
+                            invoice.cgst +
+                                    invoice.sgst +
+                                    invoice.igst +
+                                    invoice.cess >
+                                0,
                       ),
                       const SizedBox(height: 16),
                       if (invoice.docType == 'invoice' &&
@@ -279,7 +320,18 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
           '${_invoice!.number} for ${Formatters.money(Decimal.parse(_invoice!.grandTotal.toStringAsFixed(2)))}.'
           '${(firm.upiId ?? '').isNotEmpty ? ' Pay via UPI: ${firm.upiId}' : ''}';
 
-      if (phone.isNotEmpty) {
+      if (Platform.isWindows) {
+        if (!context.mounted) return;
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => WhatsAppShareScreen(
+              filePath: file.path,
+              phone: phone,
+              message: text,
+            ),
+          ),
+        );
+      } else if (phone.isNotEmpty) {
         // Direct WhatsApp chat with the party, message and UPI link
         // pre-filled. The PDF rides along through the system share sheet,
         // which is what the user picks the chat target in.
@@ -581,6 +633,8 @@ class _StatusHero extends StatelessWidget {
               // the balance line below already states.
               else if (lifecycle != null)
                 lifecycle.chip()
+              else if (invoice.docType != 'invoice')
+                const StatusChip(label: 'Open', kind: ChipKind.neutral)
               else if (isOverdue)
                 const StatusChip(label: 'Overdue', kind: ChipKind.danger)
               else
@@ -623,7 +677,9 @@ class _StatusHero extends StatelessWidget {
                     ),
             ),
           ],
-          if (!cancelled && invoice.balanceDue > 0.001) ...[
+          if (invoice.docType == 'invoice' &&
+              !cancelled &&
+              invoice.balanceDue > 0.001) ...[
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -733,11 +789,13 @@ class _PartyAndMeta extends StatelessWidget {
     required this.invoice,
     required this.items,
     this.firmStateCode,
+    this.showGst = true,
   });
 
   final SalesInvoiceEntity invoice;
   final List<SalesInvoiceItemEntity> items;
   final String? firmStateCode;
+  final bool showGst;
 
   @override
   Widget build(BuildContext context) {
@@ -830,13 +888,14 @@ class _PartyAndMeta extends StatelessWidget {
           const Divider(height: 24),
           Row(
             children: [
-              _metaChip(
-                context,
-                invoice.isInterState ? 'Inter-state' : 'Intra-state',
-                invoice.isInterState
-                    ? 'IGST'
-                    : 'CGST + ${intraStateSecondHead(resolveGstSplit(supplierState: firmStateCode, buyerState: invoice.placeOfSupply))}',
-              ),
+              if (showGst)
+                _metaChip(
+                  context,
+                  invoice.isInterState ? 'Inter-state' : 'Intra-state',
+                  invoice.isInterState
+                      ? 'IGST'
+                      : 'CGST + ${intraStateSecondHead(resolveGstSplit(supplierState: firmStateCode, buyerState: invoice.placeOfSupply))}',
+                ),
               const SizedBox(width: 10),
               _metaChip(
                 context,
@@ -898,17 +957,18 @@ class _ItemsTable extends StatelessWidget {
     required this.invoice,
     required this.items,
     this.firmStateCode,
+    this.showGst = true,
   });
 
   final SalesInvoiceEntity invoice;
   final List<SalesInvoiceItemEntity> items;
   final String? firmStateCode;
+  final bool showGst;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final hasGstin = (invoice.partyGstin ?? '').isNotEmpty;
-    final interState = invoice.isInterState && hasGstin;
+    final interState = invoice.isInterState;
 
     return AtriaCard(
       padding: const EdgeInsets.fromLTRB(4, 12, 4, 4),
@@ -935,10 +995,14 @@ class _ItemsTable extends StatelessWidget {
               const AtriaLineColumn('HSN', flex: 2),
               const AtriaLineColumn('Qty', flex: 1, numeric: true),
               const AtriaLineColumn('Rate', flex: 2, numeric: true),
-              const AtriaLineColumn('Taxable', flex: 2, numeric: true),
-              if (interState)
+              AtriaLineColumn(
+                showGst ? 'Taxable' : 'Net amount',
+                flex: 2,
+                numeric: true,
+              ),
+              if (showGst && interState)
                 const AtriaLineColumn('IGST', flex: 2, numeric: true)
-              else ...[
+              else if (showGst) ...[
                 const AtriaLineColumn('CGST', flex: 2, numeric: true),
                 AtriaLineColumn(
                   intraStateSecondHead(
@@ -976,7 +1040,7 @@ class _ItemsTable extends StatelessWidget {
                         Decimal.parse(l.taxableValue.toStringAsFixed(2)),
                       ),
                     ),
-                    if (interState)
+                    if (showGst && interState)
                       Text(
                         l.igst > 0.001
                             ? Formatters.money(
@@ -984,7 +1048,7 @@ class _ItemsTable extends StatelessWidget {
                               )
                             : '-',
                       )
-                    else ...[
+                    else if (showGst) ...[
                       Text(
                         l.cgst > 0.001
                             ? Formatters.money(
@@ -1017,13 +1081,18 @@ class _ItemsTable extends StatelessWidget {
 }
 
 class _AmountBreakdown extends StatelessWidget {
-  const _AmountBreakdown({required this.invoice, this.firmStateCode});
+  const _AmountBreakdown({
+    required this.invoice,
+    this.firmStateCode,
+    this.showGst = true,
+  });
 
   final SalesInvoiceEntity invoice;
 
   /// The seller's state, so the intra-state total can be named CGST + UTGST
   /// where that is what was actually charged.
   final String? firmStateCode;
+  final bool showGst;
 
   @override
   Widget build(BuildContext context) {
@@ -1060,7 +1129,7 @@ class _AmountBreakdown extends StatelessWidget {
             ),
           _line(
             context,
-            'Taxable value',
+            showGst ? 'Taxable value' : 'Net amount',
             Decimal.parse(invoice.taxableValue.toStringAsFixed(2)),
           ),
           if (invoice.cgst.abs() > 0.001)

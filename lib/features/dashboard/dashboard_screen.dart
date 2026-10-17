@@ -1,3 +1,5 @@
+import '../../core/domain/gst_registration.dart';
+
 import 'package:decimal/decimal.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -63,22 +65,24 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
   /// on the busiest screen in the app.
   static const List<({String route, String label, IconData icon})>
   _quickAccess = [
-    (route: '/reports', label: 'Reports', icon: Icons.insights_outlined),
-    (route: '/payments', label: 'Payments', icon: Icons.receipt_long_outlined),
-    (route: '/stock', label: 'Stock', icon: Icons.inventory_2_outlined),
-    (route: '/items', label: 'Products', icon: Icons.category_outlined),
     (
-      route: '/parties?type=customer',
-      label: 'Parties',
+      route: '/parties',
+      label: 'Parties & Customers',
       icon: Icons.groups_outlined,
     ),
-    (route: '/ledger', label: 'Ledger', icon: Icons.menu_book_outlined),
-    (route: '/settings', label: 'Settings', icon: Icons.settings_outlined),
+    (route: '/items', label: 'Stock & Items', icon: Icons.inventory_2_outlined),
     (
-      route: '/purchase?type=bill',
-      label: 'Purchases',
-      icon: Icons.shopping_cart_outlined,
+      route: '/reports',
+      label: 'Reports & Analytics',
+      icon: Icons.insights_outlined,
     ),
+    (
+      route: '/payments',
+      label: 'Payments & Banking',
+      icon: Icons.account_balance_wallet_outlined,
+    ),
+    (route: '/pos', label: 'Point of Sale', icon: Icons.point_of_sale_outlined),
+    (route: '/ledger', label: 'Account Ledger', icon: Icons.menu_book_outlined),
   ];
 
   @override
@@ -131,7 +135,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen>
             _refresh();
           },
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(14, 18, 14, 30),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             children: [
               if (reports == null)
                 const _NoFirmState()
@@ -601,12 +605,19 @@ class _MobileSnapshotState extends ConsumerState<_MobileSnapshot> {
     final summary = ref.watch(_dashboardProvider(from));
     final scheme = Theme.of(context).colorScheme;
     return AtriaCard(
-      padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
+              Expanded(
+                child: Text(
+                  'Financial Overview',
+                  style: Theme.of(context).textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
               PopupMenuButton<bool>(
                 tooltip: 'Summary period',
                 onSelected: (year) => setState(() => _year = year),
@@ -614,23 +625,30 @@ class _MobileSnapshotState extends ConsumerState<_MobileSnapshot> {
                   PopupMenuItem(value: true, child: Text('This Year')),
                   PopupMenuItem(value: false, child: Text('This Month')),
                 ],
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(24),
+                  ),
                   child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(_year ? 'This Year' : 'This Month'),
-                      const Icon(Icons.expand_more, size: 18),
+                      Text(
+                        _year ? 'This Year' : 'This Month',
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                      const Icon(Icons.expand_more, size: 16),
                     ],
                   ),
                 ),
               ),
-              const Spacer(),
-              TextButton(
-                onPressed: () => context.go('/sales'),
-                child: const Text('View Bills'),
-              ),
             ],
           ),
+          const SizedBox(height: 20),
           summary.when(
             loading: () => const LinearProgressIndicator(),
             error: (error, _) => TextButton(
@@ -639,9 +657,11 @@ class _MobileSnapshotState extends ConsumerState<_MobileSnapshot> {
             ),
             data: (s) => Row(
               children: [
-                Expanded(child: _figure('Sales', s.totalSales, scheme)),
+                Expanded(child: _figure('Total Sales', s.totalSales, scheme)),
                 const SizedBox(width: 12),
-                Expanded(child: _figure('Purchases', s.totalPurchases, scheme)),
+                Expanded(
+                  child: _figure('Total Purchases', s.totalPurchases, scheme),
+                ),
               ],
             ),
           ),
@@ -661,7 +681,12 @@ class _MobileSnapshotState extends ConsumerState<_MobileSnapshot> {
       const SizedBox(height: 4),
       MobileAmount(
         value,
-        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+        style: TextStyle(
+          fontSize: 26,
+          fontWeight: FontWeight.w700,
+          letterSpacing: -.7,
+          color: label == 'Total Sales' ? scheme.primary : scheme.onSurface,
+        ),
       ),
     ],
   );
@@ -803,7 +828,7 @@ class _HeroCard extends ConsumerWidget {
                       // Lifetime receipts less payments. The month-to-date
                       // figures belong in the KPIs below; here they labelled
                       // a balance that was really a period net.
-                      Formatters.moneyCompact(summary.cashIn - summary.cashOut),
+                      Formatters.moneyCompact(summary.cashBalance ?? (summary.cashIn - summary.cashOut)),
                       PhosphorIconsRegular.wallet,
                     ),
                     _heroDivider(),
@@ -1059,15 +1084,20 @@ class _KpiGrid extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  Expanded(
-                    child: _KpiCard(
-                      label: 'GST payable',
-                      amount: summary.gstPayable,
-                      icon: PhosphorIconsRegular.receipt,
-                      tint: colors.warning,
-                      onTap: () => context.go('/reports'),
+                  if (ref
+                          .watch(activeFirmProvider)
+                          .valueOrNull
+                          ?.isGstRegistered ==
+                      true)
+                    Expanded(
+                      child: _KpiCard(
+                        label: 'GST payable',
+                        amount: summary.gstPayable,
+                        icon: PhosphorIconsRegular.receipt,
+                        tint: colors.warning,
+                        onTap: () => context.go('/reports'),
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -1423,7 +1453,7 @@ class _RecentInvoices extends ConsumerWidget {
                 child: EmptyState(
                   icon: PhosphorIconsRegular.receipt,
                   title: 'No invoices yet',
-                  message: 'Create your first GST invoice to see it here.',
+                  message: 'Create your first invoice to see it here.',
                   actionLabel: 'New invoice',
                   onAction: () => context.push('/sales/new?type=invoice'),
                   compact: true,

@@ -23,9 +23,19 @@ Widget buildStockDetail(BuildContext context, ReportResult result) {
   final blocks = <String, List<ReportRow>>{};
   final order = <String>[];
   for (final row in result.rows) {
-    final name = row.text(_itemColumn);
-    if (!blocks.containsKey(name)) order.add(name);
-    (blocks[name] ??= <ReportRow>[]).add(row);
+    // Keyed on the item **id**, with the printed name as the heading.
+    //
+    // It used to key on `row.text(_itemColumn)` — the name — so two genuinely
+    // different items sharing a name (an IT bag and a cement bag; a 25 kg and a
+    // 50 kg variant both typed as "Cement 50") merged into one card. That card's
+    // header then printed `rows.last`'s balance, which belongs to whichever item
+    // happened to sort last and to neither the reader's intent nor reliably to
+    // the block. Per-item cards exist so one balance can be followed down; a
+    // duplicate name breaks exactly that.
+    final key = (row.cells[_itemIdColumn.key] ?? row.text(_itemColumn))
+        .toString();
+    if (!blocks.containsKey(key)) order.add(key);
+    (blocks[key] ??= <ReportRow>[]).add(row);
   }
 
   if (blocks.isEmpty) {
@@ -42,8 +52,9 @@ Widget buildStockDetail(BuildContext context, ReportResult result) {
     itemCount: order.length,
     separatorBuilder: (_, _) => const SizedBox(height: 12),
     itemBuilder: (context, index) {
-      final name = order[index];
-      final rows = blocks[name]!;
+      final key = order[index];
+      final rows = blocks[key]!;
+      final heading = rows.first.text(_itemColumn);
       return AtriaCard(
         padding: EdgeInsets.zero,
         child: Column(
@@ -55,7 +66,7 @@ Widget buildStockDetail(BuildContext context, ReportResult result) {
                 children: [
                   Expanded(
                     child: Text(
-                      name,
+                      heading,
                       style: Theme.of(context).textTheme.titleSmall
                           ?.copyWith(fontWeight: FontWeight.w600),
                     ),
@@ -91,7 +102,7 @@ Widget _movementRow(BuildContext context, ReportRow row) {
         SizedBox(
           width: 84,
           child: Text(
-            _dateLabel(row.text(_dateColumn)),
+            _dateLabel(row.cells[_dateColumn.key]),
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
@@ -144,10 +155,23 @@ Widget _movementRow(BuildContext context, ReportRow row) {
 }
 
 /// A short date, since the ledger is already ordered and the year repeats.
-String _dateLabel(String iso) =>
-    iso.length >= 10 ? '${iso.substring(8, 10)} ${iso.substring(5, 7)}' : iso;
+///
+/// Takes the **raw cell**, not `row.text()`. `ReportRow.text()` renders a
+/// `date`-kind column as `dd-mm-yyyy`, but this used to be handed that string
+/// and sliced it as though it were `yyyy-mm-dd` — so `09-04-2026` came out as
+/// `26 -2` on every row of every card. Reading the `DateTime` itself is the
+/// fix that cannot drift from the format `text()` happens to use today.
+String _dateLabel(Object? cell) {
+  if (cell is DateTime) {
+    return '${cell.day.toString().padLeft(2, '0')} '
+        '${cell.month.toString().padLeft(2, '0')}';
+  }
+  return cell?.toString() ?? '';
+}
 
 const ReportColumn _itemColumn = ReportColumn(key: 'item', label: 'Item');
+const ReportColumn _itemIdColumn =
+    ReportColumn(key: 'itemId', label: 'Item ID', wideOnly: true);
 const ReportColumn _dateColumn = ReportColumn(
   key: 'date',
   label: 'Date',

@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-background" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_tab" name="shell-type"/><title>Apex Books</title><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&amp;family=Manrope:wght@600;700;800&amp;display=swap" rel="stylesheet"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { colors: { "inverse-primary": "#6bd8cb", "outline": "#6d7a77", "primary-container": "#008378", "secondary": "#5b598c", "background": "#fff8f5", "on-background": "#1e1b19", "error": "#ba1a1a", "secondary-fixed": "#e3dfff", "surface-container": "#f4ece8", "on-primary": "#ffffff", "secondary-fixed-dim": "#c4c1fb", "on-secondary-fixed-variant": "#444173", "on-primary-fixed": "#00201d", "on-surface-variant": "#3d4947", "secondary-container": "#c7c3fe", "tertiary-container": "#00855d", "error-container": "#ffdad6", "surface-container-highest": "#e9e1dd", "primary-fixed": "#89f5e7", "on-primary-container": "#f4fffc", "outline-variant": "#bcc9c6", "on-secondary-container": "#514f81", "on-secondary": "#ffffff", "inverse-surface": "#33302d", "surface-container-low": "#faf2ee", "on-surface": "#1e1b19", "on-tertiary": "#ffffff", "tertiary-fixed-dim": "#68dba9", "on-tertiary-container": "#f5fff7", "surface-container-lowest": "#ffffff", "on-tertiary-fixed-variant": "#005137", "tertiary-fixed": "#85f8c4", "tertiary": "#006948", "on-primary-fixed-variant": "#005049", "primary": "#00685f", "on-secondary-fixed": "#181445", "surface-variant": "#e9e1dd", "surface-tint": "#006a61", "surface": "#fff8f5", "inverse-on-surface": "#f7efeb", "on-error-container": "#93000a", "surface-container-high": "#eee7e3", "surface-bright": "#fff8f5", "on-error": "#ffffff", "surface-dim": "#e0d8d5", "primary-fixed-dim": "#6bd8cb", "on-tertiary-fixed": "#002114" }, borderRadius: { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" }, spacing: { "space-md": "0.75rem", "space-sm": "0.5rem", "space-lg": "1.25rem", "margin": "1rem", "gutter": "0.75rem", "space-xs": "0.25rem", "space-xl": "1.75rem" }, fontFamily: { "currency-display": ["Manrope"], "label-md": ["Hanken Grotesk"], "label-lg": ["Hanken Grotesk"], "headline-lg": ["Manrope"], "body-sm": ["Hanken Grotesk"], "headline-md": ["Manrope"], "body-md": ["Hanken Grotesk"], "body-lg": ["Hanken Grotesk"], "headline-xl": ["Manrope"], "label-sm": ["Hanken Grotesk"], "headline-sm": ["Manrope"] }, fontSize: { "currency-display": ["28px", { lineHeight: "34px", letterSpacing: "-0.02em", fontWeight: "700" }], "label-md": ["12px", { lineHeight: "16px", letterSpacing: "0.02em", fontWeight: "600" }], "label-lg": ["14px", { lineHeight: "20px", letterSpacing: "0.01em", fontWeight: "600" }], "headline-lg": ["24px", { lineHeight: "32px", letterSpacing: "-0.02em", fontWeight: "700" }], "body-sm": ["13px", { lineHeight: "18px", fontWeight: "400" }], "headline-md": ["20px", { lineHeight: "28px", letterSpacing: "-0.015em", fontWeight: "600" }], "body-md": ["14px", { lineHeight: "20px", fontWeight: "400" }], "body-lg": ["16px", { lineHeight: "24px", fontWeight: "400" }], "headline-xl": ["32px", { lineHeight: "40px", letterSpacing: "-0.03em", fontWeight: "700" }], "label-sm": ["11px", { lineHeight: "14px", letterSpacing: "0.03em", fontWeight: "600" }], "headline-sm": ["16px", { lineHeight: "24px", letterSpacing: "-0.01em", fontWeight: "600" }] } } } }</script><style>@layer base{html,body{width:100%;margin:0;padding:0;min-height:100%;}body{overscroll-behavior:none;-webkit-tap-highlight-color:transparent;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-background font-body-md text-body-md text-on-surface antialiased flex flex-col min-h-screen selection:bg-primary-fixed selection:text-on-primary-fixed"><header class="fixed top-0 w-full z-50 pt-safe bg-surface/85 backdrop-blur-xl shadow-[0_1px_8px_rgba(30,27,25,0.04)]"><div class="h-16 px-margin flex items-center justify-between gap-gutter"><div class="flex items-center gap-space-sm min-w-0"><img alt="Apex Books Logo" class="h-8 w-auto object-contain flex-shrink-0" src="https://lh3.googleusercontent.com/aida/AEtjO1XxSAB7cm4p9Nr8FQNtLUXhzWiSEukR8t0t_WlFJAyaEkFNpVLNk4h3qPvjXmLTdcJj3Q-eoWjMZp_T-SiZNlWI5nvWjArk5u-xZ6eUiPGAUsqiV0TiUQe1GOOOOG70OZ2ITO5cWfcHx_qouM69cf3AYTaVRm8D6XxpW6hG8I-bsbY8c5hE09PX9pV_pk3TwdLmTDHuzvyw7m1eQV0FuO_Ls1GtGppxhHUVRvEp13IEktqhmIbfSAoszPlM"/><button class="flex items-center gap-space-xs text-left px-space-xs py-1 rounded-lg hover:bg-surface-container/60 transition-colors" type="button"><div class="flex flex-col min-w-0 leading-tight"><div class="flex items-center gap-1"><span class="font-label-lg text-label-lg text-on-surface font-semibold truncate">Apex Integrations</span><span class="material-symbols-outlined text-primary text-[15px]" style="font-variation-settings: 'FILL' 1;">verified</span></div><span class="font-label-sm text-label-sm text-on-surface-variant truncate tracking-wide uppercase">Dashboard</span></div><span class="material-symbols-outlined text-on-surface-variant text-[18px] shrink-0">arrow_drop_down</span></button></div><div class="flex items-center gap-space-xs shrink-0"><button aria-label="Search Ledger &amp; Documents" class="w-11 h-11 flex items-center justify-center rounded-full text-on-surface-variant hover:text-on-surface hover:bg-surface-container/70 active:scale-95 transition-all" type="button"><span class="material-symbols-outlined text-[22px]">search</span></button><button aria-label="Quick Scan or Notifications" class="w-11 h-11 flex items-center justify-center rounded-full text-on-surface-variant hover:text-on-surface hover:bg-surface-container/70 active:scale-95 transition-all" type="button"><span class="material-symbols-outlined text-[22px]">document_scanner</span></button><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center shrink-0 ml-space-xs"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="flex-1 w-full bg-surface pt-16 pb-28"><div class="flex flex-col w-full">
+<!-- Screen Header & Actions -->
+<div class="px-margin pt-2 pb-space-sm flex flex-col gap-space-md">
+<div class="flex items-center justify-between gap-gutter">
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-space-xs">
+<h1 class="font-headline-lg text-headline-lg text-on-surface tracking-tight">Sales Invoices</h1>
+<span class="px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant font-label-sm text-label-sm">142</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Live ledger of billings and client receipts</p>
+</div>
+<button class="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary text-on-primary font-label-md text-label-md shadow-sm active:scale-[0.98] transition-transform shrink-0" type="button">
+<span class="material-symbols-outlined text-[18px]">add</span>
+<span>New Invoice</span>
+</button>
+</div>
+<!-- Search & Filter Trigger -->
+<div class="flex items-center gap-space-xs">
+<div class="flex-1 flex items-center gap-space-xs px-3 py-2 rounded-xl bg-surface-container-lowest shadow-sm">
+<span class="material-symbols-outlined text-outline text-[20px] shrink-0">search</span>
+<input class="w-full bg-transparent font-body-sm text-body-sm text-on-surface placeholder:text-outline focus:outline-none" id="invoiceSearchInput" placeholder="Search invoice #, client, GST..." type="text"/>
+<button aria-label="Clear Search" class="hidden text-outline hover:text-on-surface transition-colors" id="clearSearchBtn" type="button">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</button>
+</div>
+<button aria-label="Filters" class="relative w-10 h-10 flex items-center justify-center rounded-xl bg-surface-container-lowest text-on-surface-variant shadow-sm active:scale-95 transition-transform shrink-0" type="button">
+<span class="material-symbols-outlined text-[20px]">tune</span>
+<span class="absolute top-2 right-2 w-2 h-2 rounded-full bg-primary ring-2 ring-surface-container-lowest"></span>
+</button>
+<button aria-label="Export Ledger" class="w-10 h-10 flex items-center justify-center rounded-xl bg-surface-container-lowest text-on-surface-variant shadow-sm active:scale-95 transition-transform shrink-0" type="button">
+<span class="material-symbols-outlined text-[20px]">file_download</span>
+</button>
+</div>
+</div>
+<!-- Summary Metric Strip -->
+<div class="px-margin py-space-xs">
+<div class="grid grid-cols-3 gap-2">
+<!-- Card 1: Unpaid / Due -->
+<div class="bg-surface-container-lowest rounded-xl p-space-sm shadow-sm flex flex-col justify-between">
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm text-on-surface-variant truncate">Due Soon</span>
+<span class="w-2 h-2 rounded-full bg-amber-500"></span>
+</div>
+<div class="mt-1.5">
+<div class="font-currency-display text-[15px] leading-tight text-on-surface font-bold">₹1.84L</div>
+<span class="font-label-sm text-[10px] text-amber-700 font-medium">3 pending</span>
+</div>
+</div>
+<!-- Card 2: Overdue -->
+<div class="bg-surface-container-lowest rounded-xl p-space-sm shadow-sm flex flex-col justify-between">
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm text-on-surface-variant truncate">Overdue</span>
+<span class="w-2 h-2 rounded-full bg-error"></span>
+</div>
+<div class="mt-1.5">
+<div class="font-currency-display text-[15px] leading-tight text-error font-bold">₹24,000</div>
+<span class="font-label-sm text-[10px] text-error font-medium">1 past grace</span>
+</div>
+</div>
+<!-- Card 3: Paid (This Month) -->
+<div class="bg-surface-container-lowest rounded-xl p-space-sm shadow-sm flex flex-col justify-between">
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm text-on-surface-variant truncate">Collected</span>
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+</div>
+<div class="mt-1.5">
+<div class="font-currency-display text-[15px] leading-tight text-primary font-bold">₹8.88L</div>
+<span class="font-label-sm text-[10px] text-tertiary font-medium">135 settled</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Filter Status Tabs / Pills -->
+<div class="px-margin pt-space-md pb-space-xs">
+<div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+<button class="filter-tab px-3 py-1.5 rounded-full bg-primary text-on-primary font-label-md text-label-md shadow-sm transition-all whitespace-nowrap active:scale-95" data-filter="all" type="button">
+        All (142)
+      </button>
+<button class="filter-tab px-3 py-1.5 rounded-full bg-surface-container-lowest text-on-surface-variant hover:text-on-surface font-label-md text-label-md shadow-sm transition-all whitespace-nowrap active:scale-95" data-filter="unpaid" type="button">
+        Unpaid (3)
+      </button>
+<button class="filter-tab px-3 py-1.5 rounded-full bg-surface-container-lowest text-on-surface-variant hover:text-on-surface font-label-md text-label-md shadow-sm transition-all whitespace-nowrap active:scale-95" data-filter="paid" type="button">
+        Paid (135)
+      </button>
+<button class="filter-tab px-3 py-1.5 rounded-full bg-surface-container-lowest text-on-surface-variant hover:text-on-surface font-label-md text-label-md shadow-sm transition-all whitespace-nowrap active:scale-95" data-filter="overdue" type="button">
+        Overdue (1)
+      </button>
+<button class="filter-tab px-3 py-1.5 rounded-full bg-surface-container-lowest text-on-surface-variant hover:text-on-surface font-label-md text-label-md shadow-sm transition-all whitespace-nowrap active:scale-95" data-filter="draft" type="button">
+        Drafts (3)
+      </button>
+</div>
+</div>
+<!-- Timeline Header / Date Marker -->
+<div class="px-margin pt-space-sm pb-1 flex items-center justify-between">
+<span class="font-label-sm text-label-sm text-on-surface-variant tracking-wider uppercase font-semibold">October 2024</span>
+<button class="font-label-sm text-label-sm text-primary flex items-center gap-0.5 hover:underline" type="button">
+<span>Sort by latest</span>
+<span class="material-symbols-outlined text-[14px]">expand_more</span>
+</button>
+</div>
+<!-- Invoice List Container -->
+<div class="px-margin flex flex-col gap-2.5 pb-space-lg" id="invoiceList">
+<!-- Card 1: Reliance Tech Solutions (Paid) -->
+<div class="invoice-item group bg-surface-container-lowest rounded-2xl p-space-md shadow-sm active:bg-surface-container-low transition-all cursor-pointer" data-search="reliance tech solutions inv-2024-0092 24500" data-status="paid">
+<div class="flex items-start justify-between gap-space-sm">
+<div class="flex items-center gap-space-sm min-w-0">
+<div class="w-10 h-10 rounded-xl bg-tertiary-fixed/40 text-tertiary flex items-center justify-center font-headline-sm text-headline-sm font-bold shrink-0">
+            RT
+          </div>
+<div class="flex flex-col min-w-0">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold truncate leading-snug">Reliance Tech Solutions</span>
+<div class="flex items-center gap-1.5 font-label-sm text-label-sm text-on-surface-variant mt-0.5">
+<span class="font-mono">#INV-2024-0092</span>
+<span>•</span>
+<span>Today, 14 Oct</span>
+</div>
+</div>
+</div>
+<div class="flex flex-col items-end shrink-0 leading-tight">
+<span class="font-currency-display text-[17px] font-bold text-on-surface tracking-tight">₹24,500.00</span>
+<span class="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-[13px]" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+            Paid
+          </span>
+</div>
+</div>
+<!-- Quick Action strip inside card -->
+<div class="mt-3 pt-2.5 flex items-center justify-between text-on-surface-variant">
+<span class="font-body-sm text-body-sm text-on-surface-variant/80 flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px] text-primary">account_balance_wallet</span>
+          Direct Bank • HDFC
+        </span>
+<div class="flex items-center gap-1">
+<button class="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-surface-container text-on-surface-variant hover:text-primary transition-colors" onclick="event.stopPropagation()" title="Download PDF" type="button">
+<span class="material-symbols-outlined text-[18px]">download</span>
+</button>
+<button class="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-surface-container text-on-surface-variant hover:text-primary transition-colors" onclick="event.stopPropagation()" title="Share Invoice" type="button">
+<span class="material-symbols-outlined text-[18px]">share</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Card 2: Apex Cloud Innovations (Due in 3 days) -->
+<div class="invoice-item group bg-surface-container-lowest rounded-2xl p-space-md shadow-sm active:bg-surface-container-low transition-all cursor-pointer" data-search="apex cloud innovations inv-2024-0091 88200" data-status="unpaid">
+<div class="flex items-start justify-between gap-space-sm">
+<div class="flex items-center gap-space-sm min-w-0">
+<div class="w-10 h-10 rounded-xl bg-primary-fixed/40 text-primary flex items-center justify-center font-headline-sm text-headline-sm font-bold shrink-0">
+            AC
+          </div>
+<div class="flex flex-col min-w-0">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold truncate leading-snug">Apex Cloud Innovations</span>
+<div class="flex items-center gap-1.5 font-label-sm text-label-sm text-on-surface-variant mt-0.5">
+<span class="font-mono">#INV-2024-0091</span>
+<span>•</span>
+<span>12 Oct</span>
+</div>
+</div>
+</div>
+<div class="flex flex-col items-end shrink-0 leading-tight">
+<span class="font-currency-display text-[17px] font-bold text-on-surface tracking-tight">₹88,200.00</span>
+<span class="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-[13px]">schedule</span>
+            Due in 3d
+          </span>
+</div>
+</div>
+<div class="mt-3 pt-2.5 flex items-center justify-between">
+<span class="font-body-sm text-body-sm text-on-surface-variant/80">
+          Due by 17 Oct 2024
+        </span>
+<button class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-surface-container text-primary font-label-sm text-label-sm font-medium hover:bg-primary-fixed/30 transition-colors" onclick="event.stopPropagation()" type="button">
+<span class="material-symbols-outlined text-[15px]">send</span>
+<span>Send Reminder</span>
+</button>
+</div>
+</div>
+<!-- Card 3: Kalyan Logistics & Freight (Overdue) -->
+<div class="invoice-item group bg-surface-container-lowest rounded-2xl p-space-md shadow-sm active:bg-surface-container-low transition-all cursor-pointer" data-search="kalyan logistics freight inv-2024-0089 24000" data-status="overdue">
+<div class="flex items-start justify-between gap-space-sm">
+<div class="flex items-center gap-space-sm min-w-0">
+<div class="w-10 h-10 rounded-xl bg-error-container text-error flex items-center justify-center font-headline-sm text-headline-sm font-bold shrink-0">
+            KL
+          </div>
+<div class="flex flex-col min-w-0">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold truncate leading-snug">Kalyan Logistics &amp; Freight</span>
+<div class="flex items-center gap-1.5 font-label-sm text-label-sm text-on-surface-variant mt-0.5">
+<span class="font-mono">#INV-2024-0089</span>
+<span>•</span>
+<span>05 Oct</span>
+</div>
+</div>
+</div>
+<div class="flex flex-col items-end shrink-0 leading-tight">
+<span class="font-currency-display text-[17px] font-bold text-error tracking-tight">₹24,000.00</span>
+<span class="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-[13px]">warning</span>
+            Overdue 5d
+          </span>
+</div>
+</div>
+<div class="mt-3 pt-2.5 flex items-center justify-between">
+<span class="font-body-sm text-body-sm text-error/90 flex items-center gap-1 font-medium">
+<span class="material-symbols-outlined text-[15px]">notification_important</span>
+          Exceeded grace period
+        </span>
+<button class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-error-container text-error font-label-sm text-label-sm font-semibold hover:bg-error/10 transition-colors" onclick="event.stopPropagation()" type="button">
+<span class="material-symbols-outlined text-[15px]">send_and_archive</span>
+<span>Remind Party</span>
+</button>
+</div>
+</div>
+<!-- Timeline Subdivider -->
+<div class="pt-2 pb-0.5 flex items-center gap-space-sm">
+<span class="font-label-sm text-label-sm text-on-surface-variant tracking-wider uppercase font-semibold">September 2024</span>
+<div class="flex-1 h-px bg-surface-container-high"></div>
+</div>
+<!-- Card 4: Tata Consultancy Hub (Paid) -->
+<div class="invoice-item group bg-surface-container-lowest rounded-2xl p-space-md shadow-sm active:bg-surface-container-low transition-all cursor-pointer" data-search="tata consultancy hub inv-2024-0088 142000" data-status="paid">
+<div class="flex items-start justify-between gap-space-sm">
+<div class="flex items-center gap-space-sm min-w-0">
+<div class="w-10 h-10 rounded-xl bg-tertiary-fixed/40 text-tertiary flex items-center justify-center font-headline-sm text-headline-sm font-bold shrink-0">
+            TC
+          </div>
+<div class="flex flex-col min-w-0">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold truncate leading-snug">Tata Consultancy Hub</span>
+<div class="flex items-center gap-1.5 font-label-sm text-label-sm text-on-surface-variant mt-0.5">
+<span class="font-mono">#INV-2024-0088</span>
+<span>•</span>
+<span>28 Sep</span>
+</div>
+</div>
+</div>
+<div class="flex flex-col items-end shrink-0 leading-tight">
+<span class="font-currency-display text-[17px] font-bold text-on-surface tracking-tight">₹1,42,000.00</span>
+<span class="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-[13px]" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+            Paid
+          </span>
+</div>
+</div>
+<div class="mt-3 pt-2.5 flex items-center justify-between text-on-surface-variant">
+<span class="font-body-sm text-body-sm text-on-surface-variant/80 flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px] text-tertiary">verified_user</span>
+          Settled via Razorpay UPI
+        </span>
+<button class="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-surface-container text-on-surface-variant hover:text-primary transition-colors" onclick="event.stopPropagation()" title="Download receipt" type="button">
+<span class="material-symbols-outlined text-[18px]">receipt</span>
+</button>
+</div>
+</div>
+<!-- Card 5: Zerodha Broking Ltd (Draft) -->
+<div class="invoice-item group bg-surface-container-lowest rounded-2xl p-space-md shadow-sm active:bg-surface-container-low transition-all cursor-pointer" data-search="zerodha broking ltd inv-2024-0085 55000" data-status="draft">
+<div class="flex items-start justify-between gap-space-sm">
+<div class="flex items-center gap-space-sm min-w-0">
+<div class="w-10 h-10 rounded-xl bg-surface-container-high text-on-surface-variant flex items-center justify-center font-headline-sm text-headline-sm font-bold shrink-0">
+            ZB
+          </div>
+<div class="flex flex-col min-w-0">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold truncate leading-snug">Zerodha Broking Ltd</span>
+<div class="flex items-center gap-1.5 font-label-sm text-label-sm text-on-surface-variant mt-0.5">
+<span class="font-mono">#INV-2024-0085</span>
+<span>•</span>
+<span>25 Sep</span>
+</div>
+</div>
+</div>
+<div class="flex flex-col items-end shrink-0 leading-tight">
+<span class="font-currency-display text-[17px] font-bold text-on-surface-variant tracking-tight">₹55,000.00</span>
+<span class="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-[13px]">edit_note</span>
+            Draft
+          </span>
+</div>
+</div>
+<div class="mt-3 pt-2.5 flex items-center justify-between">
+<span class="font-body-sm text-body-sm text-on-surface-variant/80">
+          3 line items • GST 18%
+        </span>
+<div class="flex items-center gap-2">
+<button class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-surface-container text-on-surface-variant hover:text-on-surface font-label-sm text-label-sm transition-colors" onclick="event.stopPropagation()" type="button">
+<span class="material-symbols-outlined text-[15px]">edit</span>
+<span>Edit</span>
+</button>
+<button class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary-fixed/40 text-primary font-label-sm text-label-sm font-semibold hover:bg-primary-fixed/60 transition-colors" onclick="event.stopPropagation()" type="button">
+<span class="material-symbols-outlined text-[15px]">send</span>
+<span>Issue</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Empty State Container (Hidden by default) -->
+<div class="hidden flex flex-col items-center justify-center text-center p-space-xl bg-surface-container-lowest rounded-2xl shadow-sm" id="noResultsState">
+<div class="w-14 h-14 rounded-full bg-surface-container flex items-center justify-center text-outline mb-space-sm">
+<span class="material-symbols-outlined text-[28px]">search_off</span>
+</div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">No invoices found</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1 max-w-xs">
+        Try adjusting your filter or search query to find the invoice record.
+      </p>
+<button class="mt-space-md px-3.5 py-1.5 rounded-xl bg-primary-fixed/40 text-primary font-label-md text-label-md" id="resetFiltersBtn" type="button">
+        Reset filters
+      </button>
+</div>
+</div>
+</div>
+<script>
+  (function initInvoiceList() {
+    // 1. Highlight "Sales" Tab in Shell Bottom Nav
+    const navLinks = document.querySelectorAll('nav [data-path]');
+    navLinks.forEach(link => {
+      const isSales = link.getAttribute('data-path') === 'invoices';
+      if (isSales) {
+        link.classList.add('text-primary', 'font-semibold');
+        link.classList.remove('text-on-surface-variant');
+        
+        // Add subtle indicator pill or dot
+        if (!link.querySelector('.nav-active-dot')) {
+          const dot = document.createElement('span');
+          dot.className = 'nav-active-dot w-1 h-1 rounded-full bg-primary mt-0.5';
+          link.appendChild(dot);
+        }
+      } else {
+        link.classList.remove('text-primary', 'font-semibold');
+        link.classList.add('text-on-surface-variant');
+        const existingDot = link.querySelector('.nav-active-dot');
+        if (existingDot) existingDot.remove();
+      }
+    });
+
+    // 2. Interactive Search & Status Filtering
+    const searchInput = document.getElementById('invoiceSearchInput');
+    const clearBtn = document.getElementById('clearSearchBtn');
+    const filterTabs = document.querySelectorAll('.filter-tab');
+    const invoiceItems = document.querySelectorAll('.invoice-item');
+    const noResultsState = document.getElementById('noResultsState');
+    const resetBtn = document.getElementById('resetFiltersBtn');
+
+    let currentFilter = 'all';
+
+    function applyFilters() {
+      const query = (searchInput.value || '').toLowerCase().trim();
+      let visibleCount = 0;
+
+      invoiceItems.forEach(item => {
+        const itemStatus = item.getAttribute('data-status');
+        const itemSearch = item.getAttribute('data-search') || '';
+
+        const matchesStatus = (currentFilter === 'all') || (itemStatus === currentFilter);
+        const matchesQuery = query === '' || itemSearch.includes(query);
+
+        if (matchesStatus && matchesQuery) {
+          item.classList.remove('hidden');
+          visibleCount++;
+        } else {
+          item.classList.add('hidden');
+        }
+      });
+
+      if (visibleCount === 0) {
+        noResultsState.classList.remove('hidden');
+      } else {
+        noResultsState.classList.add('hidden');
+      }
+
+      if (query.length > 0) {
+        clearBtn.classList.remove('hidden');
+      } else {
+        clearBtn.classList.add('hidden');
+      }
+    }
+
+    // Filter pill tabs click handler
+    filterTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        filterTabs.forEach(t => {
+          t.classList.remove('bg-primary', 'text-on-primary');
+          t.classList.add('bg-surface-container-lowest', 'text-on-surface-variant');
+        });
+
+        tab.classList.remove('bg-surface-container-lowest', 'text-on-surface-variant');
+        tab.classList.add('bg-primary', 'text-on-primary');
+
+        currentFilter = tab.getAttribute('data-filter');
+        applyFilters();
+      });
+    });
+
+    // Search input handler
+    searchInput.addEventListener('input', applyFilters);
+
+    clearBtn.addEventListener('click', () => {
+      searchInput.value = '';
+      applyFilters();
+      searchInput.focus();
+    });
+
+    resetBtn.addEventListener('click', () => {
+      searchInput.value = '';
+      currentFilter = 'all';
+      filterTabs.forEach(t => {
+        if (t.getAttribute('data-filter') === 'all') {
+          t.classList.add('bg-primary', 'text-on-primary');
+          t.classList.remove('bg-surface-container-lowest', 'text-on-surface-variant');
+        } else {
+          t.classList.remove('bg-primary', 'text-on-primary');
+          t.classList.add('bg-surface-container-lowest', 'text-on-surface-variant');
+        }
+      });
+      applyFilters();
+    });
+  })();
+</script></main><nav class="fixed bottom-0 w-full z-50 pb-safe pointer-events-none" data-active-classes="text-primary bg-primary-fixed/25 font-semibold"><div class="px-margin pb-3 pt-1 pointer-events-auto"><div class="mx-auto max-w-md bg-surface-container-lowest/90 backdrop-blur-xl rounded-full shadow-[0_8px_24px_-4px_rgba(30,27,75,0.12)] px-space-xs py-1.5 flex items-center justify-between"><a aria-label="Dashboard" class="flex-1 min-w-0 h-12 rounded-full flex flex-col items-center justify-center gap-0.5 text-on-surface-variant hover:text-on-surface transition-all active:scale-95" data-path="dashboard" href="#"><span class="material-symbols-outlined text-[22px]">dashboard</span><span class="font-label-sm text-label-sm leading-none">Home</span></a><a aria-label="Invoices &amp; Sales" class="flex-1 min-w-0 h-12 rounded-full flex flex-col items-center justify-center gap-0.5 text-on-surface-variant hover:text-on-surface transition-all active:scale-95" data-path="invoices" href="#"><span class="material-symbols-outlined text-[22px]">receipt_long</span><span class="font-label-sm text-label-sm leading-none">Sales</span></a><a aria-label="Inventory Ledger" class="flex-1 min-w-0 h-12 rounded-full flex flex-col items-center justify-center gap-0.5 text-on-surface-variant hover:text-on-surface transition-all active:scale-95" data-path="inventory" href="#"><span class="material-symbols-outlined text-[22px]">inventory_2</span><span class="font-label-sm text-label-sm leading-none">Items</span></a><a aria-label="Parties &amp; Vendors" class="flex-1 min-w-0 h-12 rounded-full flex flex-col items-center justify-center gap-0.5 text-on-surface-variant hover:text-on-surface transition-all active:scale-95" data-path="parties" href="#"><span class="material-symbols-outlined text-[22px]">group</span><span class="font-label-sm text-label-sm leading-none">Parties</span></a><a aria-label="Hub &amp; Tools" class="flex-1 min-w-0 h-12 rounded-full flex flex-col items-center justify-center gap-0.5 text-on-surface-variant hover:text-on-surface transition-all active:scale-95" data-path="hub" href="#"><span class="material-symbols-outlined text-[22px]">grid_view</span><span class="font-label-sm text-label-sm leading-none">Hub</span></a></div></div></nav></body></html>

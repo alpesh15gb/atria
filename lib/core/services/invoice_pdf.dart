@@ -1,3 +1,4 @@
+import '../domain/gst_registration.dart';
 import 'dart:typed_data';
 
 import 'package:pdf/pdf.dart';
@@ -6,6 +7,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'pdf_fonts.dart';
 import 'pdf_sections.dart';
 import 'pdf_template_style.dart';
+import 'reference_document_pdf.dart';
 
 import '../database/app_database.dart';
 import '../engine/gst_engine.dart';
@@ -25,6 +27,7 @@ class InvoicePdf extends PdfSections {
   /// Builds an invoice PDF in the layout [firm] has chosen.
   InvoicePdf.forFirm(FirmEntity firm)
       : super(firm, PdfTemplateStyle.resolve(firm.pdfTemplate));
+  InvoicePdf._(super.firm, super.style);
 
   static const _docTitles = {
     'invoice': 'TAX INVOICE',
@@ -46,6 +49,11 @@ class InvoicePdf extends PdfSections {
     required SalesInvoiceEntity invoice,
     required List<SalesInvoiceItemEntity> items,
   }) async {
+    final selected = DocumentTemplates.parse(firm.pdfTemplate).forDocument(invoice.docType == 'quotation' ? 'quotation' : 'invoice');
+    if (selected.isReference) {
+      return ReferenceDocumentPdf(firm, selected).build(ReferenceDocument.sale(firm, invoice, items));
+    }
+    if (selected.id != style.id) return InvoicePdf._(firm, selected).build(invoice: invoice, items: items);
     // Helvetica has no ₹ (see PdfFonts) — Inter rides along as a fallback.
     final doc = pw.Document(
       pageMode: PdfPageMode.fullscreen,
@@ -67,7 +75,9 @@ class InvoicePdf extends PdfSections {
         build: (context) {
           return [
             header(
-              title: _docTitles[invoice.docType] ?? 'INVOICE',
+              title: invoice.docType == 'invoice' && !firm.isGstRegistered &&
+                  invoice.cgst + invoice.sgst + invoice.igst + invoice.cess == 0
+                  ? 'INVOICE' : _docTitles[invoice.docType] ?? 'INVOICE',
               number: invoice.number,
               stamp: isInvoice ? _stamp(invoice) : null,
             ),
@@ -81,6 +91,7 @@ class InvoicePdf extends PdfSections {
               child: itemsTable(
                 items.map(PdfLineItem.fromSales).toList(),
                 interState: invoice.isInterState,
+                showTax: firm.isGstRegistered || invoice.cgst + invoice.sgst + invoice.igst + invoice.cess > 0,
                 secondHead: _secondTaxHead(invoice),
               ),
             ),
@@ -162,7 +173,7 @@ class InvoicePdf extends PdfSections {
     if (invoice.shippingCharge.abs() > 0.001) {
       row('Shipping / Freight', Formatters.money(dec(invoice.shippingCharge)));
     }
-    row('Taxable Value', Formatters.money(dec(invoice.taxableValue)));
+    row(firm.isGstRegistered || invoice.cgst + invoice.sgst + invoice.igst + invoice.cess > 0 ? 'Taxable Value' : 'Net Amount', Formatters.money(dec(invoice.taxableValue)));
     if (invoice.cgst.abs() > 0.001) {
       row('CGST', Formatters.money(dec(invoice.cgst)));
     }

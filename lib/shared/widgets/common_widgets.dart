@@ -235,19 +235,28 @@ class AtriaCard extends StatelessWidget {
     return Material(
       color: background ?? scheme.surface,
       borderRadius: BorderRadius.all(
-        Radius.circular(borderRadius ?? AppRadius.lg),
+        Radius.circular(
+          borderRadius ??
+              (Theme.of(context).platform.isMobileUi ? 20 : AppRadius.lg),
+        ),
       ),
       child: InkWell(
         onTap: onTap,
         onLongPress: onLongPress,
         borderRadius: BorderRadius.all(
-          Radius.circular(borderRadius ?? AppRadius.lg),
+          Radius.circular(
+            borderRadius ??
+                (Theme.of(context).platform.isMobileUi ? 20 : AppRadius.lg),
+          ),
         ),
         child: Container(
           padding: padding,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.all(
-              Radius.circular(borderRadius ?? AppRadius.lg),
+              Radius.circular(
+                borderRadius ??
+                    (Theme.of(context).platform.isMobileUi ? 20 : AppRadius.lg),
+              ),
             ),
             // QBO separates surfaces with a hairline FIRST and only then a
             // whisper of shadow — a shadow alone disappears on bright walls

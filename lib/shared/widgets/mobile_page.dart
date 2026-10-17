@@ -2,8 +2,6 @@ import 'package:decimal/decimal.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import 'atria_page_header.dart';
-import 'mobile_fab.dart';
 import 'money_text.dart';
 import 'status_chip.dart';
 
@@ -14,37 +12,73 @@ class MobileListPage extends StatelessWidget {
     required this.title,
     required this.body,
     this.header,
+    this.subtitle,
     this.actions = const [],
+    this.toolbar = const [],
   });
   final String title;
   final Widget body;
   final Widget? header;
+  final String? subtitle;
   final List<Widget> actions;
+  final List<Widget> toolbar;
 
   @override
   Widget build(BuildContext context) {
-    final primary = actions.whereType<AtriaPrimaryAction>().lastOrNull;
     return Scaffold(
-      appBar: header == null
-          ? AppBar(
-              automaticallyImplyLeading: false,
-              title: Text(title),
-              actions: [
-                for (final action in actions)
-                  if (action is! AtriaPrimaryAction) action,
+      body: NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) => [
+          SliverToBoxAdapter(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              style: Theme.of(context).textTheme.headlineSmall
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: -.7,
+                                  ),
+                            ),
+                            if (subtitle != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                subtitle!,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      if (actions.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Wrap(
+                            alignment: WrapAlignment.end,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: actions,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                ?header,
+                ...toolbar,
               ],
-            )
-          : null,
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (header != null) SafeArea(bottom: false, child: header!),
-          Expanded(child: body),
+            ),
+          ),
         ],
+        body: body,
       ),
-      floatingActionButton: primary == null
-          ? null
-          : MobileFab(onPressed: primary.onPressed, tooltip: primary.label),
     );
   }
 }
@@ -141,7 +175,11 @@ class MobileAmount extends StatelessWidget {
   final Decimal amount;
   final TextStyle? style;
   @override
-  Widget build(BuildContext context) => FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerRight, child: MoneyText(amount, colorize: false, style: style));
+  Widget build(BuildContext context) => FittedBox(
+    fit: BoxFit.scaleDown,
+    alignment: Alignment.centerRight,
+    child: MoneyText(amount, colorize: false, style: style),
+  );
 }
 
 class MobileDocumentCard extends StatelessWidget {
@@ -174,7 +212,7 @@ class MobileDocumentCard extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     return Material(
       color: selected ? scheme.primaryContainer : scheme.surface,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(20),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
@@ -182,10 +220,25 @@ class MobileDocumentCard extends StatelessWidget {
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
               child: Row(
                 children: [
                   ?selection,
+                  Container(
+                    width: 40,
+                    height: 40,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: scheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.receipt_long_outlined,
+                      color: scheme.primary,
+                      size: 21,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -215,8 +268,8 @@ class MobileDocumentCard extends StatelessWidget {
                       children: [
                         StatusChip(label: status, kind: statusKind),
                         const SizedBox(height: 5),
-                    MobileAmount(
-                      amount,
+                        MobileAmount(
+                          amount,
                           style: text.titleSmall?.copyWith(
                             fontWeight: FontWeight.w600,
                           ),

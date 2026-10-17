@@ -131,6 +131,23 @@ class SyncEngine {
   final SettingsRepository _settings;
   final AuthController _auth;
   final SyncClient _client;
+  Future<void> _tail = Future<void>.value();
+  DateTime? _lastDiscovery;
+
+  Future<T> _exclusive<T>(Future<T> Function() run) {
+    final result = _tail.then((_) => run());
+    _tail = result.then<void>((_) {}, onError: (Object _, StackTrace stack) {});
+    return result;
+  }
+
+  Future<bool> waitForChanges(String firmId) async {
+    if (!(await _settings.getBool(SettingsRepository.kSyncEnabled, fallback: true))) return false;
+    final token = await _auth.resolveAccessToken();
+    if (token.accessToken == null) return false;
+    return _client.waitForChanges(firmId: firmId,
+      accessToken: token.accessToken!,
+      afterSeq: await _settings.getInt('sync_cursor_$firmId') ?? 0);
+  }
 
   /// How many changes one push carries.
   ///
@@ -161,6 +178,7 @@ class SyncEngine {
     'units',
     'parties',
     'items',
+    'bank_accounts',
     'sales_invoices',
     'sales_invoice_items',
     'purchase_bills',
@@ -270,25 +288,47 @@ class SyncEngine {
         // anything. A row already queued for this entity — from the first run,
         // or a still-pending ordinary change — is left as it is, which is
         // what keeps a re-run from double-sending the same row.
-        final already =
+        //
+        // **`.get()`, never `getSingleOrNull()`** — and the reason is that this
+        // predicate is not unique. `SyncQueueMixin.enqueue` mints a *new* id per
+        // call, so one entity legitimately has several outbox rows (its insert
+        // plus every update), and `pruneSent` keeps them for 14 days after they
+        // are sent. `getSingleOrNull()` **throws** on more than one match, so any
+        // row edited twice inside that window aborted the whole repair with
+        // `Bad state: Too many rows` — the documented recovery tool failing
+        // exactly when it was needed, surfaced to the user as a raw exception.
+        //
+        // Only *unsent* rows shadow the entity. A row that has already been sent
+        // and retained must not: keying on it made the second "Re-send all books"
+        // within 14 days enqueue nothing and report "the queue already covers
+        // every row", while the operator believed the other devices were healed.
+        final queued =
             await (_db.select(_db.syncQueue)..where(
-                  (t) => t.entity.equals(entity) & t.entityId.equals(entityId),
+                  (t) =>
+                      t.entity.equals(entity) &
+                      t.entityId.equals(entityId) &
+                      t.syncedAt.isNull(),
                 ))
-                .getSingleOrNull();
-        if (already != null) {
+                .get();
+        if (queued.isNotEmpty) {
           // A row parked by [_quarantineUnsendable] is unsent but out of the
           // drain, so re-queuing it as a *new* row would do nothing (the
           // entity+entityId check above skips it) and the repair would report
           // success while the row stayed unsent. Clearing `attempts` puts it
           // back in the drain, which is the entire point of asking for a
           // re-send by hand.
-          if (already.syncedAt == null && already.attempts >= maxAttempts) {
-            await (_db.update(
-              _db.syncQueue,
-            )..where((t) => t.id.equals(already.id))).write(
-              const SyncQueueCompanion(attempts: Value(0), error: Value(null)),
-            );
-            revived++;
+          for (final row in queued) {
+            if (row.attempts >= maxAttempts) {
+              await (_db.update(
+                _db.syncQueue,
+              )..where((t) => t.id.equals(row.id))).write(
+                const SyncQueueCompanion(
+                  attempts: Value(0),
+                  error: Value(null),
+                ),
+              );
+              revived++;
+            }
           }
           continue;
         }
@@ -336,10 +376,12 @@ class SyncEngine {
   /// Honours the sync switch rather than taking a "force" flag: there is no
   /// caller that should be able to send a shop's books to a server the operator
   /// has switched off, and a parameter that exists to be ignored is a trap.
-  Future<SyncReport> push() async {
+  Future<SyncReport> push() => _exclusive(_push);
+
+  Future<SyncReport> _push() async {
     final now = DateTime.now();
 
-    if (!(await _settings.getBool(SettingsRepository.kSyncEnabled))) {
+    if (!(await _settings.getBool(SettingsRepository.kSyncEnabled, fallback: true))) {
       return SyncReport(skipped: true, pending: await pendingCount(), at: now);
     }
 
@@ -476,8 +518,10 @@ class SyncEngine {
   /// Honours the sync switch like [push] does. A pull failure is reported but
   /// does not roll back the push — the two directions are independent, and the
   /// next run resumes the pull from the stored cursor.
-  Future<SyncReport> sync() async {
-    if (!(await _settings.getBool(SettingsRepository.kSyncEnabled))) {
+  Future<SyncReport> sync() => _exclusive(_sync);
+
+  Future<SyncReport> _sync() async {
+    if (!(await _settings.getBool(SettingsRepository.kSyncEnabled, fallback: true))) {
       return SyncReport(
         skipped: true,
         pending: await pendingCount(),
@@ -485,7 +529,7 @@ class SyncEngine {
       );
     }
 
-    final pushReport = await push();
+    final pushReport = await _push();
     if (pushReport.needsSignIn || pushReport.skipped) return pushReport;
     // Same reasoning one step down: a push that never got past the token check
     // has nothing to receive either, and retrying would only produce a second
@@ -496,6 +540,20 @@ class SyncEngine {
     // created one while another was active) — pull for every firm the outbox
     // has ever mentioned plus the active one, deduplicated.
     final firmIds = <String>{...await _knownFirmIds()};
+    // Discover books created on another device, including a fresh install.
+    // Memberships are server-authorised; knowing a firm id alone grants nothing.
+    if (_lastDiscovery == null || DateTime.now().difference(_lastDiscovery!) >= const Duration(minutes: 1)) {
+      final token = await _auth.resolveAccessToken();
+      if (token.accessToken != null) {
+        try {
+          final account = await _auth.cloudAccount(token.accessToken!);
+          firmIds.addAll(account.firms.map((f) => f.firmId));
+          _lastDiscovery = DateTime.now();
+        } on Object {
+          // Existing books can still sync if discovery is temporarily offline.
+        }
+      }
+    }
     var pulled = 0;
     String? pullError;
     var temporarilyUnavailable = false;
@@ -887,12 +945,23 @@ class SyncEngine {
         .toSet();
   }
 
-  /// The wire size of one encoded change, in bytes.
+  /// The wire size of one encoded change, in **bytes**.
   ///
   /// Measured on the encoded form rather than estimated from column types: the
   /// whole problem is that `notes`, `terms` and item names are unbounded TEXT,
   /// so a per-column guess is exactly the assumption that fails.
-  int _encodedSize(Map<String, Object?> encoded) => jsonEncode(encoded).length;
+  ///
+  /// **Bytes, not `String.length`.** `String.length` counts UTF-16 code units
+  /// while `ServerHttp` writes `utf8.encode(jsonEncode(body))` — for an Indian
+  /// books database every Devanagari character and the ₹ glyph is 3 UTF-8 bytes
+  /// but 1–2 code units, so a batch measured at the 200KB budget went out at
+  /// 300–600KB, over the server's 256KB cap. The server rejects a body whole,
+  /// so the batch never arrived: headers reached it, the line items did not, and
+  /// every other device pulled saved bills with their totals and no items. That
+  /// is the exact failure the batching exists to prevent, and the size check
+  /// measured the wrong quantity to fail to prevent it.
+  int _encodedSize(Map<String, Object?> encoded) =>
+      utf8.encode(jsonEncode(encoded)).length;
 
   /// One outbox row as the wire format.
   ///
@@ -903,12 +972,21 @@ class SyncEngine {
   /// reconstruct from the sequence.
   Future<Map<String, Object?>> _encode(SyncQueueEntity row) async {
     final table = _tableNamed(row.entity);
+    final payload = table == null ? null : await _rowJson(table, row.entityId);
+    if (payload != null && (row.entity == 'sales_invoice_items' || row.entity == 'purchase_bill_items')) {
+      final sales = row.entity == 'sales_invoice_items';
+      final parent = _tableNamed(sales ? 'sales_invoices' : 'purchase_bills')!;
+      final parentId = payload[sales ? 'invoice_id' : 'bill_id'];
+      if (parentId is String) {
+        payload['_parent_updated_at'] = (await _rowJson(parent, parentId))?['updated_at'];
+      }
+    }
     return {
       'id': row.id,
       'entity': row.entity,
       'entityId': row.entityId,
       'operation': row.operation,
-      'payload': table == null ? null : await _rowJson(table, row.entityId),
+      'payload': payload,
       'createdAt': row.createdAt.toUtc().toIso8601String(),
     };
   }

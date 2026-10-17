@@ -113,19 +113,24 @@ Future<List<ReportRow>> sacReportRows(
 
   // Documents first, for the same reason as the sales side: the status, the
   // type (hence the sign) and the date live on the bill, not on the line.
-  final bills = await (db.select(db.purchaseBills)
-        ..where((d) =>
-            d.firmId.equals(firmId) &
-            d.docType.isIn(kPurchaseDocTypes) &
-            ReportFilters.isLive(status: d.status, isDeleted: d.isDeleted) &
-            ReportFilters.within(d.billDate, window)))
-      .get();
+  final bills =
+      await (db.select(db.purchaseBills)..where(
+            (d) =>
+                d.firmId.equals(firmId) &
+                d.docType.isIn(kPurchaseDocTypes) &
+                ReportFilters.isLive(status: d.status, isDeleted: d.isDeleted) &
+                ReportFilters.within(d.billDate, window),
+          ))
+          .get();
   if (bills.isEmpty) return const [];
 
-  final lines = await (db.select(db.purchaseBillItems)
-        ..where((l) =>
-            l.billId.isIn(bills.map((b) => b.id)) & l.isDeleted.equals(false)))
-      .get();
+  final lines =
+      await (db.select(db.purchaseBillItems)..where(
+            (l) =>
+                l.billId.isIn(bills.map((b) => b.id)) &
+                l.isDeleted.equals(false),
+          ))
+          .get();
 
   final billSigns = <String, int>{
     for (final bill in bills) bill.id: signFor(bill.docType),
@@ -156,19 +161,21 @@ Future<List<ReportRow>> sacReportRows(
 
   final rows = <ReportRow>[];
   for (final bucket in buckets.values) {
-    rows.add(ReportRow({
-      'hsn': bucket.hsn,
-      'rate': bucket.rate,
-      'description': bucket.description ?? '',
-      'quantity': bucket.quantity,
-      'unit': bucket.unit,
-      'taxable': bucket.taxable,
-      'cgst': bucket.cgst,
-      'sgst': bucket.sgst,
-      'igst': bucket.igst,
-      'cess': bucket.cess,
-      'total': bucket.inputTax,
-    }, label: '${bucket.hsn} @ ${rateLabel(bucket.rate)}%'));
+    rows.add(
+      ReportRow({
+        'hsn': bucket.hsn,
+        'rate': bucket.rate,
+        'description': bucket.description ?? '',
+        'quantity': bucket.quantity,
+        'unit': bucket.unit,
+        'taxable': bucket.taxable,
+        'cgst': bucket.cgst,
+        'sgst': bucket.sgst,
+        'igst': bucket.igst,
+        'cess': bucket.cess,
+        'total': bucket.inputTax,
+      }, label: '${bucket.hsn} @ ${rateLabel(bucket.rate)}%'),
+    );
   }
   return rows;
 }
@@ -176,6 +183,6 @@ Future<List<ReportRow>> sacReportRows(
 /// A function, not a string — the source's `notes` slot is
 /// `List<String> Function(ReportResult)`.
 List<String> _sacReportNotes(ReportResult result) => [
-      'Reads purchase bill lines. Cancelled bills, and anything in the recycle '
+  'Reads purchase bill lines. Cancelled bills, and anything in the recycle '
       'bin, are excluded — they are not inward supplies.',
-    ];
+];

@@ -41,6 +41,7 @@ const ReportSpec gstr2aReconciliationSpec = ReportSpec(
   category: 'GST',
   sort: ReportSort(columnKey: 'difference', descending: true),
   columns: [
+    ReportColumn(key: 'supplierGstin', label: 'Supplier GSTIN', flex: 2),
     ReportColumn(key: 'invoice', label: 'Invoice', flex: 2, emphasise: true),
     ReportColumn(key: 'status', label: 'Status', flex: 2),
     ReportColumn(
@@ -75,7 +76,7 @@ const ReportSpec gstr2aReconciliationSpec = ReportSpec(
   footnote:
       'Your purchase bills against the GSTR-2A JSON you downloaded from the '
       'portal. "Books only" means you recorded an invoice the supplier never '
-      'reported — the credit will be blocked. "2A only" means they reported it '
+      'reported in this statement; review GSTR-2B and eligibility before claiming credit. "2A only" means they reported it '
       'and you did not record it. "Mismatch" means the values differ. Import the '
       'file through GST Reports → GSTR-2A first; nothing imported for this '
       'period means nothing to compare, and this report stays empty rather than '
@@ -141,12 +142,11 @@ Future<void> storeImportedGstr2a(
   String firmId,
   DateTime month,
   Map<String, dynamic> json,
-) =>
-    db.settingsRepository.set(
-      gstr2aStorageKey(DateTime(month.year, month.month)),
-      jsonEncode(json),
-      firmId: firmId,
-    );
+) => db.settingsRepository.set(
+  gstr2aStorageKey(DateTime(month.year, month.month)),
+  jsonEncode(json),
+  firmId: firmId,
+);
 
 Future<List<ReportRow>> gstr2aReconciliationRows(
   AppDatabase db,
@@ -162,8 +162,9 @@ Future<List<ReportRow>> gstr2aReconciliationRows(
   // both sides are empty — is a false clean bill of health.
   if (json == null) return const [];
 
-  final firm = await (db.select(db.firms)..where((f) => f.id.equals(firmId)))
-      .getSingleOrNull();
+  final firm = await (db.select(
+    db.firms,
+  )..where((f) => f.id.equals(firmId))).getSingleOrNull();
   final reconciliation = await Gstr2aReconciliation.fromPortalJson(
     json,
     db: db,
@@ -176,6 +177,7 @@ Future<List<ReportRow>> gstr2aReconciliationRows(
   return [
     for (final row in reconciliation.rows)
       ReportRow({
+        'supplierGstin': row.supplierGstin,
         'invoice': row.invoiceNumber,
         'status': _statusLabel(row.status),
         'booksTaxable': _optDec(row.booksTaxable),
@@ -196,12 +198,12 @@ Future<List<ReportRow>> gstr2aReconciliationRows(
 /// programmer reads; a shopkeeper needs to know what to *do*, and "in your
 /// books, not in theirs" is the answer.
 String _statusLabel(String status) => switch (status) {
-      'matched' => 'Matched',
-      'books_only' => 'In your books, not in 2A',
-      'portal_only' => 'In 2A, not in your books',
-      'value_mismatch' => 'Value mismatch',
-      _ => status,
-    };
+  'matched' => 'Matched',
+  'books_only' => 'In your books, not in 2A',
+  'portal_only' => 'In 2A, not in your books',
+  'value_mismatch' => 'Value mismatch',
+  _ => status,
+};
 
 /// A nullable figure as an exact [Decimal], with a missing side as zero.
 ///
@@ -209,13 +211,12 @@ String _statusLabel(String status) => switch (status) {
 /// cell here would make the reader do the subtraction themselves on the one row
 /// type where doing it wrong costs a blocked credit. The direction is carried by
 /// the sign.
-Decimal _optDec(double? value) =>
-    value == null ? Decimal.zero : dec(value);
+Decimal _optDec(double? value) => value == null ? Decimal.zero : dec(value);
 
 /// A function, not a string — the source's `notes` slot is
 /// `List<String> Function(ReportResult)`.
 List<String> _gstr2aNotes(ReportResult result) => [
-      'Reconciles purchase bills and debit notes against the imported portal '
+  'Reconciles purchase bills and debit notes against the imported portal '
       'GSTR-2A for the return period the window falls in. Requires an imported '
       'file; the report is empty without one.',
-    ];
+];

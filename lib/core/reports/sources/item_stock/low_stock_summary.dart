@@ -29,7 +29,8 @@ const ReportSpec lowStockSummarySpec = ReportSpec(
   id: 'low_stock_summary',
   title: 'Low Stock Summary',
   category: 'Item/Stock',
-  subtitle: 'Items at or below their reorder level — a stock position, not a period',
+  subtitle:
+      'Items at or below their reorder level — a stock position, not a period',
   sort: ReportSort(columnKey: 'stock', descending: false),
   defaultFilters: [
     ReportFilter<Object?>(
@@ -43,12 +44,17 @@ const ReportSpec lowStockSummarySpec = ReportSpec(
     ReportColumn(key: 'item', label: 'Item', flex: 3, emphasise: true),
     ReportColumn(key: 'category', label: 'Category'),
     ReportColumn(key: 'unit', label: 'Unit'),
-    ReportColumn(key: 'hsn', label: 'HSN', wideOnly: true),
-    ReportColumn(key: 'stock', label: 'In stock', kind: ReportValueKind.quantity),
+    ReportColumn(key: 'hsn', label: 'HSN', wideOnly: true, optional: true),
+    ReportColumn(
+      key: 'stock',
+      label: 'In stock',
+      kind: ReportValueKind.quantity,
+    ),
     ReportColumn(
       key: 'reorder',
       label: 'Reorder level',
       kind: ReportValueKind.quantity,
+      optional: true,
     ),
     ReportColumn(
       key: 'shortfall',

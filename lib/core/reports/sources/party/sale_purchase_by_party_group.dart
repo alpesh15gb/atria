@@ -54,7 +54,11 @@ const ReportSpec salePurchaseByPartyGroupSpec = ReportSpec(
       kind: ReportValueKind.money,
       flex: 2,
     ),
-    ReportColumn(key: 'saleTax', label: 'Sale tax', kind: ReportValueKind.money),
+    ReportColumn(
+      key: 'saleTax',
+      label: 'Sale tax',
+      kind: ReportValueKind.money,
+    ),
     ReportColumn(
       key: 'purchaseValue',
       label: 'Purchase value',
@@ -194,10 +198,9 @@ List<String> _partyGroupNotes(ReportResult result) {
   );
   // Counted from the column rather than converted from it: `Decimal` has no
   // `toInt`, and a count does not need decimal precision in the first place.
-  final count = ungrouped.fold<Decimal>(
-    Decimal.zero,
-    (sum, r) => sum + r.number(_partiesColumn),
-  ).toStringAsFixed(0);
+  final count = ungrouped
+      .fold<Decimal>(Decimal.zero, (sum, r) => sum + r.number(_partiesColumn))
+      .toStringAsFixed(0);
   return [
     '${Money.round2(sales).toStringAsFixed(2)} across $count '
         '${count == '1' ? 'party is' : 'parties are'} not filed into a group. '

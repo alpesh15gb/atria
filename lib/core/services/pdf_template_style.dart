@@ -1,8 +1,10 @@
 import 'package:pdf/pdf.dart';
 
+import 'dart:convert';
+
 /// The look of a printed Apex Books document.
 ///
-/// Three templates, chosen per firm in Firm Settings and stored on
+/// Five templates, chosen per firm in Firm Settings and stored on
 /// `firms.pdfTemplate`. The reason it is per firm rather than per document:
 /// printed material gets filed and handed to customers, so a shop picks one
 /// look and keeps it. A book that printed a different layout depending on
@@ -139,7 +141,49 @@ class PdfTemplateStyle {
   );
 
   /// Every template, in picker order.
-  static const all = [classic, modern, minimal];
+  static PdfTemplateStyle _reference(
+    String id,
+    String name,
+    String description,
+  ) => PdfTemplateStyle(
+    id: id,
+    name: name,
+    description: description,
+    brand: PdfColors.black,
+    brandDeep: PdfColors.black,
+    ink: PdfColors.black,
+    inkSoft: PdfColors.black,
+    line: PdfColors.black,
+    tint: PdfColors.white,
+    accentBand: PdfColors.white,
+    footerBand: PdfColors.white,
+    pageFormat: PdfPageFormat.a4,
+    gutter: 24,
+    usesZebraRows: false,
+  );
+  static final ledger = _reference(
+    'ledger',
+    'Format 2 · Ledger',
+    'Reference 1: boxed header, tax-rate column and HSN summary',
+  );
+  static final clean = _reference(
+    'clean',
+    'Format 3 · Clean',
+    'Reference 2: open header, full item grid and compact totals',
+  );
+  static final business = _reference(
+    'business',
+    'Format 4 · Business',
+    'Reference 3: company header, compact grid and HSN summary',
+  );
+  static final detailed = _reference(
+    'detailed',
+    'Format 5 · Detailed',
+    'Reference 4: boxed header, spacious items and HSN summary',
+  );
+  static final all = [classic, ledger, clean, business, detailed];
+  bool get isReference =>
+      const {'ledger', 'clean', 'business', 'detailed'}.contains(id);
 
   /// Resolves a stored `firms.pdfTemplate` value to a style.
   ///
@@ -151,11 +195,73 @@ class PdfTemplateStyle {
   /// from a restored backup or a hand-edited row, and reading "Modern" as
   /// unknown would silently print the wrong thing instead of the right one.
   static PdfTemplateStyle resolve(String? id) {
+    if (id?.trim().startsWith('{') ?? false) {
+      return DocumentTemplates.parse(id).defaultStyle;
+    }
     final wanted = id?.trim().toLowerCase();
     if (wanted == null || wanted.isEmpty) return classic;
     for (final style in all) {
       if (style.id == wanted) return style;
     }
+    // Preserve documents selected in older versions, without offering extra formats.
+    if (wanted == 'modern') return modern;
+    if (wanted == 'minimal') return minimal;
     return classic;
+  }
+}
+
+/// Stored in the existing synchronized firm preference; plain legacy IDs remain valid.
+class DocumentTemplates {
+  const DocumentTemplates({
+    this.defaultId = 'classic',
+    this.invoice,
+    this.purchase,
+    this.quotation,
+  });
+  final String defaultId;
+  final String? invoice, purchase, quotation;
+  PdfTemplateStyle get defaultStyle => PdfTemplateStyle.resolve(defaultId);
+  String? overrideFor(String kind) => switch (kind) {
+    'invoice' => invoice,
+    'purchase' => purchase,
+    'quotation' => quotation,
+    _ => null,
+  };
+  PdfTemplateStyle forDocument(String kind) =>
+      PdfTemplateStyle.resolve(overrideFor(kind) ?? defaultId);
+  DocumentTemplates withChoice(String kind, String? id) => DocumentTemplates(
+    defaultId: kind == 'default' ? (id ?? 'classic') : defaultId,
+    invoice: kind == 'invoice' ? id : invoice,
+    purchase: kind == 'purchase' ? id : purchase,
+    quotation: kind == 'quotation' ? id : quotation,
+  );
+  String encode() => invoice == null && purchase == null && quotation == null
+      ? defaultId
+      : jsonEncode({
+          'version': 1,
+          'default': defaultId,
+          if (invoice != null) 'invoice': invoice,
+          if (purchase != null) 'purchase': purchase,
+          if (quotation != null) 'quotation': quotation,
+        });
+  static DocumentTemplates parse(String? stored) {
+    if (stored?.trim().startsWith('{') ?? false) {
+      try {
+        final data = jsonDecode(stored!) as Map<String, dynamic>;
+        String? value(String key) =>
+            data[key] is String && !(data[key] as String).trim().startsWith('{')
+            ? data[key] as String
+            : null;
+        return DocumentTemplates(
+          defaultId: value('default') ?? 'classic',
+          invoice: value('invoice'),
+          purchase: value('purchase'),
+          quotation: value('quotation'),
+        );
+      } catch (_) {
+        return const DocumentTemplates();
+      }
+    }
+    return DocumentTemplates(defaultId: PdfTemplateStyle.resolve(stored).id);
   }
 }

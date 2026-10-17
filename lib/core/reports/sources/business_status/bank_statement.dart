@@ -1,4 +1,5 @@
 import 'package:atria/core/database/app_database.dart';
+import 'package:atria/core/database/repositories/bank_balance.dart';
 import 'package:atria/core/reports/catalogue/report_catalogue.dart';
 import 'package:atria/core/reports/engine/report_result.dart';
 import 'package:atria/core/reports/engine/report_source.dart';
@@ -98,10 +99,11 @@ Future<List<ReportFilterOption<Object?>>> _bankOptions(
   ReportSpec spec,
   String filterId,
 ) async {
-  final accounts = await (db.select(db.bankAccounts)
-        ..where((a) => a.firmId.equals(firmId))
-        ..orderBy([(a) => OrderingTerm.asc(a.name)]))
-      .get();
+  final accounts =
+      await (db.select(db.bankAccounts)
+            ..where((a) => a.firmId.equals(firmId))
+            ..orderBy([(a) => OrderingTerm.asc(a.name)]))
+          .get();
   return [
     for (final account in accounts)
       ReportFilterOption<Object?>(value: account.id, label: account.name),
@@ -124,15 +126,15 @@ class _Movement {
   // `prefer_initializing_formals` is deliberately declined: the field is
   // private so that a null means "this side did not move", which is a reading
   // decision, and an initializing formal would publish it as writable state.
-_Movement(
+  _Movement(
     this.date,
     this.particulars,
     this.reference, {
     Decimal? receipt,
     Decimal? payment,
     this.order = 0,
-  })  : _receipt = receipt,
-        _payment = payment;
+  }) : _receipt = receipt,
+       _payment = payment;
 
   final DateTime date;
   final String particulars;
@@ -174,8 +176,8 @@ Future<List<ReportRow>> bankStatementRows(
   } else {
     query.where((a) => a.firmId.equals(firmId) & a.id.equals(selected));
   }
-  final accounts =
-      await (query..orderBy([(a) => OrderingTerm.asc(a.name)])).get();
+  final accounts = await (query..orderBy([(a) => OrderingTerm.asc(a.name)]))
+      .get();
   if (accounts.isEmpty) return const [];
 
   final rows = <ReportRow>[];
@@ -187,88 +189,52 @@ Future<List<ReportRow>> bankStatementRows(
     //
     // A cheque is counted only once cleared. `chequeStatus` is null for money
     // that is not a cheque, and those rows are counted on their date.
-    final payments = await (db.select(db.payments)
-          ..where((p) =>
-              p.firmId.equals(firmId) &
-              p.bankAccountId.equals(account.id) &
-              ReportFilters.within(p.date, window)))
-        .get();
+    final payments =
+        await (db.select(db.payments)..where(
+              (p) =>
+                  p.firmId.equals(firmId) &
+                  p.bankAccountId.equals(account.id) &
+                  p.isDeleted.equals(false),
+            ))
+            .get();
 
     for (final payment in payments) {
-      final cheque = payment.chequeStatus;
-      if (cheque == 'pending' || cheque == 'deposited' || cheque == 'bounced') {
-        continue;
-      }
+      if (bankPaymentAmount(payment) == 0) continue;
       final amount = dec(payment.amount);
       final isReceipt = payment.type == 'payment_in';
       final party = (payment.partyName ?? '').trim();
-      movements.add(_Movement(
-        payment.date,
-        party.isEmpty
-            ? (isReceipt ? 'Receipt' : 'Payment')
-            : (isReceipt ? 'Received from $party' : 'Paid to $party'),
-        (payment.reference ?? payment.number).trim(),
-        receipt: isReceipt ? amount : Decimal.zero,
-        payment: isReceipt ? Decimal.zero : amount,
-        order: isReceipt ? 0 : 1,
-      ));
+      movements.add(
+        _Movement(
+          bankPaymentDate(payment),
+          party.isEmpty
+              ? (isReceipt ? 'Receipt' : 'Payment')
+              : (isReceipt ? 'Received from $party' : 'Paid to $party'),
+          (payment.reference ?? payment.number).trim(),
+          receipt: isReceipt ? amount : Decimal.zero,
+          payment: isReceipt ? Decimal.zero : amount,
+          order: isReceipt ? 0 : 1,
+        ),
+      );
     }
 
-    // ---- Loan movements --------------------------------------------------
+    // ---- Loans -----------------------------------------------------------
     //
-    // A loan repayment leaves this account, a disbursement arrives in it. The
-    // interest is part of the amount that moved, so it is named in the
-    // particulars rather than added to the principal — the money column is what
-    // left, and splitting it there would not foot.
-    final loans = await (db.select(db.loans)..where((l) => l.firmId.equals(firmId)))
-        .get();
-    final loanIds = [for (final loan in loans) loan.id];
-    if (loanIds.isNotEmpty) {
-      final loanTransactions = await (db.select(db.loanTransactions)
-            ..where((t) =>
-                t.firmId.equals(firmId) &
-                t.loanId.isIn(loanIds) &
-                ReportFilters.within(t.date, window)))
-          .get();
-      final loanNames = {for (final loan in loans) loan.id: loan.partyName ?? 'Loan'};
-      for (final entry in loanTransactions) {
-        final name = loanNames[entry.loanId] ?? 'Loan';
-        switch (entry.kind) {
-          case 'disbursement':
-            movements.add(_Movement(
-              entry.date,
-              'Loan received from $name',
-              entry.reference ?? '',
-              receipt: dec(entry.amount),
-            ));
-          case 'repayment':
-            movements.add(_Movement(
-              entry.date,
-              'Loan repaid to $name',
-              entry.reference ?? '',
-              payment: dec(entry.amount),
-            ));
-          case 'interest_charge':
-            movements.add(_Movement(
-              entry.date,
-              'Interest charged on $name',
-              entry.reference ?? '',
-              payment: dec(entry.amount),
-            ));
-          case 'adjustment':
-            final isIn = dec(entry.amount) > Decimal.zero;
-            movements.add(_Movement(
-              entry.date,
-              'Loan adjustment — $name',
-              entry.reference ?? '',
-              receipt: isIn ? dec(entry.amount) : Decimal.zero,
-              payment: isIn ? Decimal.zero : -dec(entry.amount),
-            ));
-          default:
-            break;
-        }
-      }
-    }
+    // Deliberately absent, and this is the fix rather than an omission.
+    //
+    // `loan_transactions` has **no `bankAccountId`**: a loan is a schedule
+    // against a party, not a movement against an account. There is therefore
+    // nothing to attribute a disbursement to, so the query that used to sit
+    // here — inside this per-account loop — re-read every firm loan for every
+    // account and appended the identical rows to each one. A business that took
+    // one ₹2,00,000 loan produced a statement claiming both its HDFC and its
+    // ICICI accounts received it, and it corrupted each account's *opening*
+    // balance too, because the opening is derived by subtracting these
+    // movements back out.
+    //
+    // Loans are reported by the Loan Statement, which has the schedule to make
+    // them meaningful. Attributing one to an account needs a column that does
+    // not exist yet; inventing an attribution here is worse than omitting it,
+    // because a bank reconciliation is the one figure that must be right.
 
     movements.sort((a, b) {
       final byDate = a.date.compareTo(b.date);
@@ -277,10 +243,11 @@ Future<List<ReportRow>> bankStatementRows(
 
     // ---- The opening balance ---------------------------------------------
     //
-    // `currentBalance` is the balance **now** — the ledger's cache, which
-    // already contains everything this period did. So the opening figure is
-    // what the account held *before* it: subtract every movement back out, then
-    // walk forward through them again.
+    // `currentBalance` is the balance **now** — it already contains everything
+    // this period did, plus whatever the account held before the app recorded
+    // anything. So the opening figure is what the account held *before* the
+    // window: subtract every movement back out, then walk forward through them
+    // again.
     //
     // **The sign is load-bearing and is the whole report.** Adding the
     // movements instead of subtracting them yields a statement whose last line
@@ -289,6 +256,11 @@ Future<List<ReportRow>> bankStatementRows(
     // to check. Deriving the opening the other way (assume zero, or assume
     // `currentBalance` *is* the opening) is wrong for every period that does not
     // begin the day the account did.
+    //
+    // An account can legitimately hold money this table never saw a movement for
+    // — a balance brought forward from before the books were set up — so the
+    // opening cannot be re-derived from `payments` alone. That column is the
+    // record of it, and `PaymentRepository` maintains it on every write.
     var opening = dec(account.currentBalance);
     for (final movement in movements) {
       opening -= movement.balanceChange;
@@ -296,31 +268,41 @@ Future<List<ReportRow>> bankStatementRows(
 
     var balance = opening;
     for (final movement in movements) {
+      if (window.to != null && movement.date.isAfter(window.to!)) continue;
       balance += movement.balanceChange;
-      rows.add(ReportRow({
-        'date': movement.date,
-        'account': account.name,
-        'particulars': movement.particulars,
-        'reference': movement.reference,
-        'receipt': movement.receipt,
-        'payment': movement.payment,
-        'balance': balance,
-      }, label: '${account.name} · ${movement.particulars}'));
+      if (window.from != null && movement.date.isBefore(window.from!)) continue;
+      rows.add(
+        ReportRow({
+          'date': movement.date,
+          'account': account.name,
+          'particulars': movement.particulars,
+          'reference': movement.reference,
+          'receipt': movement.receipt,
+          'payment': movement.payment,
+          'balance': balance,
+        }, label: '${account.name} · ${movement.particulars}'),
+      );
     }
 
     // An account with no movement still gets a row: a statement of accounts
     // that omits the account nobody used is not a statement of accounts, and a
     // reader checking a balance against the bank has nothing to compare against.
-    if (movements.isEmpty) {
-      rows.add(ReportRow({
-        'date': window.from,
-        'account': account.name,
-        'particulars': 'No movement in this period',
-        'reference': '',
-        'receipt': Decimal.zero,
-        'payment': Decimal.zero,
-        'balance': opening,
-      }, label: '${account.name} · no movement'));
+    if (!movements.any(
+      (m) =>
+          (window.from == null || !m.date.isBefore(window.from!)) &&
+          (window.to == null || !m.date.isAfter(window.to!)),
+    )) {
+      rows.add(
+        ReportRow({
+          'date': window.from,
+          'account': account.name,
+          'particulars': 'No movement in this period',
+          'reference': '',
+          'receipt': Decimal.zero,
+          'payment': Decimal.zero,
+          'balance': balance,
+        }, label: '${account.name} · no movement'),
+      );
     }
   }
 
@@ -330,6 +312,6 @@ Future<List<ReportRow>> bankStatementRows(
 /// A function, not a string — the source's `notes` slot is
 /// `List<String> Function(ReportResult)`.
 List<String> _bankStatementNotes(ReportResult result) => [
-      'Reads payments and loan transactions posted to each account. Cheques are '
-      'counted only once cleared.',
-    ];
+  'Reads recorded payments posted to each account. Deleted payments are '
+      'excluded; cheques enter the bank on their clearance date.',
+];

@@ -167,10 +167,22 @@ class _SalesListScreenState extends ConsumerState<SalesListScreen> {
     // controls.
     return AtriaListPage(
       title: _pageTitle,
-      mobileHeader: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        MobileDocumentTabs(active: _docType == 'quotation' ? 'Quotations' : 'Sales'),
-        if (_docType != 'invoice' && _docType != 'quotation') Padding(padding: const EdgeInsets.fromLTRB(14, 12, 14, 0), child: Text(_pageTitle, style: Theme.of(context).textTheme.titleMedium)),
-      ]),
+      mobileHeader: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          MobileDocumentTabs(
+            active: _docType == 'quotation' ? 'Quotations' : 'Sales',
+          ),
+          if (_docType != 'invoice' && _docType != 'quotation')
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+              child: Text(
+                _pageTitle,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+        ],
+      ),
       actions: [
         AtriaPrimaryAction(
           label: _newLabel,
@@ -216,7 +228,8 @@ class _SalesListScreenState extends ConsumerState<SalesListScreen> {
         // Only for the document types that actually have a lifecycle to
         // filter. On invoices every row is 'confirmed', so the filter would
         // offer four segments of which three return nothing.
-        if (_statusSegments.isNotEmpty && !(Theme.of(context).platform.isMobileUi && _docType == 'invoice'))
+        if (_statusSegments.isNotEmpty &&
+            !(Theme.of(context).platform.isMobileUi && _docType == 'invoice'))
           AtriaAdaptiveFilter<String>(
             label: 'Status',
             segments: _statusSegments,
@@ -236,7 +249,9 @@ class _SalesListScreenState extends ConsumerState<SalesListScreen> {
           ),
       ],
       body: _SaleList(
-        key: ValueKey('$_docType|${_range.cacheKey}|${_status?.name}'),
+        key: ValueKey(
+          '${ref.watch(activeFirmIdProvider)}|$_docType|${_range.cacheKey}|${_status?.name}',
+        ),
         docType: _docType,
         search: _search,
         range: _range,
@@ -399,12 +414,20 @@ class _SaleListState extends ConsumerState<_SaleList> {
   ) {
     final stats = _statsOf(data);
     final mobile = Theme.of(context).platform.isMobileUi;
-    final filtered = !mobile || widget.docType != 'invoice' ? data : data.where((invoice) => switch (_mobilePaymentFilter) {
-      'paid' => invoice.status != 'cancelled' && invoice.balanceDue <= .001,
-      'pending' => invoice.status != 'cancelled' && invoice.balanceDue > .001,
-      'cancelled' => invoice.status == 'cancelled',
-      _ => true,
-    }).toList();
+    final filtered = !mobile || widget.docType != 'invoice'
+        ? data
+        : data
+              .where(
+                (invoice) => switch (_mobilePaymentFilter) {
+                  'paid' =>
+                    invoice.status != 'cancelled' && invoice.balanceDue <= .001,
+                  'pending' =>
+                    invoice.status != 'cancelled' && invoice.balanceDue > .001,
+                  'cancelled' => invoice.status == 'cancelled',
+                  _ => true,
+                },
+              )
+              .toList();
     return ListView(
       padding: const EdgeInsets.fromLTRB(0, 8, 0, 96),
       children: [
@@ -417,15 +440,30 @@ class _SaleListState extends ConsumerState<_SaleList> {
         ),
         if (mobile && widget.docType == 'invoice') ...[
           AtriaSegmentedFilter<String>(
-            padding: EdgeInsets.zero, scrollable: true, value: _mobilePaymentFilter,
-            segments: [AtriaSegment(value: 'all', label: 'All Transactions', count: data.length), const AtriaSegment(value: 'paid', label: 'Paid'), const AtriaSegment(value: 'pending', label: 'Pending'), const AtriaSegment(value: 'cancelled', label: 'Cancelled')],
+            padding: EdgeInsets.zero,
+            scrollable: true,
+            value: _mobilePaymentFilter,
+            segments: [
+              AtriaSegment(
+                value: 'all',
+                label: 'All Transactions',
+                count: data.length,
+              ),
+              const AtriaSegment(value: 'paid', label: 'Paid'),
+              const AtriaSegment(value: 'pending', label: 'Pending'),
+              const AtriaSegment(value: 'cancelled', label: 'Cancelled'),
+            ],
             onChanged: (value) => setState(() => _mobilePaymentFilter = value),
           ),
           const SizedBox(height: 12),
         ],
         const SizedBox(height: 4),
         _selectionBar(data, selection),
-        if (filtered.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('No transactions in this filter'))),
+        if (filtered.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(24),
+            child: Center(child: Text('No transactions in this filter')),
+          ),
         for (final invoice in filtered)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
@@ -492,13 +530,13 @@ class _SaleListState extends ConsumerState<_SaleList> {
         ),
         _selectionBar(data, selection),
         TransactionTableHeader(
-          columns: const TransactionColumns(
+          columns: TransactionColumns(
             date: 'Date',
             number: 'No.',
             party: 'Customer',
             detail: 'Status',
             amount: 'Amount',
-            balance: 'Balance',
+            balance: widget.docType == 'invoice' ? 'Balance' : '',
           ),
           // The kebab button a row shows is a full 48px tap target, so the
           // header and totals reserve the same width — a 36px slot left the
@@ -862,6 +900,9 @@ DocumentStatus? _lifecycleOf(SalesInvoiceEntity doc, String docType) {
   if (lifecycle != null) {
     return (label: lifecycle.label, kind: lifecycle.kind);
   }
+  if (['quotation', 'sales_order', 'delivery_note'].contains(docType)) {
+    return (label: 'Open', kind: ChipKind.neutral);
+  }
   if (_isOverdue(doc)) {
     return (label: 'Overdue', kind: ChipKind.danger);
   }
@@ -1063,6 +1104,7 @@ class _SaleTableRow extends ConsumerWidget {
       amount: Money.of(invoice.grandTotal),
       amountColorize: false,
       balance: Money.of(invoice.balanceDue),
+      showBalance: docType == 'invoice',
       statusLabel: _rowStatus(invoice, docType).label,
       statusKind: _rowStatus(invoice, docType).kind,
       // The Status column already says it — a pill beside the balance

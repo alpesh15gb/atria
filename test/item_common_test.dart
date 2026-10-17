@@ -32,7 +32,7 @@ void main() {
   setUp(() async {
     db = AppDatabase.test(NativeDatabase.memory());
     addTearDown(db.close);
-    firmId = (await db.firmRepository.create(name: 'Test', stateCode: '29')).id;
+    firmId = (await db.firmRepository.create(gstin: '29ABCDE1234F1Z5', name: 'Test', stateCode: '29')).id;
     sales = db.salesRepositoryFor(firmId);
     purchases = db.purchaseRepositoryFor(firmId);
     final item = await db.itemRepositoryFor(firmId).create(

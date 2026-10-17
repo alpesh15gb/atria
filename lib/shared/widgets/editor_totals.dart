@@ -177,10 +177,12 @@ class AtriaTotalsBlock extends StatelessWidget {
     this.totalLabel = 'Total',
     this.footer,
     this.inline = true,
+    this.showGst = true,
   });
 
   /// Engine output for the document's valid lines.
   final GstResult totals;
+  final bool showGst;
 
   /// Shipping, freight, other charges — added on top of the engine's total.
   final Decimal? extraCharges;
@@ -239,7 +241,7 @@ class AtriaTotalsBlock extends StatelessWidget {
       if (totals.invoiceDiscount > Decimal.zero)
         EditorTotalsRow('Invoice discount', -totals.invoiceDiscount,
             signed: true),
-      EditorTotalsRow('Taxable value', totals.taxableValue, emphasize: true),
+      EditorTotalsRow(showGst ? 'Taxable value' : 'Net amount', totals.taxableValue, emphasize: true),
       if (_split != GstSplit.interState) ...[
         if (totals.cgstTotal > Decimal.zero)
           EditorTotalsRow(

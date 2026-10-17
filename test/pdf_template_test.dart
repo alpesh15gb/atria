@@ -93,7 +93,7 @@ void main() {
     expect(firm.name, 'Alpha Traders');
 
     for (final style in PdfTemplateStyle.all) {
-      final bytes = await InvoicePdf.forFirm(firm)
+      final bytes = await InvoicePdf.forFirm(firm.copyWith(pdfTemplate: style.id))
           .build(invoice: invoice, items: items);
       // A PDF always starts with %PDF-; anything else means the builder threw
       // and something swallowed it into an empty buffer.
@@ -245,7 +245,7 @@ void main() {
 
       expect(
         upgraded.schemaVersion,
-        12,
+        14,
         reason: 'the chain runs all the way to current, not just to 8',
       );
     });

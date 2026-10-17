@@ -47,10 +47,7 @@ class ReportPdfBuilder {
   }) async {
     final spec = result.spec;
     // Helvetica has no ₹ (see PdfFonts); Inter rides along as a fallback.
-    final doc = pw.Document(
-      title: title,
-      theme: await PdfFonts.theme(),
-    );
+    final doc = pw.Document(title: title, theme: await PdfFonts.theme());
 
     doc.addPage(
       pw.MultiPage(
@@ -59,10 +56,7 @@ class ReportPdfBuilder {
         // reader who switched to A5 got an A4 document laid out at A4 widths,
         // which runs the right-hand columns off the edge of the page.
         pageFormat: format ?? style.pageFormat,
-        margin: pw.EdgeInsets.symmetric(
-          horizontal: style.gutter,
-          vertical: 28,
-        ),
+        margin: pw.EdgeInsets.symmetric(horizontal: style.gutter, vertical: 28),
         maxPages: maxPages,
         header: (context) => _runningHead(result, context),
         footer: (context) => _pageFoot(context),
@@ -83,7 +77,9 @@ class ReportPdfBuilder {
 
   /// Writes the PDF under the shared export directory and returns the file.
   Future<File> write(ReportResult result, Directory dir) async {
-    final file = File('${dir.path}/${ReportExportService.fileStem(result)}.pdf');
+    final file = File(
+      '${dir.path}/${ReportExportService.fileStem(result)}.pdf',
+    );
     final bytes = await build(result, title: result.spec.title);
     await file.writeAsBytes(bytes, flush: true);
     return file;
@@ -159,9 +155,7 @@ class ReportPdfBuilder {
     return pw.Container(
       padding: const pw.EdgeInsets.only(bottom: 6),
       decoration: pw.BoxDecoration(
-        border: pw.Border(
-          bottom: pw.BorderSide(color: style.line, width: 0.6),
-        ),
+        border: pw.Border(bottom: pw.BorderSide(color: style.line, width: 0.6)),
       ),
       child: pw.Row(
         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -183,9 +177,7 @@ class ReportPdfBuilder {
     return pw.Container(
       padding: const pw.EdgeInsets.only(top: 6),
       decoration: pw.BoxDecoration(
-        border: pw.Border(
-          top: pw.BorderSide(color: style.line, width: 0.6),
-        ),
+        border: pw.Border(top: pw.BorderSide(color: style.line, width: 0.6)),
       ),
       child: pw.Row(
         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -216,10 +208,7 @@ class ReportPdfBuilder {
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
           for (final note in result.notes)
-            pw.Text(
-              note,
-              style: pw.TextStyle(fontSize: 8.5, color: style.ink),
-            ),
+            pw.Text(note, style: pw.TextStyle(fontSize: 8.5, color: style.ink)),
         ],
       ),
     );
@@ -300,8 +289,10 @@ class ReportPdfBuilder {
             for (final column in spec.columns)
               pw.Container(
                 alignment: _alignment(column),
-                padding:
-                    const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 3),
+                padding: const pw.EdgeInsets.symmetric(
+                  vertical: 4,
+                  horizontal: 3,
+                ),
                 child: pw.Text(
                   row.text(column),
                   textAlign: _textAlign(column),
@@ -324,9 +315,14 @@ class ReportPdfBuilder {
             decoration: pw.BoxDecoration(color: style.tint),
             children: [
               pw.Container(
-                padding: const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 3),
+                padding: const pw.EdgeInsets.symmetric(
+                  vertical: 4,
+                  horizontal: 3,
+                ),
                 child: pw.Text(
-                  group.label == null ? group.name : '${group.name} · ${group.label}',
+                  group.label == null
+                      ? group.name
+                      : '${group.name} · ${group.label}',
                   style: pw.TextStyle(
                     fontSize: 9,
                     fontWeight: pw.FontWeight.bold,
@@ -334,8 +330,7 @@ class ReportPdfBuilder {
                   ),
                 ),
               ),
-              for (final _ in spec.columns.skip(1))
-                pw.SizedBox.shrink(),
+              for (final _ in spec.columns.skip(1)) pw.SizedBox.shrink(),
             ],
           ),
         );
@@ -385,11 +380,7 @@ class ReportPdfBuilder {
     return rows;
   }
 
-  pw.Widget _cell(
-    String value,
-    ReportColumn column, {
-    bool bold = false,
-  }) {
+  pw.Widget _cell(String value, ReportColumn column, {bool bold = false}) {
     return pw.Container(
       alignment: _alignment(column),
       padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 3),
@@ -405,21 +396,21 @@ class ReportPdfBuilder {
     );
   }
 
-  pw.Alignment _alignment(ReportColumn column) => switch (
-      column.effectiveAlign) {
-    ReportColumnAlign.left => pw.Alignment.centerLeft,
-    ReportColumnAlign.right => pw.Alignment.centerRight,
-    ReportColumnAlign.center => pw.Alignment.center,
-    ReportColumnAlign.auto => pw.Alignment.centerLeft,
-  };
+  pw.Alignment _alignment(ReportColumn column) =>
+      switch (column.effectiveAlign) {
+        ReportColumnAlign.left => pw.Alignment.centerLeft,
+        ReportColumnAlign.right => pw.Alignment.centerRight,
+        ReportColumnAlign.center => pw.Alignment.center,
+        ReportColumnAlign.auto => pw.Alignment.centerLeft,
+      };
 
-  pw.TextAlign _textAlign(ReportColumn column) => switch (
-      column.effectiveAlign) {
-    ReportColumnAlign.left => pw.TextAlign.left,
-    ReportColumnAlign.right => pw.TextAlign.right,
-    ReportColumnAlign.center => pw.TextAlign.center,
-    ReportColumnAlign.auto => pw.TextAlign.left,
-  };
+  pw.TextAlign _textAlign(ReportColumn column) =>
+      switch (column.effectiveAlign) {
+        ReportColumnAlign.left => pw.TextAlign.left,
+        ReportColumnAlign.right => pw.TextAlign.right,
+        ReportColumnAlign.center => pw.TextAlign.center,
+        ReportColumnAlign.auto => pw.TextAlign.left,
+      };
 
   /// Red for a negative, and only where the column asked for it.
   ///

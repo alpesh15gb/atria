@@ -76,6 +76,7 @@ class ReportColumn {
     this.negate = false,
     this.align = ReportColumnAlign.auto,
     this.totalLabel,
+    this.optional = false,
   });
 
   /// The key a row must carry this column's value under.
@@ -114,6 +115,23 @@ class ReportColumn {
   /// A total of "Total" is fine; a total of "Amount" is noise.
   final String? totalLabel;
 
+  /// **This column is allowed to be empty on every row.**
+  ///
+  /// Some columns are genuinely optional: an item's reorder level and HSN are
+  /// unset on a brand-new catalogue, and a source spells that `''` because
+  /// [ReportRow.number] must not read it as zero. That `''` is a deliberate "not
+  /// applicable", not a missing value — but `ReportIntegrity`'s third check
+  /// counts a cell as filled only when it is neither null nor empty, so it
+  /// reported *"Stock summary: HSN is declared but no row fills it"* and put a
+  /// red **"this report does not foot — do not use these totals"** banner over a
+  /// perfectly correct report. Telling the user not to trust totals that are
+  /// right is worse than showing no banner.
+  ///
+  /// Set it on a column whose absence is a fact about the business rather than a
+  /// fault in the source. It suppresses *only* that third check; a row still
+  /// missing the key entirely is caught by the first.
+  final bool optional;
+
   /// The alignment this column renders at.
   ///
   /// Text is left, everything numeric is right, and that is not negotiable:
@@ -145,6 +163,7 @@ class ReportColumn {
     bool? negate,
     ReportColumnAlign? align,
     String? totalLabel,
+    bool? optional,
   }) {
     return ReportColumn(
       key: key ?? this.key,
@@ -157,6 +176,7 @@ class ReportColumn {
       negate: negate ?? this.negate,
       align: align ?? this.align,
       totalLabel: totalLabel ?? this.totalLabel,
+      optional: optional ?? this.optional,
     );
   }
 
@@ -172,7 +192,8 @@ class ReportColumn {
       other.colorize == colorize &&
       other.negate == negate &&
       other.align == align &&
-      other.totalLabel == totalLabel;
+      other.totalLabel == totalLabel &&
+      other.optional == optional;
 
   @override
   int get hashCode => Object.hash(
@@ -186,6 +207,7 @@ class ReportColumn {
     negate,
     align,
     totalLabel,
+    optional,
   );
 }
 

@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -72,39 +73,61 @@ class AppTheme {
     return _base(scheme, Brightness.light);
   }
 
-  /// The screenshot-inspired phone palette. Desktop themes above are untouched.
-  static ThemeData mobile({bool dark = true}) {
+  /// Executive FinTech mobile surfaces from the supplied Stitch design.
+  static ThemeData mobile({bool dark = false}) {
     final base = dark ? AppTheme.dark() : AppTheme.light();
-    const blue = Color(0xFF5263E5);
+    final blue = dark ? const Color(0xFF6BD8CB) : const Color(0xFF00685F);
     final scheme = base.colorScheme.copyWith(
       primary: blue,
-      onPrimary: Colors.white,
+      onPrimary: dark ? const Color(0xFF00201D) : Colors.white,
       primaryContainer: dark
-          ? const Color(0xFF333B65)
-          : const Color(0xFFE8EBFF),
+          ? const Color(0xFF164B45)
+          : const Color(0xFFE0F5F0),
       onPrimaryContainer: dark
-          ? const Color(0xFFDDE1FF)
-          : const Color(0xFF303FA0),
-      secondary: blue,
-      surface: dark ? const Color(0xFF2B2B2D) : Colors.white,
-      onSurface: dark ? const Color(0xFFE6E6E8) : const Color(0xFF252528),
+          ? const Color(0xFFBDF1E8)
+          : const Color(0xFF005049),
+      secondary: dark ? const Color(0xFFC4C1FB) : const Color(0xFF5B598C),
+      surface: dark ? const Color(0xFF242A28) : Colors.white,
+      onSurface: dark ? const Color(0xFFF3EFEB) : const Color(0xFF1E1B19),
       onSurfaceVariant: dark
-          ? const Color(0xFFADADB1)
-          : const Color(0xFF69696F),
+          ? const Color(0xFFBAC7C2)
+          : const Color(0xFF3D4947),
       surfaceContainerHighest: dark
-          ? const Color(0xFF333335)
-          : const Color(0xFFF0F1F5),
-      outline: dark ? const Color(0xFF3B3B3E) : const Color(0xFFE5E5EB),
+          ? const Color(0xFF303936)
+          : const Color(0xFFF4ECE8),
+      outline: dark ? const Color(0xFF43514B) : const Color(0xFFE9E1DD),
+      outlineVariant: dark ? const Color(0xFF35423D) : const Color(0xFFF4ECE8),
     );
-    final radius = BorderRadius.circular(10);
-    return base.copyWith(
+    final radius = BorderRadius.circular(16);
+    final mobileText = base.textTheme.apply(
+      fontFamily: 'Hanken Grotesk',
+      fontFamilyFallback: const ['Inter'],
+    );
+    return _base(scheme, dark ? Brightness.dark : Brightness.light).copyWith(
+      textTheme: mobileText.copyWith(
+        headlineSmall: mobileText.headlineSmall?.copyWith(
+          fontSize: 24,
+          fontFamily: 'Manrope',
+          fontWeight: FontWeight.w700,
+        ),
+        titleLarge: mobileText.titleLarge?.copyWith(
+          fontFamily: 'Manrope',
+          fontWeight: FontWeight.w700,
+        ),
+        titleMedium: mobileText.titleMedium?.copyWith(
+          fontFamily: 'Manrope',
+          fontWeight: FontWeight.w700,
+        ),
+      ),
       colorScheme: scheme,
       scaffoldBackgroundColor: dark
-          ? const Color(0xFF1E1F21)
-          : const Color(0xFFF6F6F8),
+          ? const Color(0xFF171E1B)
+          : const Color(0xFFFFF8F5),
       canvasColor: scheme.surface,
       appBarTheme: base.appBarTheme.copyWith(
-        backgroundColor: scheme.surface,
+        backgroundColor: dark
+            ? const Color(0xFF171E1B)
+            : const Color(0xFFFFF8F5),
         foregroundColor: scheme.onSurface,
         titleTextStyle: base.textTheme.titleMedium?.copyWith(
           color: scheme.onSurface,
@@ -120,7 +143,7 @@ class AppTheme {
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           backgroundColor: blue,
-          foregroundColor: Colors.white,
+          foregroundColor: scheme.onPrimary,
           minimumSize: const Size(0, 48),
           shape: RoundedRectangleBorder(borderRadius: radius),
         ),
@@ -135,22 +158,22 @@ class AppTheme {
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: radius,
-          borderSide: BorderSide.none,
+          borderSide: BorderSide(color: scheme.outline),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: radius,
-          borderSide: const BorderSide(color: blue),
+          borderSide: BorderSide(color: blue, width: 1.5),
         ),
       ),
       navigationBarTheme: base.navigationBarTheme.copyWith(
         backgroundColor: scheme.surface,
-        height: 62,
-        indicatorColor: Colors.transparent,
+        height: 68,
+        indicatorColor: scheme.primaryContainer,
         labelTextStyle: WidgetStateProperty.resolveWith(
           (states) => base.textTheme.labelSmall?.copyWith(
             fontSize: 10,
             color: states.contains(WidgetState.selected)
-                ? scheme.onSurface
+                ? scheme.primary
                 : scheme.onSurfaceVariant,
           ),
         ),
@@ -158,19 +181,25 @@ class AppTheme {
           (states) => IconThemeData(
             size: 22,
             color: states.contains(WidgetState.selected)
-                ? scheme.onSurface
+                ? scheme.primary
                 : scheme.onSurfaceVariant,
           ),
         ),
       ),
       bottomSheetTheme: base.bottomSheetTheme.copyWith(
-        backgroundColor: dark ? const Color(0xFF1E1F21) : Colors.white,
+        backgroundColor: scheme.surface,
       ),
       dialogTheme: base.dialogTheme.copyWith(backgroundColor: scheme.surface),
-      progressIndicatorTheme: ProgressIndicatorThemeData(color: blue, circularTrackColor: scheme.primaryContainer),
+      progressIndicatorTheme: ProgressIndicatorThemeData(
+        color: blue,
+        circularTrackColor: scheme.primaryContainer,
+      ),
       switchTheme: SwitchThemeData(
         thumbColor: const WidgetStatePropertyAll(Colors.white),
-        trackColor: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.selected) ? blue : scheme.outline),
+        trackColor: WidgetStateProperty.resolveWith(
+          (states) =>
+              states.contains(WidgetState.selected) ? blue : scheme.outline,
+        ),
       ),
       extensions: [atriaMobileColors(dark)],
     );
@@ -178,8 +207,10 @@ class AppTheme {
 
   static AtriaColorsExtension atriaMobileColors(bool dark) =>
       (dark ? _darkExt : _lightExt).copyWith(
-        brandGradientStart: const Color(0xFF5263E5),
-        brandGradientEnd: const Color(0xFF3848C0),
+        positive: dark ? const Color(0xFF6BD8CB) : const Color(0xFF00685F),
+        negative: dark ? const Color(0xFFFFB4AB) : const Color(0xFFBA1A1A),
+        brandGradientStart: const Color(0xFF00685F),
+        brandGradientEnd: const Color(0xFF008378),
       );
 
   static ThemeData dark() {
@@ -252,6 +283,15 @@ class AppTheme {
       textTheme: AppTypography.textTheme.apply(
         bodyColor: scheme.onSurface,
         displayColor: scheme.onSurface,
+      ),
+      pageTransitionsTheme: PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
+          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.linux: FadeUpwardsPageTransitionsBuilder(),
+          TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
+        },
       ),
       primaryTextTheme: AppTypography.textTheme.apply(
         bodyColor: scheme.onPrimary,
@@ -383,6 +423,7 @@ class AppTheme {
         thickness: 1,
         space: 1,
       ),
+
       // Menus — the filter selects, the kebab menus and the Create menu all
       // route through these. Material's defaults gave them a 4px radius and an
       // 8px elevation, so they read as a different surface than every card.

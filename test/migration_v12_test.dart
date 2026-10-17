@@ -109,7 +109,7 @@ void main() {
     // 3. Reopen: this runs the v11 → v12 upgrade for real.
     final upgraded = AppDatabase.test(NativeDatabase(file));
     addTearDown(upgraded.close);
-    expect(upgraded.schemaVersion, 12);
+    expect(upgraded.schemaVersion, 14);
 
     final firmRow = await (upgraded.select(
       upgraded.firms,
@@ -163,7 +163,7 @@ void main() {
 
     final upgraded = AppDatabase.test(NativeDatabase(file));
     addTearDown(upgraded.close);
-    expect(upgraded.schemaVersion, 12);
+    expect(upgraded.schemaVersion, 14);
 
     expect(await upgraded.select(upgraded.bankAccounts).get(), isEmpty);
     expect(await upgraded.select(upgraded.loans).get(), isEmpty);

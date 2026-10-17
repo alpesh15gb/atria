@@ -1,3 +1,4 @@
+import '../../shared/widgets/gst_registration_field.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -211,9 +212,9 @@ class _FirmSetupScreenState extends ConsumerState<FirmSetupScreen> {
               const SizedBox(height: 6),
               Text(
                 _restoreMessage ??
-                    'This device now holds a session for that account. Your '
-                    'books stay on this device and sync is optional — turn it '
-                    'on in Settings to send and receive changes.',
+                    'You are signed in on this device. Your cloud businesses '
+                    'will open automatically when connected. Changes sync '
+                    'across devices; you can pause cloud sync in Settings.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: scheme.onSurfaceVariant,
                       height: 1.5,
@@ -576,7 +577,11 @@ class _FirmSetupScreenState extends ConsumerState<FirmSetupScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          _gstinField(),
+          GstRegistrationField(
+            controller: _gstinController,
+            gstinField: _gstinField(),
+            onChanged: () => setState(() {}),
+          ),
           const SizedBox(height: 12),
           _FieldRow(
             first: TextFormField(

@@ -169,7 +169,7 @@ void main() {
   /// the header is inside the constrained box, so anything near 1920px means
   /// the frame stopped centring.
   testWidgets(
-    'the sales list caps its column at a reading width on 1920dp',
+    'the sales list uses the available desktop width on 1920dp',
     timeout: timeout,
     (tester) async {
       final (db, container) = await boot();
@@ -185,10 +185,9 @@ void main() {
       expect(error, isNull);
       expect(
         headerWidth,
-        lessThan(1500),
+        greaterThan(1700),
         reason:
-            'the sales list stretches edge to edge on a 1920dp window; '
-            'the frame should centre it at a reading width',
+            'desktop transaction tables should use the available workspace',
       );
       expect(
         headerWidth,

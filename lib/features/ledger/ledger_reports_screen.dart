@@ -10,6 +10,7 @@ import '../../core/theme/app_sizes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/money.dart';
+import 'ledger_report_builder.dart';
 import '../../shared/widgets/atria_list_page.dart';
 import '../../shared/widgets/atria_page_header.dart';
 import '../../shared/widgets/common_widgets.dart';
@@ -76,8 +77,9 @@ class TrialBalanceScreen extends ConsumerWidget {
               title: 'No firm open',
               message: 'Open a business to see its ledger.',
             )
-          : FutureBuilder<TrialBalance>(
-              future: repo.trialBalance(asOf: asOf, from: from),
+          : LedgerReportBuilder<TrialBalance>(
+              repo: repo,
+              query: () => repo.trialBalance(asOf: asOf, from: from),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return EmptyState(
@@ -102,24 +104,35 @@ class TrialBalanceScreen extends ConsumerWidget {
                         'vouchers all appear here once they exist.',
                   );
                 }
-                return ListView(
-                  padding: const EdgeInsets.only(bottom: AppSpace.xxl),
-                  children: [
-                    _BalanceBanner(
-                      balanced: tb.isBalanced,
-                      difference: tb.difference,
-                    ),
-                    const SizedBox(height: AppSpace.md),
-                    _TrialHeader(from != null),
-                    for (final row in tb.rows)
-                      _TrialRow(
-                        row: row,
-                        showOpening: from != null,
-                        onTap: () =>
-                            context.push('/ledger/account/${row.account.id}'),
-                      ),
-                    _TrialTotals(tb: tb, showOpening: from != null),
-                  ],
+                return LayoutBuilder(
+                  builder: (context, constraints) {
+                    final narrow = constraints.maxWidth < 600;
+                    return ListView(
+                      padding: const EdgeInsets.only(bottom: AppSpace.xxl),
+                      children: [
+                        _BalanceBanner(
+                          balanced: tb.isBalanced,
+                          difference: tb.difference,
+                        ),
+                        const SizedBox(height: AppSpace.md),
+                        if (!narrow) _TrialHeader(from != null),
+                        for (final row in tb.rows)
+                          _TrialRow(
+                            row: row,
+                            compact: narrow,
+                            showOpening: from != null,
+                            onTap: () => context.push(
+                              '/ledger/account/${row.account.id}',
+                            ),
+                          ),
+                        _TrialTotals(
+                          tb: tb,
+                          showOpening: from != null,
+                          compact: narrow,
+                        ),
+                      ],
+                    );
+                  },
                 );
               },
             ),
@@ -164,8 +177,9 @@ class BalanceSheetScreen extends ConsumerWidget {
               title: 'No firm open',
               message: 'Open a business to see its balance sheet.',
             )
-          : FutureBuilder<BalanceSheet>(
-              future: repo.balanceSheet(asOf: asOf),
+          : LedgerReportBuilder<BalanceSheet>(
+              repo: repo,
+              query: () => repo.balanceSheet(asOf: asOf),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return EmptyState(
@@ -271,8 +285,10 @@ class AccountLedgerScreen extends ConsumerWidget {
               title: 'No firm open',
               message: 'Open a business to see its ledger.',
             )
-          : FutureBuilder<AccountLedger>(
-              future: repo.accountLedger(accountId, from: from, asOf: asOf),
+          : LedgerReportBuilder<AccountLedger>(
+              repo: repo,
+              query: () =>
+                  repo.accountLedger(accountId, from: from, asOf: asOf),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return EmptyState(
@@ -290,68 +306,78 @@ class AccountLedgerScreen extends ConsumerWidget {
                 }
                 final text = Theme.of(context).textTheme;
                 final muted = Theme.of(context).colorScheme.onSurfaceVariant;
-                return ListView(
-                  padding: const EdgeInsets.only(bottom: AppSpace.xxl),
-                  children: [
-                    AtriaCard(
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '${ledger.account.code}  '
-                                  '${ledger.account.name}',
-                                  style: text.titleMedium,
-                                ),
-                                Text(
-                                  ledger.account.groupName.isEmpty
-                                      ? ledger.account.type
-                                      : ledger.account.groupName,
-                                  style: text.bodySmall?.copyWith(color: muted),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
+                return LayoutBuilder(
+                  builder: (context, constraints) {
+                    final compact = constraints.maxWidth < 600;
+                    return ListView(
+                      padding: const EdgeInsets.only(bottom: AppSpace.xxl),
+                      children: [
+                        AtriaCard(
+                          child: Row(
                             children: [
-                              Text('Closing', style: text.bodySmall),
-                              Text(
-                                '${Formatters.money(Money.of(ledger.closing))} '
-                                '${ledger.closing >= 0 ? 'Dr' : 'Cr'}',
-                                style: text.titleMedium,
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '${ledger.account.code}  '
+                                      '${ledger.account.name}',
+                                      style: text.titleMedium,
+                                    ),
+                                    Text(
+                                      ledger.account.groupName.isEmpty
+                                          ? ledger.account.type
+                                          : ledger.account.groupName,
+                                      style: text.bodySmall?.copyWith(
+                                        color: muted,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text('Closing', style: text.bodySmall),
+                                  Text(
+                                    '${Formatters.money(Money.of(ledger.closing))} '
+                                    '${ledger.closing >= 0 ? 'Dr' : 'Cr'}',
+                                    style: text.titleMedium,
+                                  ),
+                                ],
                               ),
                             ],
                           ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: AppSpace.md),
-                    _LedgerHeaderRow(),
-                    _LedgerPlainRow(
-                      label: 'Opening balance',
-                      amount: ledger.opening,
-                      emphasis: true,
-                    ),
-                    if (ledger.rows.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: AppSpace.lg,
                         ),
-                        child: Text(
-                          'No movements in this period.',
-                          style: text.bodyMedium?.copyWith(color: muted),
+                        const SizedBox(height: AppSpace.md),
+                        if (!compact) _LedgerHeaderRow(),
+                        _LedgerPlainRow(
+                          label: 'Opening balance',
+                          amount: ledger.opening,
+                          emphasis: true,
+                          compact: compact,
                         ),
-                      ),
-                    for (final row in ledger.rows) _LedgerMovementRow(row: row),
-                    _LedgerPlainRow(
-                      label: 'Closing balance',
-                      amount: ledger.closing,
-                      emphasis: true,
-                    ),
-                  ],
+                        if (ledger.rows.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: AppSpace.lg,
+                            ),
+                            child: Text(
+                              'No movements in this period.',
+                              style: text.bodyMedium?.copyWith(color: muted),
+                            ),
+                          ),
+                        for (final row in ledger.rows)
+                          _LedgerMovementRow(row: row, compact: compact),
+                        _LedgerPlainRow(
+                          label: 'Closing balance',
+                          amount: ledger.closing,
+                          emphasis: true,
+                          compact: compact,
+                        ),
+                      ],
+                    );
+                  },
                 );
               },
             ),
@@ -554,12 +580,14 @@ class _TrialHeader extends StatelessWidget {
 
 class _TrialRow extends StatelessWidget {
   const _TrialRow({
+    this.compact = false,
     required this.row,
     required this.showOpening,
     required this.onTap,
   });
 
   final LedgerAccountBalance row;
+  final bool compact;
   final bool showOpening;
   final VoidCallback onTap;
 
@@ -571,6 +599,36 @@ class _TrialRow extends StatelessWidget {
       fontFeatures: const [FontFeature.tabularFigures()],
     );
     final mutedAmount = amountStyle?.copyWith(color: muted);
+    if (compact) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: AtriaCard(
+          child: InkWell(
+            onTap: onTap,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(row.account.name, style: text.titleSmall),
+                Text(
+                  '${row.account.code}  ${row.account.groupName}',
+                  style: text.bodySmall?.copyWith(color: muted),
+                ),
+                const SizedBox(height: 8),
+                if (showOpening)
+                  _LedgerFigure(label: 'Opening', value: _signed(row.opening)),
+                _LedgerFigure(label: 'Debit', value: _plain(row.debit)),
+                _LedgerFigure(label: 'Credit', value: _plain(row.credit)),
+                _LedgerFigure(
+                  label: 'Closing',
+                  value:
+                      '${_plain(row.closing.abs())} ${row.isDr ? 'Dr' : 'Cr'}',
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     return InkWell(
       onTap: onTap,
       child: Padding(
@@ -653,7 +711,13 @@ class _TrialRow extends StatelessWidget {
 }
 
 class _TrialTotals extends StatelessWidget {
-  const _TrialTotals({required this.tb, required this.showOpening});
+  const _TrialTotals({
+    required this.tb,
+    required this.showOpening,
+    this.compact = false,
+  });
+
+  final bool compact;
 
   final TrialBalance tb;
   final bool showOpening;
@@ -665,6 +729,35 @@ class _TrialTotals extends StatelessWidget {
       fontFeatures: const [FontFeature.tabularFigures()],
       fontWeight: FontWeight.w600,
     );
+    if (compact) {
+      return AtriaCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Totals', style: style),
+            if (showOpening)
+              _LedgerFigure(
+                label: 'Opening',
+                value: Formatters.money(
+                  Money.of(tb.totalOpeningDebit - tb.totalOpeningCredit),
+                ),
+              ),
+            _LedgerFigure(
+              label: 'Debit',
+              value: Formatters.money(Money.of(tb.totalDebit)),
+            ),
+            _LedgerFigure(
+              label: 'Credit',
+              value: Formatters.money(Money.of(tb.totalCredit)),
+            ),
+            _LedgerFigure(
+              label: 'Closing',
+              value: Formatters.money(Money.of(tb.totalClosingDebit)),
+            ),
+          ],
+        ),
+      );
+    }
     return Container(
       margin: const EdgeInsets.only(top: AppSpace.sm),
       padding: const EdgeInsets.symmetric(vertical: AppSpace.md),
@@ -860,11 +953,13 @@ class _LedgerPlainRow extends StatelessWidget {
     required this.label,
     required this.amount,
     required this.emphasis,
+    this.compact = false,
   });
 
   final String label;
   final double amount;
   final bool emphasis;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -872,6 +967,16 @@ class _LedgerPlainRow extends StatelessWidget {
     final style = (emphasis ? text.titleMedium : text.bodyMedium)?.copyWith(
       fontFeatures: const [FontFeature.tabularFigures()],
     );
+    if (compact) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppSpace.sm),
+        child: _LedgerFigure(
+          label: label,
+          value:
+              '${Formatters.money(Money.of(amount.abs()))} ${amount >= 0 ? 'Dr' : 'Cr'}',
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: AppSpace.sm),
       child: Row(
@@ -899,7 +1004,9 @@ class _LedgerPlainRow extends StatelessWidget {
 }
 
 class _LedgerMovementRow extends StatelessWidget {
-  const _LedgerMovementRow({required this.row});
+  const _LedgerMovementRow({required this.row, this.compact = false});
+
+  final bool compact;
 
   final LedgerEntryRow row;
 
@@ -908,6 +1015,39 @@ class _LedgerMovementRow extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     final muted = Theme.of(context).colorScheme.onSurfaceVariant;
     final balance = row.balance;
+    if (compact) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppSpace.sm),
+        child: AtriaCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                Formatters.date(row.date),
+                style: text.bodySmall?.copyWith(color: muted),
+              ),
+              Text(row.narration, style: text.bodyMedium),
+              if (row.document != null)
+                Text(row.document!, style: text.bodySmall),
+              const SizedBox(height: AppSpace.sm),
+              _LedgerFigure(
+                label: 'Debit',
+                value: Formatters.money(Money.of(row.debit)),
+              ),
+              _LedgerFigure(
+                label: 'Credit',
+                value: Formatters.money(Money.of(row.credit)),
+              ),
+              _LedgerFigure(
+                label: 'Balance',
+                value:
+                    '${Formatters.money(Money.of(balance.abs()))} ${balance >= 0 ? 'Dr' : 'Cr'}',
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: AppSpace.sm),
       child: Row(
@@ -972,4 +1112,32 @@ class _LedgerMovementRow extends StatelessWidget {
       ),
     );
   }
+}
+
+class _LedgerFigure extends StatelessWidget {
+  const _LedgerFigure({required this.label, required this.value});
+  final String label, value;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 3),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          flex: 2,
+          child: Text(label, style: Theme.of(context).textTheme.bodySmall),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          flex: 3,
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            style: Theme.of(context).textTheme.bodyMedium
+                ?.copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+          ),
+        ),
+      ],
+    ),
+  );
 }

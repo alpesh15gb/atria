@@ -52,7 +52,12 @@ void main() {
     test('accepts numbers wrapped in strings, the way models emit them', () {
       final bill = ScannedBill.fromJson({
         'lines': [
-          {'name': 'Wire 90m', 'quantity': '3', 'rate': '45.5', 'gstRate': '18'},
+          {
+            'name': 'Wire 90m',
+            'quantity': '3',
+            'rate': '45.5',
+            'gstRate': '18',
+          },
         ],
         'shippingCharge': '30',
       });
@@ -94,6 +99,7 @@ void main() {
     late SettingsRepository settings;
     late AppDatabase db;
     late String? lastAuth;
+    late Map<String, dynamic> lastPayload;
 
     setUp(() async {
       db = AppDatabase.test(NativeDatabase.memory());
@@ -101,20 +107,24 @@ void main() {
       lastAuth = null;
       server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       server.listen((request) async {
-        await utf8.decoder.bind(request).join();
+        lastPayload = jsonDecode(
+          await utf8.decoder.bind(request).join(),
+        ) as Map<String, dynamic>;
         lastAuth = request.headers.value('authorization');
         request.response
           ..statusCode = 200
           ..headers.contentType = ContentType.json
-          ..write(jsonEncode({
-            'bill': {
-              'supplierName': 'Fake Traders',
-              'lines': [
-                {'name': 'Item', 'quantity': 1, 'rate': 100, 'gstRate': 18},
-              ],
-            },
-            'model': 'test-model',
-          }));
+          ..write(
+            jsonEncode({
+              'bill': {
+                'supplierName': 'Fake Traders',
+                'lines': [
+                  {'name': 'Item', 'quantity': 1, 'rate': 100, 'gstRate': 18},
+                ],
+              },
+              'model': 'test-model',
+            }),
+          );
         await request.response.close();
       });
       await settings.set(
@@ -146,6 +156,36 @@ void main() {
       expect(bill.supplierName, 'Fake Traders');
       expect(bill.lines.first.name, 'Item');
     });
+
+    test('PDF uploads use the native document field', () async {
+      await ScanClient(ApiConfig(settings)).scanBill(
+        firmId: '018f2a3b-4c5d-7e8f-9a0b-1c2d3e4f5a6b',
+        imageBytes: '%PDF-1.7'.codeUnits,
+        mimeType: 'application/pdf',
+        accessToken: 'access-1',
+      );
+      expect(lastPayload['documentBase64'], base64Encode('%PDF-1.7'.codeUnits));
+      expect(lastPayload.containsKey('imageBase64'), isFalse);
+    });
+
+    test(
+      'multi-page uploads cannot silently become first-page-only scans',
+      () async {
+        final client = ScanClient(ApiConfig(settings));
+        await client.scanBill(
+          firmId: '018f2a3b-4c5d-7e8f-9a0b-1c2d3e4f5a6b',
+          imageBytes: [1, 2, 3],
+          mimeType: 'image/png',
+          accessToken: 'access-1',
+          pages: [
+            [1, 2, 3],
+            [4, 5, 6],
+          ],
+        );
+        expect(lastPayload['imagesBase64'], ['AQID', 'BAUG']);
+        expect(lastPayload.containsKey('imageBase64'), isFalse);
+      },
+    );
   });
 
   group('ScannedBillSeed.matchSupplier', () {
@@ -176,8 +216,10 @@ void main() {
         lines: const [],
       );
 
-      expect(seed.matchSupplier(await repo.all(type: 'supplier'))!.id,
-          existing.id);
+      expect(
+        seed.matchSupplier(await repo.all(type: 'supplier'))!.id,
+        existing.id,
+      );
     });
 
     test('falls back to a case-insensitive name when GSTINs differ', () async {
@@ -194,8 +236,10 @@ void main() {
         lines: const [],
       );
 
-      expect(seed.matchSupplier(await repo.all(type: 'supplier'))!.id,
-          existing.id);
+      expect(
+        seed.matchSupplier(await repo.all(type: 'supplier'))!.id,
+        existing.id,
+      );
     });
 
     test('no match is null, so the editor creates the supplier', () async {

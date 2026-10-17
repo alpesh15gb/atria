@@ -96,7 +96,8 @@ class AtriaLineGrid extends StatelessWidget {
         // nine columns squeezed into a row is the failure that made a saved
         // invoice show only its Item column. Only the desktop surface chooses
         // by width.
-        final wide = !Theme.of(context).platform.isMobileUi &&
+        final wide =
+            !Theme.of(context).platform.isMobileUi &&
             constraints.maxWidth >= Breakpoints.medium;
         if (rows.isEmpty && emptyHint != null) {
           return _EmptyLines(hint: emptyHint!);
@@ -131,8 +132,7 @@ class _Sheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final visible = [
-      for (var i = 0; i < columns.length; i++)
-        (index: i, column: columns[i]),
+      for (var i = 0; i < columns.length; i++) (index: i, column: columns[i]),
     ];
     return Container(
       decoration: BoxDecoration(
@@ -221,31 +221,31 @@ class _SheetRowState extends State<_SheetRow> {
             onLongPress: row.onRemove,
             behavior: HitTestBehavior.translucent,
             child: IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _Gutter(
-                  width: _kGutterWidth,
-                  number: widget.index + 1,
-                  // Excel's row gutter turns into a delete control on hover.
-                  onRemove: row.onRemove,
-                  hovered: _hovered,
-                  tooltip: row.removeTooltip,
-                ),
-                for (var v = 0; v < widget.visible.length; v++)
-                  _cellBox(
-                    flex: widget.visible[v].column.flex,
-                    last: v == widget.visible.length - 1,
-                    divider: scheme.outline,
-                    child: Align(
-                      alignment: widget.visible[v].column.numeric
-                          ? Alignment.centerRight
-                          : Alignment.centerLeft,
-                      child: row.cells[widget.visible[v].index],
-                    ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _Gutter(
+                    width: _kGutterWidth,
+                    number: widget.index + 1,
+                    // Excel's row gutter turns into a delete control on hover.
+                    onRemove: row.onRemove,
+                    hovered: _hovered,
+                    tooltip: row.removeTooltip,
                   ),
-              ],
-            ),
+                  for (var v = 0; v < widget.visible.length; v++)
+                    _cellBox(
+                      flex: widget.visible[v].column.flex,
+                      last: v == widget.visible.length - 1,
+                      divider: scheme.outline,
+                      child: Align(
+                        alignment: widget.visible[v].column.numeric
+                            ? Alignment.centerRight
+                            : Alignment.centerLeft,
+                        child: row.cells[widget.visible[v].index],
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -427,13 +427,22 @@ class _StackedLine extends StatelessWidget {
                   ),
                 ),
                 if (row.onRemove != null)
-                  IconButton(
-                    onPressed: row.onRemove,
-                    tooltip: row.removeTooltip,
-                    visualDensity: VisualDensity.compact,
-                    iconSize: 18,
-                    color: scheme.onSurfaceVariant,
-                    icon: const Icon(Icons.delete_outline_rounded),
+                  // 44×44, the floor this file already enforces on the gutter
+                  // below. `visualDensity: compact` on a default IconButton lands
+                  // at about 40dp — under the touch target the rest of the
+                  // widget holds itself to.
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      minWidth: 44,
+                      minHeight: 44,
+                    ),
+                    child: IconButton(
+                      onPressed: row.onRemove,
+                      tooltip: row.removeTooltip,
+                      iconSize: 18,
+                      color: scheme.onSurfaceVariant,
+                      icon: const Icon(Icons.delete_outline_rounded),
+                    ),
                   ),
               ],
             ),
@@ -445,25 +454,23 @@ class _StackedLine extends StatelessWidget {
                   child: row.cells[block.first.index],
                 )
               else
-                IntrinsicHeight(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: _StackedCell(
-                          column: block[0].column,
-                          child: row.cells[block[0].index],
-                        ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: _StackedCell(
+                        column: block[0].column,
+                        child: row.cells[block[0].index],
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _StackedCell(
-                          column: block[1].column,
-                          child: row.cells[block[1].index],
-                        ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _StackedCell(
+                        column: block[1].column,
+                        child: row.cells[block[1].index],
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
             ],
           ],

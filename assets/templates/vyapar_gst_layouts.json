@@ -1,0 +1,1449 @@
+{
+  "GSTR1": [
+    {
+      "name": "GSTR1 Report",
+      "static": {
+        "A1": "Period",
+        "A3": "1. GSTIN",
+        "A4": "2.a Legal name of the registered person.",
+        "A5": "2.b Trade name, if any",
+        "A6": "3.a Aggregate turnover of the preceeding Financial Year",
+        "A7": "3.b Aggregate turnover, April to June 2017",
+        "A9": "GSTIN/UIN",
+        "B9": "Party Name",
+        "C9": "Transaction Type",
+        "D9": "Invoice No.",
+        "E9": "Invoice Date",
+        "F9": "Invoice Value",
+        "G9": "Rate",
+        "H9": "Cess Rate",
+        "I9": "Taxable value",
+        "J9": "Reverse Charge",
+        "K9": "Integrated Tax Amount",
+        "L9": "Central Tax Amount",
+        "M9": "State/UT Tax Amount",
+        "N9": "Cess Amount",
+        "O9": "Place of Supply(Name of state)"
+      },
+      "zeros": [],
+      "widths": {
+        "A": 20.83203125,
+        "B": 30.83203125,
+        "C": 15.83203125,
+        "D": 15.83203125,
+        "E": 15.83203125,
+        "F": 20.83203125,
+        "G": 20.83203125,
+        "H": 20.83203125,
+        "I": 20.83203125,
+        "J": 20.83203125,
+        "K": 30.83203125,
+        "L": 20.83203125,
+        "M": 20.83203125,
+        "N": 20.83203125,
+        "O": 20.83203125,
+        "P": 20.83203125,
+        "Q": 20.83203125,
+        "R": 20.83203125,
+        "S": 20.83203125,
+        "T": 20.83203125,
+        "U": 20.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "b2b,sez,de",
+      "static": {
+        "A1": "Summary For B2B, SEZ, DE (4A, 4B, 6B, 6C)",
+        "A2": "No. of Recipients",
+        "C2": "No. of Invoices",
+        "E2": "Total Invoice Value",
+        "L2": "Total Taxable Value",
+        "M2": "Total Cess",
+        "A4": "GSTIN/UIN of Recipient",
+        "B4": "Receiver Name",
+        "C4": "Invoice Number",
+        "D4": "Invoice date",
+        "E4": "Invoice Value",
+        "F4": "Place Of Supply",
+        "G4": "Reverse Charge",
+        "H4": "Applicable % of Tax Rate",
+        "I4": "Invoice Type",
+        "J4": "E-Commerce GSTIN",
+        "K4": "Rate",
+        "L4": "Taxable Value",
+        "M4": "Cess Amount"
+      },
+      "zeros": [
+        "A3",
+        "C3",
+        "E3",
+        "L3",
+        "M3"
+      ],
+      "widths": {
+        "A": 20.83203125,
+        "B": 15.83203125,
+        "C": 15.83203125,
+        "D": 20.83203125,
+        "E": 40.83203125,
+        "F": 20.83203125,
+        "G": 20.83203125,
+        "H": 30.83203125,
+        "I": 15.83203125,
+        "J": 20.83203125,
+        "K": 20.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "b2cl",
+      "static": {
+        "A1": "Summary For B2CL(5)",
+        "A2": "No. of Invoices",
+        "C2": "Total Invoice Value",
+        "G2": "Total Taxable Value",
+        "H2": "Total Cess",
+        "A4": "Invoice Number",
+        "B4": "Invoice date",
+        "C4": "Invoice Value",
+        "D4": "Place Of Supply",
+        "E4": "Applicable % of Tax Rate",
+        "F4": "Rate",
+        "G4": "Taxable Value",
+        "H4": "Cess Amount",
+        "I4": "E-Commerce GSTIN"
+      },
+      "zeros": [
+        "A3",
+        "C3",
+        "G3",
+        "H3"
+      ],
+      "widths": {
+        "A": 20.83203125,
+        "B": 15.83203125,
+        "C": 20.83203125,
+        "D": 40.83203125,
+        "E": 20.83203125,
+        "F": 20.83203125,
+        "G": 30.83203125,
+        "H": 40.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "b2cs",
+      "static": {
+        "A1": "Summary For B2CS(7)",
+        "E2": "Total Taxable Value",
+        "F2": "Total Cess",
+        "A4": "Type",
+        "B4": "Place Of Supply",
+        "C4": "Applicable % of Tax Rate",
+        "D4": "Rate",
+        "E4": "Taxable Value",
+        "F4": "Cess Amount",
+        "G4": "E-Commerce GSTIN"
+      },
+      "zeros": [
+        "E3",
+        "F3"
+      ],
+      "widths": {
+        "A": 20.83203125,
+        "B": 20.83203125,
+        "C": 20.83203125,
+        "D": 20.83203125,
+        "E": 20.83203125,
+        "F": 20.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "cdnr",
+      "static": {
+        "A1": "Summary For CDNR(9B)",
+        "A2": "No. of Recipients",
+        "C2": "No. of Notes",
+        "I2": "Total Note Value",
+        "L2": "Total Taxable Value",
+        "M2": "Total Cess",
+        "A4": "GSTIN/UIN of Recipient",
+        "B4": "Receiver Name",
+        "C4": "Note Number",
+        "D4": "Note Date",
+        "E4": "Note Type",
+        "F4": "Place Of Supply",
+        "G4": "Reverse Charge",
+        "H4": "Note Supply Type",
+        "I4": "Note Value",
+        "J4": "Applicable % of Tax Rate",
+        "K4": "Rate",
+        "L4": "Taxable Value",
+        "M4": "Cess Amount"
+      },
+      "zeros": [
+        "A3",
+        "C3",
+        "I3",
+        "L3",
+        "M3"
+      ],
+      "widths": {
+        "A": 22.83203125,
+        "B": 30.83203125,
+        "C": 25.83203125,
+        "D": 35.83203125,
+        "E": 35.83203125,
+        "F": 20.83203125,
+        "G": 30.83203125,
+        "H": 30.83203125,
+        "I": 30.83203125,
+        "J": 30.83203125,
+        "K": 30.83203125,
+        "L": 30.83203125,
+        "M": 30.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "cdnur",
+      "static": {
+        "A1": "Summary For CDNUR(9B)",
+        "B2": "No. of Notes/Vouchers",
+        "F2": "Total Note Value",
+        "I2": "Total Taxable Value",
+        "J2": "Total Cess",
+        "A4": "UR Type",
+        "B4": "Note Number",
+        "C4": "Note Date",
+        "D4": "Note Type",
+        "E4": "Place Of Supply",
+        "F4": "Note Value",
+        "G4": "Applicable % of Tax Rate",
+        "H4": "Rate",
+        "I4": "Taxable Value",
+        "J4": "Cess Amount"
+      },
+      "zeros": [
+        "B3",
+        "F3",
+        "I3",
+        "J3"
+      ],
+      "widths": {
+        "A": 22.83203125,
+        "B": 30.83203125,
+        "C": 25.83203125,
+        "D": 35.83203125,
+        "E": 35.83203125,
+        "F": 20.83203125,
+        "G": 30.83203125,
+        "H": 30.83203125,
+        "I": 30.83203125,
+        "J": 30.83203125,
+        "K": 30.83203125,
+        "L": 30.83203125,
+        "M": 30.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "exp",
+      "static": {
+        "A1": "Summary For EXP(6)",
+        "B2": "No. of Invoices",
+        "D2": "Total Invoice Value",
+        "F2": "No. of Shipping Bill",
+        "I2": "Total Taxable Value",
+        "A4": "Export Type",
+        "B4": "Invoice Number",
+        "C4": "Invoice date",
+        "D4": "Invoice Value",
+        "E4": "Port Code",
+        "F4": "Shipping Bill Number",
+        "G4": "Shipping Bill Date",
+        "H4": "Rate",
+        "I4": "Taxable Value"
+      },
+      "zeros": [],
+      "widths": {
+        "A": 20.83203125,
+        "B": 20.83203125,
+        "C": 20.83203125,
+        "D": 20.83203125,
+        "E": 20.83203125,
+        "F": 20.83203125,
+        "G": 20.83203125,
+        "H": 20.83203125,
+        "I": 20.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "at",
+      "static": {
+        "A1": "Summary For Advance Received(11B)",
+        "D2": "Total Advance Received",
+        "E2": "Total Cess",
+        "A4": "Place Of Supply",
+        "B4": "Applicable % of Tax Rate",
+        "C4": "Rate",
+        "D4": "Gross Advance Received",
+        "E4": "Cess Amount"
+      },
+      "zeros": [],
+      "widths": {
+        "A": 20.83203125,
+        "B": 20.83203125,
+        "C": 20.83203125,
+        "D": 20.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "atadj",
+      "static": {
+        "A1": "Summary For Advance Adjusted(11B)",
+        "D2": "Total Advance Adjusted",
+        "E2": "Total Cess",
+        "A4": "Place Of Supply",
+        "B4": "Applicable % of Tax Rate",
+        "C4": "Rate",
+        "D4": "Gross Advance Adjusted",
+        "E4": "Cess Amount"
+      },
+      "zeros": [],
+      "widths": {
+        "A": 20.83203125,
+        "B": 20.83203125,
+        "C": 20.83203125,
+        "D": 20.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "exemp",
+      "static": {
+        "A1": "Summary For Nil rated, exempted and non GST outward supplies (8)",
+        "B2": "Total Nil Rated Supplies",
+        "C2": "Total Exempted Supplies",
+        "D2": "Total Non-GST Supplies",
+        "A4": "Description",
+        "B4": "Nil Rated Supplies",
+        "C4": "Exempted(other than nil rated/non GST supply)",
+        "D4": "Non-GST Supplies",
+        "A5": "Inter-State supplies to registered persons",
+        "A6": "Intra-State supplies to registered persons",
+        "A7": "Inter-State supplies to unregistered persons",
+        "A8": "Intra-State supplies to unregistered persons"
+      },
+      "zeros": [
+        "B3",
+        "C3",
+        "D3",
+        "B5",
+        "C5",
+        "D5",
+        "B6",
+        "C6",
+        "D6",
+        "B7",
+        "C7",
+        "D7",
+        "B8",
+        "C8",
+        "D8"
+      ],
+      "widths": {
+        "A": 40.83203125,
+        "B": 25.83203125,
+        "C": 25.83203125,
+        "D": 25.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "hsn(b2b)",
+      "static": {
+        "A1": "Summary For HSN(12)",
+        "A2": "No. of HSN",
+        "E2": "Total Value",
+        "G2": "Total Taxable Value",
+        "H2": "Total Integrated Tax",
+        "I2": "Total Central Tax",
+        "J2": "Total State/UT Tax",
+        "K2": "Total Cess",
+        "A4": "HSN",
+        "B4": "Description",
+        "C4": "UQC",
+        "D4": "Total Quantity",
+        "E4": "Total Value",
+        "F4": "Rate",
+        "G4": "Taxable Value",
+        "H4": "Integrated Tax Amount",
+        "I4": "Central Tax Amount",
+        "J4": "State/UT Tax Amount",
+        "K4": "Cess Amount"
+      },
+      "zeros": [
+        "A3",
+        "E3",
+        "G3",
+        "H3",
+        "I3",
+        "J3",
+        "K3"
+      ],
+      "widths": {
+        "A": 22.83203125,
+        "B": 30.83203125,
+        "C": 25.83203125,
+        "D": 35.83203125,
+        "E": 35.83203125,
+        "F": 20.83203125,
+        "G": 30.83203125,
+        "H": 30.83203125,
+        "I": 30.83203125,
+        "J": 30.83203125,
+        "K": 30.83203125,
+        "L": 30.83203125,
+        "M": 30.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "hsn(b2c)",
+      "static": {
+        "A1": "Summary For HSN(12)",
+        "A2": "No. of HSN",
+        "E2": "Total Value",
+        "G2": "Total Taxable Value",
+        "H2": "Total Integrated Tax",
+        "I2": "Total Central Tax",
+        "J2": "Total State/UT Tax",
+        "K2": "Total Cess",
+        "A4": "HSN",
+        "B4": "Description",
+        "C4": "UQC",
+        "D4": "Total Quantity",
+        "E4": "Total Value",
+        "F4": "Rate",
+        "G4": "Taxable Value",
+        "H4": "Integrated Tax Amount",
+        "I4": "Central Tax Amount",
+        "J4": "State/UT Tax Amount",
+        "K4": "Cess Amount"
+      },
+      "zeros": [
+        "A3",
+        "E3",
+        "G3",
+        "H3",
+        "I3",
+        "J3",
+        "K3"
+      ],
+      "widths": {
+        "A": 22.83203125,
+        "B": 30.83203125,
+        "C": 25.83203125,
+        "D": 35.83203125,
+        "E": 35.83203125,
+        "F": 20.83203125,
+        "G": 30.83203125,
+        "H": 30.83203125,
+        "I": 30.83203125,
+        "J": 30.83203125,
+        "K": 30.83203125,
+        "L": 30.83203125,
+        "M": 30.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "itemSummary",
+      "static": {
+        "A1": "Summary For HSN(12)",
+        "A2": "No. of HSN",
+        "E2": "Total Value",
+        "G2": "Total Taxable Value",
+        "H2": "Total Integrated Tax",
+        "I2": "Total Central Tax",
+        "J2": "Total State/UT Tax",
+        "K2": "Total Cess",
+        "A4": "HSN",
+        "B4": "Description",
+        "C4": "UQC",
+        "D4": "Total Quantity",
+        "E4": "Total Value",
+        "F4": "Rate",
+        "G4": "Taxable Value",
+        "H4": "Integrated Tax Amount",
+        "I4": "Central Tax Amount",
+        "J4": "State/UT Tax Amount",
+        "K4": "Cess Amount"
+      },
+      "zeros": [
+        "A3",
+        "E3",
+        "G3",
+        "H3",
+        "I3",
+        "J3",
+        "K3"
+      ],
+      "widths": {
+        "A": 22.83203125,
+        "B": 30.83203125,
+        "C": 25.83203125,
+        "D": 35.83203125,
+        "E": 35.83203125,
+        "F": 20.83203125,
+        "G": 30.83203125,
+        "H": 30.83203125,
+        "I": 30.83203125,
+        "J": 30.83203125,
+        "K": 30.83203125,
+        "L": 30.83203125,
+        "M": 30.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "docs",
+      "static": {
+        "A1": "Summary of documents issued during the tax period (13)",
+        "D2": "Total Number",
+        "E2": "Total Cancelled",
+        "A4": "Nature of Document",
+        "B4": "Sr. No. From",
+        "C4": "Sr. No. To",
+        "D4": "Total Number",
+        "E4": "Cancelled"
+      },
+      "zeros": [],
+      "widths": {},
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    }
+  ],
+  "GSTR2": [
+    {
+      "name": "GSTR2 Report",
+      "static": {
+        "A1": "Period",
+        "A3": "1. GSTIN",
+        "A4": "2.a Legal name of the registered person.",
+        "A5": "2.b Trade name, if any",
+        "A6": "3.a Aggregate turnover of the preceeding Financial Year",
+        "A7": "3.b Aggregate turnover, April to June 2017",
+        "A9": "GSTIN/UIN",
+        "B9": "Party Name",
+        "C9": "Transaction Type",
+        "D9": "Invoice No.",
+        "E9": "Invoice Date",
+        "F9": "Invoice Value",
+        "G9": "Rate",
+        "H9": "Cess Rate",
+        "I9": "Taxable value",
+        "J9": "Integrated Tax Amount",
+        "K9": "Central Tax Amount",
+        "L9": "State/UT Tax Amount",
+        "M9": "Cess Amount",
+        "N9": "Place of Supply(Name of state)"
+      },
+      "zeros": [],
+      "widths": {
+        "A": 20.83203125,
+        "B": 30.83203125,
+        "C": 15.83203125,
+        "D": 15.83203125,
+        "E": 15.83203125,
+        "F": 20.83203125,
+        "G": 20.83203125,
+        "H": 20.83203125,
+        "I": 20.83203125,
+        "J": 20.83203125,
+        "K": 30.83203125,
+        "L": 20.83203125,
+        "M": 20.83203125,
+        "N": 20.83203125,
+        "O": 20.83203125,
+        "P": 20.83203125,
+        "Q": 20.83203125,
+        "R": 20.83203125,
+        "S": 20.83203125,
+        "T": 20.83203125,
+        "U": 20.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "b2b",
+      "static": {
+        "A1": "Summary Of Supplies From Registered Suppliers B2B(3)",
+        "A2": "No. of Suppliers",
+        "B2": "No. of Invoices",
+        "D2": "Total Invoice Value",
+        "I2": "Total Taxable Value",
+        "J2": "Total Integrated Tax Paid",
+        "K2": "Total Central Tax Paid",
+        "L2": "Total TState/UT Tax Paid",
+        "M2": "Total Cess",
+        "O2": "Total Availed ITC Integrated Tax",
+        "P2": "Total Availed ITC Central Tax",
+        "Q2": "Total Availed ITC State/UT Tax",
+        "R2": "Total Availed ITC Cess",
+        "A4": "GSTIN of Supplier",
+        "B4": "Invoice Number",
+        "C4": "Invoice date",
+        "D4": "Invoice Value",
+        "E4": "Place Of Supply",
+        "F4": "Reverse Charge",
+        "G4": "Invoice Type",
+        "H4": "Rate",
+        "I4": "Taxable Value",
+        "J4": "Integrated Tax Paid",
+        "K4": "Central Tax Paid",
+        "L4": "State/UT Tax Paid",
+        "M4": "Cess Paid",
+        "N4": "Eligibility For ITC",
+        "O4": "Availed ITC Integrated Tax",
+        "P4": "Availed ITC Central Tax",
+        "Q4": "Availed ITC State/UT Tax",
+        "R4": "Availed ITC Cess"
+      },
+      "zeros": [
+        "A3",
+        "B3",
+        "D3",
+        "I3",
+        "J3",
+        "K3",
+        "L3",
+        "M3",
+        "O3",
+        "P3",
+        "Q3",
+        "R3"
+      ],
+      "widths": {
+        "A": 30.83203125,
+        "B": 20.83203125,
+        "C": 20.83203125,
+        "D": 30.83203125,
+        "E": 40.83203125,
+        "F": 30.83203125,
+        "G": 30.83203125,
+        "H": 30.83203125,
+        "I": 30.83203125,
+        "J": 30.83203125,
+        "K": 30.83203125,
+        "L": 30.83203125,
+        "M": 30.83203125,
+        "N": 30.83203125,
+        "O": 30.83203125,
+        "P": 30.83203125,
+        "Q": 30.83203125,
+        "R": 30.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "b2bur",
+      "static": {
+        "A1": "Summary Of Supplies From Unregistered Suppliers B2BUR(4B)",
+        "B2": "No. of Invoices (Of Reg Recipient)",
+        "D2": "Total Invoice Value",
+        "H2": "Total Taxable Value",
+        "I2": "Total Integrated Tax Paid",
+        "J2": "Total Central Tax Paid",
+        "K2": "Total TState/UT Tax Paid",
+        "L2": "Total Cess Paid",
+        "N2": "Total Availed ITC Integrated Tax",
+        "O2": "Total Availed ITC Central Tax",
+        "P2": "Total Availed ITC State/UT Tax",
+        "Q2": "Total Availed ITC Cess",
+        "A4": "Supplier Name",
+        "B4": "Invoice Number",
+        "C4": "Invoice date",
+        "D4": "Invoice Value",
+        "E4": "Place Of Supply",
+        "F4": "Supply Type",
+        "G4": "Rate",
+        "H4": "Taxable Value",
+        "I4": "Integrated Tax Paid",
+        "J4": "Central Tax Paid",
+        "K4": "State/UT Tax Paid",
+        "L4": "Cess Paid",
+        "M4": "Eligibility For ITC",
+        "N4": "Availed ITC Integrated Tax",
+        "O4": "Availed ITC Central Tax",
+        "P4": "Availed ITC State/UT Tax",
+        "Q4": "Availed ITC Cess"
+      },
+      "zeros": [
+        "B3",
+        "D3",
+        "H3",
+        "I3",
+        "J3",
+        "K3",
+        "L3",
+        "N3",
+        "O3",
+        "P3",
+        "Q3"
+      ],
+      "widths": {
+        "A": 40.83203125,
+        "B": 20.83203125,
+        "C": 20.83203125,
+        "D": 30.83203125,
+        "E": 40.83203125,
+        "F": 30.83203125,
+        "G": 30.83203125,
+        "H": 30.83203125,
+        "I": 30.83203125,
+        "J": 30.83203125,
+        "K": 30.83203125,
+        "L": 30.83203125,
+        "M": 30.83203125,
+        "N": 30.83203125,
+        "O": 30.83203125,
+        "P": 30.83203125,
+        "Q": 30.83203125,
+        "R": 30.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "imps",
+      "static": {
+        "A1": "Summary For IMPS(4C)",
+        "A2": "No. of Invoices (Of Reg Recipient)",
+        "C2": "Total Invoice value",
+        "F2": "Total Taxable value",
+        "G2": "Total Integrated Tax Paid",
+        "H2": "Total Cess Paid",
+        "J2": "Total Availed ITC Integrated Tax",
+        "K2": "Total Availed ITC Cess",
+        "A4": "Invoice Number of Reg Recipient",
+        "B4": "Invoice Date",
+        "C4": "Invoice Value",
+        "D4": "Place Of Supply",
+        "E4": "Rate",
+        "F4": "Taxable Value",
+        "G4": "Integrated Tax Paid",
+        "H4": "Cess Paid",
+        "I4": "Eligibility For ITC",
+        "J4": "Availed ITC Integrated Tax",
+        "K4": "Availed ITC Cess"
+      },
+      "zeros": [],
+      "widths": {
+        "A": 40.83203125,
+        "B": 20.83203125,
+        "C": 20.83203125,
+        "D": 30.83203125,
+        "E": 40.83203125,
+        "F": 30.83203125,
+        "G": 30.83203125,
+        "H": 30.83203125,
+        "I": 30.83203125,
+        "J": 30.83203125,
+        "K": 30.83203125,
+        "L": 30.83203125,
+        "M": 30.83203125,
+        "N": 30.83203125,
+        "O": 30.83203125,
+        "P": 30.83203125,
+        "Q": 30.83203125,
+        "R": 30.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "impg",
+      "static": {
+        "A1": "Summary For IMPG(5)",
+        "B2": "No. of Bill of Entry",
+        "D2": "Total Bill of Entry Value",
+        "H2": "Total Taxable Value",
+        "I2": "Total Integrated tax Paid",
+        "J2": "Total Cess Paid",
+        "L2": "Total Availed ITC Integrated Tax",
+        "M2": "Total Availed ITC Cess",
+        "A4": "Port Code",
+        "B4": "Bill Of Entry Number",
+        "C4": "Bill Of Entry Date",
+        "D4": "Bill Of Entry Value",
+        "E4": "Document Type",
+        "F4": "GSTIN Of SEZ Supplier",
+        "G4": "Rate",
+        "H4": "Taxable Value",
+        "I4": "Integrated Tax Paid",
+        "J4": "Cess Paid",
+        "K4": "Eligibility For ITC",
+        "L4": "Availed ITC Integrated Tax",
+        "M4": "Availed ITC Cess"
+      },
+      "zeros": [],
+      "widths": {
+        "A": 40.83203125,
+        "B": 20.83203125,
+        "C": 20.83203125,
+        "D": 30.83203125,
+        "E": 40.83203125,
+        "F": 30.83203125,
+        "G": 30.83203125,
+        "H": 30.83203125,
+        "I": 30.83203125,
+        "J": 30.83203125,
+        "K": 30.83203125,
+        "L": 30.83203125,
+        "M": 30.83203125,
+        "N": 30.83203125,
+        "O": 30.83203125,
+        "P": 30.83203125,
+        "Q": 30.83203125,
+        "R": 30.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "cdnr",
+      "static": {
+        "A1": "Summary For CDNR(6C)",
+        "A2": "No. of Supplier",
+        "B2": "No. of Notes/Vouchers",
+        "D2": "No. of Invoices",
+        "J2": "Total Note/Voucher Value",
+        "L2": "Total Taxable Value",
+        "M2": "Total Integrated Tax Paid",
+        "N2": "Total Central Tax Paid",
+        "O2": "Total TState/UT Tax Paid",
+        "P2": "Total Cess",
+        "R2": "Total Availed ITC Integrated Tax",
+        "S2": "Total Availed ITC Central Tax",
+        "T2": "Total Availed ITC State/UT Tax",
+        "U2": "Total Availed ITC Cess",
+        "A4": "GSTIN of Supplier",
+        "B4": "Note/Refund Voucher Number",
+        "C4": "Note/Refund Voucher date",
+        "D4": "Invoice/Advance Payment Voucher Number",
+        "E4": "Invoice/Advance Payment Voucher date",
+        "F4": "Pre GST",
+        "G4": "Document Type",
+        "H4": "Reason For Issuing document",
+        "I4": "Supply Type",
+        "J4": "Note/Refund Voucher Value",
+        "K4": "Rate",
+        "L4": "Taxable Value",
+        "M4": "Integrated Tax Paid",
+        "N4": "Central Tax Paid",
+        "O4": "State/UT Tax Paid",
+        "P4": "Cess Paid",
+        "Q4": "Eligibility For ITC",
+        "R4": "Availed ITC Integrated Tax",
+        "S4": "Availed ITC Central Tax",
+        "T4": "Availed ITC State/UT Tax",
+        "U4": "Availed ITC Cess"
+      },
+      "zeros": [
+        "B3",
+        "J3",
+        "L3",
+        "M3",
+        "N3",
+        "O3",
+        "P3",
+        "R3",
+        "S3",
+        "T3",
+        "U3"
+      ],
+      "widths": {
+        "A": 22.83203125,
+        "B": 30.83203125,
+        "C": 25.83203125,
+        "D": 35.83203125,
+        "E": 35.83203125,
+        "F": 20.83203125,
+        "G": 30.83203125,
+        "H": 30.83203125,
+        "I": 30.83203125,
+        "J": 30.83203125,
+        "K": 30.83203125,
+        "L": 30.83203125,
+        "M": 30.83203125,
+        "N": 30.83203125,
+        "O": 30.83203125,
+        "P": 30.83203125,
+        "Q": 30.83203125,
+        "R": 30.83203125,
+        "S": 30.83203125,
+        "T": 30.83203125,
+        "U": 30.83203125,
+        "V": 30.83203125,
+        "W": 30.83203125,
+        "X": 30.83203125,
+        "Y": 30.83203125,
+        "Z": 30.83203125,
+        "AA": 30.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "cdnur",
+      "static": {
+        "A1": "Summary For CDNUR(6C)",
+        "A2": "No. of Notes/Vouchers",
+        "C2": "No. of Invoices",
+        "J2": "Total Note/Refund Voucher Value",
+        "L2": "Total Taxable Value",
+        "M2": "Total Integrated Tax Paid",
+        "N2": "Total Central Tax Paid",
+        "O2": "Total TState/UT Tax Paid",
+        "P2": "Total Cess Paid",
+        "R2": "Total ITC Integrated Tax Amount",
+        "S2": "Total Central Tax Amount",
+        "T2": "Total ITC State/UT Tax Amount",
+        "U2": "Total ITC Cess Amount",
+        "A4": "Note/Voucher Number",
+        "B4": "Note/Voucher date",
+        "C4": "Invoice/Advance Payment Voucher Number",
+        "D4": "Invoice/Advance Payment Voucher date",
+        "E4": "Pre GST",
+        "F4": "Document Type",
+        "G4": "Reason For Issuing document",
+        "H4": "Supply Type",
+        "I4": "Invoice Type",
+        "J4": "Note/Voucher Value",
+        "K4": "Rate",
+        "L4": "Taxable Value",
+        "M4": "Integrated Tax Paid",
+        "N4": "Central Tax Paid",
+        "O4": "State/UT Tax Paid",
+        "P4": "Cess Paid",
+        "Q4": "Eligibility For ITC",
+        "R4": "Availed ITC Integrated Tax",
+        "S4": "Availed ITC Central Tax",
+        "T4": "Availed ITC State/UT Tax",
+        "U4": "Availed ITC Cess"
+      },
+      "zeros": [
+        "A3",
+        "J3",
+        "L3",
+        "M3",
+        "N3",
+        "O3",
+        "P3",
+        "R3",
+        "S3",
+        "T3",
+        "U3"
+      ],
+      "widths": {
+        "A": 22.83203125,
+        "B": 30.83203125,
+        "C": 25.83203125,
+        "D": 35.83203125,
+        "E": 35.83203125,
+        "F": 20.83203125,
+        "G": 30.83203125,
+        "H": 30.83203125,
+        "I": 30.83203125,
+        "J": 30.83203125,
+        "K": 30.83203125,
+        "L": 30.83203125,
+        "M": 30.83203125,
+        "N": 30.83203125,
+        "O": 30.83203125,
+        "P": 30.83203125,
+        "Q": 30.83203125,
+        "R": 30.83203125,
+        "S": 30.83203125,
+        "T": 30.83203125,
+        "U": 30.83203125,
+        "V": 30.83203125,
+        "W": 30.83203125,
+        "X": 30.83203125,
+        "Y": 30.83203125,
+        "Z": 30.83203125,
+        "AA": 30.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "at",
+      "static": {
+        "A1": "Summary For Advance Paid under reverse charge (10 A)",
+        "C2": "Total Advance Paid",
+        "D2": "Total Cess Amount",
+        "A4": "Place Of Supply",
+        "B4": "Supply Type",
+        "C4": "Gross Advance Paid",
+        "D4": "Cess Amount"
+      },
+      "zeros": [],
+      "widths": {
+        "A": 35.83203125,
+        "B": 35.83203125,
+        "C": 35.83203125,
+        "D": 35.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "atadj",
+      "static": {
+        "A1": "Summary For Adjustment of advance tax paid earlier for reverse charge supplies (10 B)",
+        "C2": "Total Advance Adjusted",
+        "D2": "Total Cess",
+        "A4": "Place Of Supply",
+        "B4": "Supply Type",
+        "C4": "Gross Advance Paid to be Adjusted",
+        "D4": "Cess Adjusted"
+      },
+      "zeros": [],
+      "widths": {
+        "A": 35.83203125,
+        "B": 35.83203125,
+        "C": 35.83203125,
+        "D": 35.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "exemp",
+      "static": {
+        "A1": "Summary For Composition, Nil rated, exempted and non GST inward supplies (7))",
+        "B2": "Total Composition taxable person",
+        "C2": "Total Nil Rated Supplies",
+        "D2": "Total Exempted Supplies",
+        "E2": "Total Non-GST Supplies",
+        "A4": "Description",
+        "B4": "Composition taxable person",
+        "C4": "Nil Rated Supplies",
+        "D4": "Exempted (other than nil rated/non GST supply )",
+        "E4": "Non-GST Supplies",
+        "A5": "Inter-State supplies",
+        "A6": "Intra-State supplies"
+      },
+      "zeros": [
+        "B3",
+        "C3",
+        "D3",
+        "E3",
+        "B5",
+        "C5",
+        "D5",
+        "E5",
+        "B6",
+        "C6",
+        "D6",
+        "E6"
+      ],
+      "widths": {
+        "A": 35.83203125,
+        "B": 25.83203125,
+        "C": 25.83203125,
+        "D": 25.83203125,
+        "E": 25.83203125,
+        "F": 25.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "itcr",
+      "static": {
+        "A1": "Summary Input Tax credit Reversal/Reclaim (11)",
+        "C2": "Total ITC Integrated Tax Amount",
+        "D2": "Total Central Tax Amount",
+        "E2": "Total ITC State/UT Tax Amount",
+        "F2": "Total ITC Cess Amount",
+        "A4": "Description for reversal of ITC",
+        "B4": "To be added or reduced from output liability",
+        "C4": "ITC Integrated Tax Amount",
+        "D4": "ITC Central Tax Amount",
+        "E4": "ITC State/UT Tax Amount",
+        "F4": "ITC Cess Amount",
+        "A5": "(a) Amount in terms of rule 37 (2)",
+        "A6": "(b) Amount in terms of rule 42 (1) (m)",
+        "A7": "(c) Amount in terms of rule 43(1) (h)",
+        "A8": "(d) Amount in terms of rule 42 (2)(a)",
+        "A9": "(e) Amount in terms of rule 42(2)(b)",
+        "A10": "(f) On account of amount paid subsequent to reversal of ITC",
+        "A11": "(g) Any other liability (Specify)"
+      },
+      "zeros": [],
+      "widths": {
+        "A": 35.83203125,
+        "B": 35.83203125,
+        "C": 35.83203125,
+        "D": 35.83203125,
+        "E": 35.83203125,
+        "F": 35.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "hsnsum",
+      "static": {
+        "A1": "Summary For HSN(13)",
+        "A2": "No. of HSN",
+        "E2": "Total Value",
+        "F2": "Total Taxable Value",
+        "G2": "Total Integrated Tax",
+        "H2": "Total Central Tax",
+        "I2": "Total State/UT Tax",
+        "J2": "Total Cess",
+        "A4": "HSN",
+        "B4": "Description",
+        "C4": "UQC",
+        "D4": "Total Quantity",
+        "E4": "Total Value",
+        "F4": "Taxable Value",
+        "G4": "Integrated Tax Amount",
+        "H4": "Central Tax Amount",
+        "I4": "State/UT Tax Amount",
+        "J4": "Cess Amount"
+      },
+      "zeros": [
+        "A3",
+        "E3",
+        "F3",
+        "G3",
+        "H3",
+        "I3",
+        "J3"
+      ],
+      "widths": {
+        "A": 22.83203125,
+        "B": 30.83203125,
+        "C": 25.83203125,
+        "D": 35.83203125,
+        "E": 35.83203125,
+        "F": 20.83203125,
+        "G": 30.83203125,
+        "H": 30.83203125,
+        "I": 30.83203125,
+        "J": 30.83203125,
+        "K": 30.83203125,
+        "L": 30.83203125,
+        "M": 30.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "itemSummary",
+      "static": {
+        "A1": "Summary For HSN(13)",
+        "A2": "No. of HSN",
+        "E2": "Total Value",
+        "F2": "Total Taxable Value",
+        "G2": "Total Integrated Tax",
+        "H2": "Total Central Tax",
+        "I2": "Total State/UT Tax",
+        "J2": "Total Cess",
+        "A4": "HSN",
+        "B4": "Description",
+        "C4": "UQC",
+        "D4": "Total Quantity",
+        "E4": "Total Value",
+        "F4": "Taxable Value",
+        "G4": "Integrated Tax Amount",
+        "H4": "Central Tax Amount",
+        "I4": "State/UT Tax Amount",
+        "J4": "Cess Amount"
+      },
+      "zeros": [
+        "A3",
+        "E3",
+        "F3",
+        "G3",
+        "H3",
+        "I3",
+        "J3"
+      ],
+      "widths": {
+        "A": 22.83203125,
+        "B": 30.83203125,
+        "C": 25.83203125,
+        "D": 35.83203125,
+        "E": 35.83203125,
+        "F": 20.83203125,
+        "G": 30.83203125,
+        "H": 30.83203125,
+        "I": 30.83203125,
+        "J": 30.83203125,
+        "K": 30.83203125,
+        "L": 30.83203125,
+        "M": 30.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    }
+  ],
+  "GSTR3B": [
+    {
+      "name": "3.1 Report",
+      "static": {
+        "A1": "From",
+        "A2": "To",
+        "A3": "Nature of Supplies",
+        "B3": "Total Taxable Value",
+        "C3": "Integrated Tax",
+        "D3": "Central Tax",
+        "E3": "State/UT Tax",
+        "F3": "Cess",
+        "A5": "(a) Outward taxable supplies (other than zero rated, nil rated and exempted",
+        "A6": "(b) Outward taxable supplies (zero rated)",
+        "A7": "(c) Other outward supplies (nil rated, exempted)",
+        "A8": "(d) Inward supplies (liable to reverse charge)",
+        "A9": "(e) Non-GST outward supplies"
+      },
+      "zeros": [
+        "B5",
+        "C5",
+        "D5",
+        "E5",
+        "F5",
+        "B6",
+        "C6",
+        "D6",
+        "E6",
+        "F6",
+        "B7",
+        "C7",
+        "D7",
+        "E7",
+        "F7",
+        "B8",
+        "C8",
+        "D8",
+        "E8",
+        "F8",
+        "B9",
+        "C9",
+        "D9",
+        "E9",
+        "F9"
+      ],
+      "widths": {
+        "A": 40.83203125,
+        "B": 30.83203125,
+        "C": 30.83203125,
+        "D": 30.83203125,
+        "E": 30.83203125,
+        "F": 30.83203125,
+        "G": 30.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "3.2 Report",
+      "static": {
+        "A1": "Place of Supply (State/UT)",
+        "D1": "Supplies Made To Composition Taxable Persons",
+        "F1": "Supplies Made To UIN Holders",
+        "B3": "Total taxable value",
+        "C3": "Amount of integrated tax",
+        "D3": "Total taxable value",
+        "E3": "Amount of integrated tax",
+        "F3": "Total taxable value",
+        "G3": "Amount of integrated tax",
+        "B1": "Supplies Made To Unregistered Persons"
+      },
+      "zeros": [],
+      "widths": {
+        "A": 40.83203125,
+        "B": 40.83203125,
+        "C": 40.83203125,
+        "D": 40.83203125,
+        "E": 40.83203125,
+        "F": 40.83203125,
+        "G": 40.83203125,
+        "H": 40.83203125,
+        "I": 40.83203125,
+        "J": 40.83203125,
+        "K": 40.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "4 Report",
+      "static": {
+        "A1": "Details",
+        "C1": "Central Tax",
+        "D1": "State/UT Tax",
+        "E1": "Cess",
+        "A3": "(A) ITC Available (Whether in full or part)",
+        "A4": "(1) Import of goods",
+        "A5": "(2) Import of services",
+        "A6": "(3) Inward supplies liable to reverse charge( other than 1 & 2 above)",
+        "A7": "(4) Inward supplies from ISD",
+        "A8": "(5) All other ITC",
+        "A9": "(D) Ineligible ITC",
+        "A10": "(1) As per section 17(5)",
+        "A11": "(2) Others",
+        "B1": "Integrated Tax"
+      },
+      "zeros": [
+        "B4",
+        "C4",
+        "D4",
+        "E4",
+        "B5",
+        "C5",
+        "D5",
+        "E5",
+        "B6",
+        "C6",
+        "D6",
+        "E6",
+        "B7",
+        "C7",
+        "D7",
+        "E7",
+        "B8",
+        "C8",
+        "D8",
+        "E8",
+        "B10",
+        "C10",
+        "D10",
+        "E10",
+        "B11",
+        "C11",
+        "D11",
+        "E11"
+      ],
+      "widths": {
+        "A": 50.83203125,
+        "B": 40.83203125,
+        "C": 40.83203125,
+        "D": 40.83203125,
+        "E": 40.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    },
+    {
+      "name": "5 Report",
+      "static": {
+        "A1": "Nature of Supplies",
+        "C1": "Intra-State supplies",
+        "A3": "From a supplier under composition scheme, Exempt and Nil rated supply",
+        "A4": "Non GST supply",
+        "B1": "Inter-State supplies"
+      },
+      "zeros": [
+        "B3",
+        "C3",
+        "B4",
+        "C4"
+      ],
+      "widths": {
+        "A": 50.83203125,
+        "B": 40.83203125,
+        "C": 40.83203125
+      },
+      "font": {
+        "name": "Calibri",
+        "size": 12.0
+      }
+    }
+  ]
+}

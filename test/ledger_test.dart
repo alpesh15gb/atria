@@ -22,7 +22,7 @@ void main() {
 
   setUp(() async {
     db = AppDatabase.test(NativeDatabase.memory());
-    final firm = await db.firmRepository.create(
+    final firm = await db.firmRepository.create(gstin: '29ABCDE1234F1Z5', 
       name: 'Shri Balaji Traders',
       stateCode: '29',
     );
@@ -108,7 +108,7 @@ void main() {
         type: 'asset',
         groupName: 'Cash & bank',
       );
-      expect(account.code, '1400');
+      expect(account.code, '1401'); // 1400 is reserved for supplier advances.
       expect(account.type, 'asset');
     });
 

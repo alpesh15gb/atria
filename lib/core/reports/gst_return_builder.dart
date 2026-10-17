@@ -1,3 +1,5 @@
+import '../domain/gst_registration.dart';
+
 import 'package:decimal/decimal.dart';
 
 import '../database/app_database.dart';
@@ -22,16 +24,29 @@ class GstReturnBuilder {
     required DateTime from,
     required DateTime to,
   }) async {
-    final firm = await (db.select(db.firms)
-          ..where((t) => t.id.equals(firmId)))
-        .getSingleOrNull();
+    final firm = await (db.select(
+      db.firms,
+    )..where((t) => t.id.equals(firmId))).getSingleOrNull();
+    if (firm?.isGstRegistered != true) {
+      throw StateError('GST returns require a GST-registered business.');
+    }
     final sales = db.salesRepositoryFor(firmId);
-    final docs = await sales.list(docType: 'invoice', from: from, to: to, limit: 1000000);
+    final docs = await sales.list(
+      docType: 'invoice',
+      from: from,
+      to: to,
+      limit: 1000000,
+    );
     final creditNotes = await sales.list(
-        docType: 'credit_note', from: from, to: to, limit: 1000000);
+      docType: 'credit_note',
+      from: from,
+      to: to,
+      limit: 1000000,
+    );
 
-    final activeDocs =
-        docs.where((d) => d.status != 'cancelled').toList(growable: false);
+    final activeDocs = docs
+        .where((d) => d.status != 'cancelled')
+        .toList(growable: false);
 
     // ---- B2B (registered customers, Table 4) -----------------------------
     final b2bByGstin = <String, List<SalesInvoiceEntity>>{};
@@ -69,7 +84,10 @@ class GstReturnBuilder {
       // B2CL rule: inter-state supply to an unregistered buyer where the
       // TAXABLE value exceeds ₹2.5 lakh (the old check compared the GROSS
       // total incl. tax with >=, bucketing invoices the portal would deny).
-      final large = doc.taxableValue > 250000 && interState && gstin.isEmpty;
+      final threshold = doc.invoiceDate.isBefore(DateTime(2024, 8, 1))
+          ? 250000
+          : 100000;
+      final large = doc.grandTotal > threshold && interState && gstin.isEmpty;
       if (gstin.isNotEmpty) {
         b2bByGstin.putIfAbsent(gstin, () => []).add(doc);
       } else if (large) {
@@ -98,7 +116,10 @@ class GstReturnBuilder {
       // B2CL-large unregistered notes must be flagged; 'B2CL' requires the
       // same ₹2.5L taxable rule as the invoice bucket above, so only that
       // qualifies (same strict >, not >=, or the portal rejects the row).
-      final isB2cl = cn.isInterState && cn.taxableValue > 250000;
+      final threshold = cn.invoiceDate.isBefore(DateTime(2024, 8, 1))
+          ? 250000
+          : 100000;
+      final isB2cl = cn.isInterState && cn.grandTotal > threshold;
       final items = await sales.itemsFor(cn.id);
       final itms = items.isEmpty
           ? [
@@ -124,15 +145,17 @@ class GstReturnBuilder {
                   cess: _d(items[i].cessAmount),
                 ),
             ];
-      cdnur.add(Gstr1Cdnur(
-        ntNum: cn.number,
-        ntDt: _fmtDate(cn.invoiceDate),
-        val: _d(cn.grandTotal),
-        ntty: 'C',
-        pos: cn.placeOfSupply ?? '',
-        supplyType: isB2cl ? 'B2CL' : 'B2CS',
-        itms: itms,
-      ));
+      cdnur.add(
+        Gstr1Cdnur(
+          ntNum: cn.number,
+          ntDt: _fmtDate(cn.invoiceDate),
+          val: _d(cn.grandTotal),
+          ntty: 'C',
+          pos: cn.placeOfSupply ?? '',
+          supplyType: isB2cl ? 'B2CL' : 'B2CS',
+          itms: itms,
+        ),
+      );
     }
 
     // ---- B2CL (Table 5): inter-state > ₹2.5L, unregistered ---------------
@@ -216,15 +239,19 @@ class GstReturnBuilder {
             cess: _d(items[i].cessAmount),
           ),
       ];
-      cdnrByGstin.putIfAbsent(gstin, () => []).add(Gstr1Note(
-            ntNum: cn.number,
-            ntDt: _fmtDate(cn.invoiceDate),
-            val: _d(cn.grandTotal),
-            ntty: 'C',
-            pos: cn.placeOfSupply ?? '',
-            reverseCharge: cn.reverseCharge,
-            itms: itms,
-          ));
+      cdnrByGstin
+          .putIfAbsent(gstin, () => [])
+          .add(
+            Gstr1Note(
+              ntNum: cn.number,
+              ntDt: _fmtDate(cn.invoiceDate),
+              val: _d(cn.grandTotal),
+              ntty: 'C',
+              pos: cn.placeOfSupply ?? '',
+              reverseCharge: cn.reverseCharge,
+              itms: itms,
+            ),
+          );
     }
     final cdnr = [
       for (final e in cdnrByGstin.entries)
@@ -235,8 +262,11 @@ class GstReturnBuilder {
     // Credit notes are part of the HSN table: outward supplies net of the
     // notes (a note carries the HSN of the goods it reverses).
     final hsnKeyed = <String, _HsnAccum>{};
-    void accumulateHsn(Iterable<SalesInvoiceItemEntity> items,
-        {bool negative = false}) {
+    void accumulateHsn(
+      Iterable<SalesInvoiceItemEntity> items, {
+      bool negative = false,
+      bool isB2b = true,
+    }) {
       final sign = negative ? -1.0 : 1.0;
       for (final l in items) {
         final code = (l.hsn ?? '').trim();
@@ -247,13 +277,15 @@ class GstReturnBuilder {
         // rate field on the model `rt` was never emitted at all, which the
         // offline utility rejects.
         final acc = hsnKeyed.putIfAbsent(
-            '$code|${l.gstRate.toStringAsFixed(2)}',
-            () => _HsnAccum(
-                  hsn: code,
-                  rate: l.gstRate,
-                  description: l.name,
-                  unit: l.unit,
-                ));
+          '$code|${l.gstRate.toStringAsFixed(2)}|${_uqc(l.unit)}|$isB2b',
+          () => _HsnAccum(
+            hsn: code,
+            rate: l.gstRate,
+            description: l.name,
+            unit: l.unit,
+            isB2b: isB2b,
+          ),
+        );
         acc.qty += sign * l.quantity;
         acc.taxable += sign * l.taxableValue;
         acc.total += sign * l.total;
@@ -265,39 +297,48 @@ class GstReturnBuilder {
     }
 
     for (final doc in activeDocs) {
-      accumulateHsn(await sales.itemsFor(doc.id));
+      accumulateHsn(
+        await sales.itemsFor(doc.id),
+        isB2b: (doc.partyGstin ?? '').trim().isNotEmpty,
+      );
     }
     for (final cn in creditNotes) {
       if (cn.status == 'cancelled') continue;
-      accumulateHsn(await sales.itemsFor(cn.id), negative: true);
+      accumulateHsn(
+        await sales.itemsFor(cn.id),
+        negative: true,
+        isB2b: (cn.partyGstin ?? '').trim().isNotEmpty,
+      );
     }
-    final hsn = [
-      for (final a in hsnKeyed.values)
-        Gstr1Hsn(
-          hsn: a.hsn,
-          rate: a.rate,
-          description: a.description,
-          uqc: _uqc(a.unit),
-          // Quantity is a POSITIVE total, never a negative: Table 12 has no
-          // sign column for it and the portal rejects a negative `qty`. The
-          // credit note's effect therefore lives in the value columns (val /
-          // txval / iamt / camt / samt / csamt), which all stay net of the
-          // note — the summary is still honest about the return while the
-          // quantity stays fileable. A month whose returns exceed its sales of
-          // that HSN floors at zero rather than claiming stock that was never
-          // invoiced out.
-          quantity: _d(a.qty < 0 ? 0 : a.qty),
-          totalValue: _d(a.total),
-          taxableValue: _d(a.taxable),
-          igst: _d(a.igst),
-          cgst: _d(a.cgst),
-          sgst: _d(a.sgst),
-          cess: _d(a.cess),
-        ),
-    ]..sort((a, b) {
-        final byCode = a.hsn.compareTo(b.hsn);
-        return byCode != 0 ? byCode : a.rate.compareTo(b.rate);
-      });
+    final hsn =
+        [
+          for (final a in hsnKeyed.values)
+            Gstr1Hsn(
+              isB2b: a.isB2b,
+              hsn: a.hsn,
+              rate: a.rate,
+              description: a.description,
+              uqc: _uqc(a.unit),
+              // Quantity is a POSITIVE total, never a negative: Table 12 has no
+              // sign column for it and the portal rejects a negative `qty`. The
+              // credit note's effect therefore lives in the value columns (val /
+              // txval / iamt / camt / samt / csamt), which all stay net of the
+              // note — the summary is still honest about the return while the
+              // quantity stays fileable. A month whose returns exceed its sales of
+              // that HSN floors at zero rather than claiming stock that was never
+              // invoiced out.
+              quantity: _d(a.qty < 0 ? 0 : a.qty),
+              totalValue: _d(a.total),
+              taxableValue: _d(a.taxable),
+              igst: _d(a.igst),
+              cgst: _d(a.cgst),
+              sgst: _d(a.sgst),
+              cess: _d(a.cess),
+            ),
+        ]..sort((a, b) {
+          final byCode = a.hsn.compareTo(b.hsn);
+          return byCode != 0 ? byCode : a.rate.compareTo(b.rate);
+        });
 
     // ---- Document issue summary (Table 13) --------------------------------
     // All sales-side doc classes that carry a serial number, not just
@@ -310,10 +351,66 @@ class GstReturnBuilder {
       ...await _docIssue(docType: 'credit_note', docNum: 5, from: from, to: to),
     ];
 
+    final bookRows = <Map<String, Object?>>[];
+    final bookDocs = [
+      ...activeDocs,
+      ...creditNotes.where((d) => d.status != 'cancelled'),
+    ];
+    final bookItems = await sales.itemsForMany(
+      bookDocs.map((d) => d.id).toList(),
+    );
+    for (final d in bookDocs) {
+      final items = bookItems[d.id] ?? <SalesInvoiceItemEntity>[];
+      final rates = items.map((i) => i.gstRate).toSet();
+      final sign = d.docType == 'credit_note' ? -1.0 : 1.0;
+      bookRows.add({
+        'gstin': d.partyGstin ?? '',
+        'party': d.partyName ?? '',
+        'type': d.docType == 'credit_note' ? 'Sale Return' : 'Sale',
+        'number': d.number,
+        'date': d.invoiceDate,
+        'invoiceValue': sign * d.grandTotal,
+        'rate': rates.length == 1 ? rates.first : (rates.isEmpty ? 0 : 'Mixed'),
+        'cessRate': items.map((i) => i.cessRate).toSet().length == 1
+            ? items.first.cessRate
+            : 0,
+        'taxable': sign * d.taxableValue,
+        'igst': sign * d.igst,
+        'cgst': sign * d.cgst,
+        'sgst': sign * d.sgst,
+        'cess': sign * d.cess,
+        'pos': d.placeOfSupply ?? '',
+        '_id': d.id,
+        '_rcm': d.reverseCharge,
+        '_interState': d.isInterState,
+        '_items': [
+          for (final i in items)
+            {
+              'hsn': i.hsn ?? '',
+              'name': i.name,
+              'unit': i.unit,
+              'rate': i.gstRate,
+              'quantity': sign * i.quantity,
+              'total': sign * i.total,
+              'taxable': sign * i.taxableValue,
+              'igst': sign * i.igst,
+              'cgst': sign * i.cgst,
+              'sgst': sign * i.sgst,
+              'cess': sign * i.cessAmount,
+            },
+        ],
+      });
+    }
+    bookRows.sort(
+      (a, b) => (a['date'] as DateTime).compareTo(b['date'] as DateTime),
+    );
     final report = Gstr1Report(
+      from: from,
+      to: to,
+      firmName: firm?.name ?? '',
+      bookRows: bookRows,
       firmGstin: (firm?.gstin ?? '').toUpperCase(),
-      fp:
-          '${from.month.toString().padLeft(2, '0')}${from.year.toString()}',
+      fp: '${to.month.toString().padLeft(2, '0')}${to.year.toString()}',
       b2b: b2b,
       b2cl: b2cl,
       b2cs: b2cs,
@@ -325,6 +422,10 @@ class GstReturnBuilder {
       docIssue: docIssue,
     );
     return Gstr1Report(
+      from: report.from,
+      to: report.to,
+      firmName: report.firmName,
+      bookRows: report.bookRows,
       firmGstin: report.firmGstin,
       fp: report.fp,
       b2b: report.b2b,
@@ -389,45 +490,57 @@ class GstReturnBuilder {
     required DateTime from,
     required DateTime to,
   }) async {
-    final docs = await db.salesRepositoryFor(firmId).list(
-        docType: docType, from: from, to: to, limit: 1000000);
+    final docs = await db
+        .salesRepositoryFor(firmId)
+        .list(docType: docType, from: from, to: to, limit: 1000000);
     if (docs.isEmpty) return const [];
     // Numeric-aware sort: INV-9 vs INV-10 must order numerically once the
     // common prefix is stripped, not lexicographically.
     String key(String n) => n.replaceAll(RegExp(r'[^0-9]'), '');
-    final numbers = docs.map((d) => d.number).toList()
-      ..sort((a, b) {
-        final ka = key(a), kb = key(b);
-        final na = int.tryParse(ka), nb = int.tryParse(kb);
-        if (na != null && nb != null) return na.compareTo(nb);
-        return a.compareTo(b);
-      });
-    final cancelled = docs.where((d) => d.status == 'cancelled').length;
-    return [
-      Gstr1DocIssue(
-        docNum: docNum,
-        from: numbers.first,
-        to: numbers.last,
-        total: docs.length,
-        cancelled: cancelled,
-      ),
-    ];
+    final series = <String, List<SalesInvoiceEntity>>{};
+    for (final doc in docs) {
+      final prefix =
+          RegExp(r'^(.*?)(\d+)$').firstMatch(doc.number)?.group(1) ??
+          doc.number;
+      series.putIfAbsent(prefix, () => []).add(doc);
+    }
+    final result = <Gstr1DocIssue>[];
+    for (final group in series.values) {
+      final numbers = group.map((d) => d.number).toList()
+        ..sort((a, b) {
+          final ka = key(a), kb = key(b);
+          final na = int.tryParse(ka), nb = int.tryParse(kb);
+          if (na != null && nb != null) return na.compareTo(nb);
+          return a.compareTo(b);
+        });
+      final cancelled = group.where((d) => d.status == 'cancelled').length;
+      result.add(
+        Gstr1DocIssue(
+          docNum: docNum,
+          from: numbers.first,
+          to: numbers.last,
+          total: group.length,
+          cancelled: cancelled,
+        ),
+      );
+    }
+    return result;
   }
 
   /// Maps an internal unit id to a GST UQC code (Table 12's `uqc`).
   String _uqc(String unit) => switch (unit) {
-        'pcs' => 'NOS',
-        'kg' => 'KGS',
-        'g' => 'GMS',
-        'l' || 'ltr' => 'LTR',
-        'm' || 'mtr' => 'MTR',
-        'ton' => 'TON',
-        'sqm' => 'SQM',
-        'cbm' => 'CBM',
-        'box' => 'BOX',
-        'bdl' => 'BDL',
-        _ => 'OTH',
-      };
+    'pcs' => 'NOS',
+    'kg' => 'KGS',
+    'g' => 'GMS',
+    'l' || 'ltr' => 'LTR',
+    'm' || 'mtr' => 'MTR',
+    'ton' => 'TON',
+    'sqm' => 'SQM',
+    'cbm' => 'CBM',
+    'box' => 'BOX',
+    'bdl' => 'BDL',
+    _ => 'OTH',
+  };
 }
 
 class _HsnAccum {
@@ -436,6 +549,7 @@ class _HsnAccum {
     required this.rate,
     required this.description,
     required this.unit,
+    required this.isB2b,
   });
 
   final String hsn;
@@ -444,6 +558,7 @@ class _HsnAccum {
   final double rate;
   final String description;
   final String unit;
+  final bool isB2b;
   double qty = 0;
   double total = 0;
   double taxable = 0;
@@ -453,9 +568,48 @@ class _HsnAccum {
   double cess = 0;
 }
 
+class GstTaxHeads {
+  const GstTaxHeads({
+    this.igst = 0,
+    this.cgst = 0,
+    this.sgst = 0,
+    this.cess = 0,
+  });
+  final double igst, cgst, sgst, cess;
+  double get total => igst + cgst + sgst + cess;
+  GstTaxHeads operator +(GstTaxHeads b) => GstTaxHeads(
+    igst: igst + b.igst,
+    cgst: cgst + b.cgst,
+    sgst: sgst + b.sgst,
+    cess: cess + b.cess,
+  );
+  GstTaxHeads operator -(GstTaxHeads b) => GstTaxHeads(
+    igst: igst - b.igst,
+    cgst: cgst - b.cgst,
+    sgst: sgst - b.sgst,
+    cess: cess - b.cess,
+  );
+  Map<String, Object> toJson() => {
+    'iamt': double.parse(igst.toStringAsFixed(2)),
+    'camt': double.parse(cgst.toStringAsFixed(2)),
+    'samt': double.parse(sgst.toStringAsFixed(2)),
+    'csamt': double.parse(cess.toStringAsFixed(2)),
+  };
+}
+
 /// Computed GSTR-3B for one filing period (Tables 3.1, 3.2, 4, 5).
 class Gstr3bReport {
   const Gstr3bReport({
+    this.from,
+    this.to,
+    this.otherItcHeads = const GstTaxHeads(),
+    this.reverseChargeHeads = const GstTaxHeads(),
+    this.reverseChargeItcHeads,
+    this.zeroRatedHeads = const GstTaxHeads(),
+    this.reverseChargeValue = 0,
+    this.unallocatedExpenseItc = 0,
+    this.inwardNilInter = 0,
+    this.inwardNilIntra = 0,
     required this.fp,
     required this.outwardTaxable,
     required this.outwardIgst,
@@ -477,6 +631,65 @@ class Gstr3bReport {
   });
 
   final String fp;
+  final DateTime? from, to;
+  final GstTaxHeads otherItcHeads, reverseChargeHeads, zeroRatedHeads;
+  final GstTaxHeads? reverseChargeItcHeads;
+  GstTaxHeads get eligibleRcHeads =>
+      reverseChargeItcHeads ?? reverseChargeHeads;
+  final double inwardNilInter, inwardNilIntra;
+  final double reverseChargeValue, unallocatedExpenseItc;
+
+  /// GST save-data structure; a preparation draft until portal checks pass.
+  Map<String, Object?> toPortalJson(String gstin) => {
+    'gstin': gstin,
+    'ret_period': fp,
+    'sup_details': {
+      'osup_det': {
+        'txval': _n(outwardTaxable),
+        'iamt': _n(outwardIgst),
+        'camt': _n(outwardCgst),
+        'samt': _n(outwardSgst),
+        'csamt': _n(outwardCess),
+      },
+      'osup_zero': {'txval': _n(zeroRated), ...zeroRatedHeads.toJson()},
+      'osup_nil_exmp': {'txval': _n(nilRated)},
+      'isup_rev': {'txval': reverseChargeValue, ...reverseChargeHeads.toJson()},
+      'osup_nongst': {'txval': 0},
+    },
+    'inter_sup': {
+      'unreg_details': [
+        for (final s in interStateByPos)
+          {'pos': s.pos, 'txval': _n(s.taxableValue), 'iamt': _n(s.igst)},
+      ],
+      'comp_details': [],
+      'uin_details': [],
+    },
+    'itc_elg': {
+      'itc_avl': [
+        for (final type in ['IMPG', 'IMPS', 'ISRC', 'ISD', 'OTH'])
+          {
+            'ty': type,
+            ...(type == 'OTH'
+                    ? otherItcHeads
+                    : type == 'ISRC'
+                    ? eligibleRcHeads
+                    : const GstTaxHeads())
+                .toJson(),
+          },
+      ],
+      'itc_net': (otherItcHeads + eligibleRcHeads).toJson(),
+      'itc_rev': [
+        for (final type in ['RUL', 'OTH'])
+          {'ty': type, ...const GstTaxHeads().toJson()},
+      ],
+    },
+    'inward_sup': {
+      'isup_details': [
+        {'ty': 'GST', 'inter': inwardNilInter, 'intra': inwardNilIntra},
+        {'ty': 'NONGST', 'inter': 0, 'intra': _n(inwardNonGst)},
+      ],
+    },
+  };
 
   // Table 3.1(a)
   final Decimal outwardTaxable;
@@ -535,56 +748,52 @@ class Gstr3bReport {
     final outwardTax = outwardIgst + outwardCgst + outwardSgst + outwardCess;
     final itcForOutward = netItc - itcReverseCharge;
     final netOutward = outwardTax - itcForOutward;
-    final regularPayable =
-        netOutward < Decimal.zero ? Decimal.zero : netOutward;
+    final regularPayable = netOutward < Decimal.zero
+        ? Decimal.zero
+        : netOutward;
     return regularPayable + reverseChargeTax;
   }
 
   Map<String, Object?> toJson() => {
-        'fp': fp,
-        '3.1': {
-          'a_outward_taxable': {
-            'txval': _n(outwardTaxable),
-            'igst': _n(outwardIgst),
-            'cgst': _n(outwardCgst),
-            'sgst': _n(outwardSgst),
-            'cess': _n(outwardCess),
-          },
-          'b_zero_rated': _n(zeroRated),
-          'c_nil_exempt': _n(nilRated),
-          'd_reverse_charge_tax': _n(reverseChargeTax),
-        },
-        '3.2': [
-          for (final s in interStateByPos)
-            {
-              'pos': s.pos,
-              'txval': _n(s.taxableValue),
-              'igst': _n(s.igst),
-            },
-        ],
-        '4': {
-          'a_available': {
-            'import_goods': _n(itcImport),
-            'reverse_charge': _n(itcReverseCharge),
-            'inward_isd': _n(itcInwardIsd),
-            'all_other': _n(itcAllOther),
-          },
-          'b_reversed': {
-            'rule_42_43': _n(itcReversedRule4243),
-            'others': _n(itcReversedOther),
-          },
-          'c_net': _n(netItc),
-        },
-        '5': {
-          'nil_exempt_composition': _n(inwardNilRated),
-          // See [inwardNonGst]: nothing in the books can populate this, so it
-          // is left out rather than filed as an invented zero.
-          if (inwardNonGst != Decimal.zero) 'non_gst': _n(inwardNonGst),
-        },
-      };
+    'fp': fp,
+    '3.1': {
+      'a_outward_taxable': {
+        'txval': _n(outwardTaxable),
+        'igst': _n(outwardIgst),
+        'cgst': _n(outwardCgst),
+        'sgst': _n(outwardSgst),
+        'cess': _n(outwardCess),
+      },
+      'b_zero_rated': _n(zeroRated),
+      'c_nil_exempt': _n(nilRated),
+      'd_reverse_charge_tax': _n(reverseChargeTax),
+    },
+    '3.2': [
+      for (final s in interStateByPos)
+        {'pos': s.pos, 'txval': _n(s.taxableValue), 'igst': _n(s.igst)},
+    ],
+    '4': {
+      'a_available': {
+        'import_goods': _n(itcImport),
+        'reverse_charge': _n(itcReverseCharge),
+        'inward_isd': _n(itcInwardIsd),
+        'all_other': _n(itcAllOther),
+      },
+      'b_reversed': {
+        'rule_42_43': _n(itcReversedRule4243),
+        'others': _n(itcReversedOther),
+      },
+      'c_net': _n(netItc),
+    },
+    '5': {
+      'nil_exempt_composition': _n(inwardNilRated),
+      // See [inwardNonGst]: nothing in the books can populate this, so it
+      // is left out rather than filed as an invented zero.
+      if (inwardNonGst != Decimal.zero) 'non_gst': _n(inwardNonGst),
+    },
+  };
 
-  static Object _n(Decimal d) =>
-      double.tryParse(d.toStringAsFixed(2)) ?? 0;
+  static Object _n(Decimal d) => double.tryParse(d.toStringAsFixed(2)) ?? 0;
 }
 
 class Gstr3bInterState {
@@ -607,6 +816,10 @@ Future<Gstr3bReport> buildGstr3b(
   required DateTime from,
   required DateTime to,
 }) async {
+  final firm = await db.firmRepository.getById(firmId);
+  if (firm?.isGstRegistered != true) {
+    throw StateError('GST returns require a GST-registered business.');
+  }
   final sales = db.salesRepositoryFor(firmId);
   final purchases = db.purchaseRepositoryFor(firmId);
   final docs = await sales
@@ -614,8 +827,7 @@ Future<Gstr3bReport> buildGstr3b(
       .then((d) => d.where((d) => d.status != 'cancelled').toList());
   final creditNotes = await sales
       .list(docType: 'credit_note', from: from, to: to, limit: 1000000)
-      .then((d) =>
-          d.where((d) => d.status != 'cancelled').toList());
+      .then((d) => d.where((d) => d.status != 'cancelled').toList());
   final bills = await purchases
       .list(docType: 'bill', from: from, to: to, limit: 1000000)
       .then((d) => d.where((d) => d.status != 'cancelled').toList());
@@ -625,6 +837,7 @@ Future<Gstr3bReport> buildGstr3b(
 
   double taxable = 0, oigst = 0, ocgst = 0, osgst = 0, ocess = 0;
   double zeroRated = 0;
+  var zeroRatedHeads = const GstTaxHeads();
   double nilRated = 0;
   final interByPos = <String, Gstr3bInterState>{};
 
@@ -642,6 +855,12 @@ Future<Gstr3bReport> buildGstr3b(
     if (doc.isExport) {
       // Zero-rated supplies report TAXABLE value, not the gross total.
       zeroRated += sign * doc.taxableValue;
+      zeroRatedHeads += GstTaxHeads(
+        igst: sign * doc.igst,
+        cgst: sign * doc.cgst,
+        sgst: sign * doc.sgst,
+        cess: sign * doc.cess,
+      );
       return;
     }
     // Split the document's taxable value by LINE rate. The stored per-line
@@ -694,8 +913,7 @@ Future<Gstr3bReport> buildGstr3b(
         // against 3.1(a).
         taxableValue:
             (existing?.taxableValue ?? Decimal.zero) + _d(sign * taxablePart),
-        igst:
-            (existing?.igst ?? Decimal.zero) + _d(sign * doc.igst),
+        igst: (existing?.igst ?? Decimal.zero) + _d(sign * doc.igst),
       );
     }
   }
@@ -714,20 +932,52 @@ Future<Gstr3bReport> buildGstr3b(
   double itcAll = 0;
   double itcRc = 0;
   double inwardNil = 0;
+  var otherHeads = const GstTaxHeads();
+  var rcHeads = const GstTaxHeads();
+  var rcItcHeads = const GstTaxHeads();
+  double inwardNilInter = 0, inwardNilIntra = 0;
+  double rcValue = 0;
   void addInward(PurchaseBillEntity b, {double sign = 1.0}) {
     if (b.reverseCharge || b.isInwardSupplyFromUnregistered) {
       // Table 3.1(d) & Table 4(A3) reverse-charge inward:
       // tax liability is payable by recipient in cash under Section 49(4).
-      itcRc += sign * (b.cgst + b.sgst + b.igst + b.cess);
+      if (b.itcEligible) {
+        itcRc += sign * (b.cgst + b.sgst + b.igst + b.cess);
+        rcItcHeads += GstTaxHeads(
+          igst: sign * b.igst,
+          cgst: sign * b.cgst,
+          sgst: sign * b.sgst,
+          cess: sign * b.cess,
+        );
+      }
+      rcValue += sign * b.taxableValue;
+      rcHeads += GstTaxHeads(
+        igst: sign * b.igst,
+        cgst: sign * b.cgst,
+        sgst: sign * b.sgst,
+        cess: sign * b.cess,
+      );
       return;
     }
     final gstin = (b.partyGstin ?? '').trim();
-    if (gstin.isEmpty) {
+    if (gstin.isEmpty || b.igst + b.cgst + b.sgst + b.cess == 0) {
       // Regular purchases from unregistered suppliers (Table 5 nil-rated/exempt)
       inwardNil += sign * b.taxableValue;
+      if (b.isInterState) {
+        inwardNilInter += sign * b.taxableValue;
+      } else {
+        inwardNilIntra += sign * b.taxableValue;
+      }
       return;
     }
+    if (!b.itcEligible) return;
     itcAll += sign * (b.cgst + b.sgst + b.igst + b.cess);
+    otherHeads += GstTaxHeads(
+      igst: sign * b.igst,
+      cgst: sign * b.cgst,
+      sgst: sign * b.sgst,
+      cess: sign * b.cess,
+    );
   }
 
   for (final b in bills) {
@@ -747,23 +997,31 @@ Future<Gstr3bReport> buildGstr3b(
   final expenseGst = await db
       .expenseRepositoryFor(firmId)
       .list(type: 'expense', from: from, to: to, limit: 1000000)
-      .then((rows) => rows.fold<double>(
-            0,
-            (sum, e) => sum + e.gstAmount.clamp(0, e.amount).toDouble(),
-          ));
+      .then(
+        (rows) => rows.fold<double>(
+          0,
+          (sum, e) =>
+              sum +
+              (e.itcEligible ? e.gstAmount.clamp(0, e.amount).toDouble() : 0),
+        ),
+      );
   itcAll += expenseGst;
 
-  // A period whose purchase DEBIT NOTES exceed its bills reverses more ITC than
-  // was ever available. That is a real event, not an error: the excess is
-  // clawed back under Rules 42/43, which is exactly what Table 4(B)(1) is for.
-  // It used to be discarded (`itcAll < 0 ? 0 : itcAll`) while 4(B) was hardcoded
-  // 0 — so the return reported MORE credit than existed and nothing showed the
-  // clawback. The reversal is now routed to 4(B)(1) and 4(C) nets out negative,
-  // which netPayable already treats as "nothing to pay, carry the credit".
-  final reversedExcess = itcAll < 0 ? -itcAll : 0.0;
+  // Supplier notes are netted in 4(A)(5), including a negative period total.
+  // They do not establish a Rule 42/43 reversal; that requires separate review.
 
   return Gstr3bReport(
-    fp: '${from.month.toString().padLeft(2, '0')}${from.year.toString()}',
+    from: from,
+    to: to,
+    otherItcHeads: otherHeads,
+    reverseChargeHeads: rcHeads,
+    reverseChargeItcHeads: rcItcHeads,
+    zeroRatedHeads: zeroRatedHeads,
+    reverseChargeValue: rcValue,
+    unallocatedExpenseItc: expenseGst,
+    inwardNilInter: inwardNilInter,
+    inwardNilIntra: inwardNilIntra,
+    fp: '${to.month.toString().padLeft(2, '0')}${to.year.toString()}',
     outwardTaxable: _d(taxable),
     outwardIgst: _d(oigst),
     outwardCgst: _d(ocgst),
@@ -771,14 +1029,15 @@ Future<Gstr3bReport> buildGstr3b(
     outwardCess: _d(ocess),
     zeroRated: _d(zeroRated < 0 ? 0 : zeroRated),
     nilRated: _d(nilRated < 0 ? 0 : nilRated),
-    reverseChargeTax: _d(itcRc),
+    reverseChargeTax: _d(rcHeads.total),
     interStateByPos: interByPos.values.toList()
       ..sort((a, b) => a.pos.compareTo(b.pos)),
     itcImport: Decimal.zero,
     itcReverseCharge: _d(itcRc),
     itcInwardIsd: Decimal.zero,
-    itcAllOther: _d(itcAll < 0 ? 0 : itcAll),
-    itcReversedRule4243: _d(reversedExcess),
+    // Supplier notes net in 4(A)(5); they are not evidence of a Rule 42/43 reversal.
+    itcAllOther: _d(itcAll),
+    itcReversedRule4243: Decimal.zero,
     itcReversedOther: Decimal.zero,
     // Table 5 is a disclosure of supply VALUE, not a liability, and the portal
     // has no reversal row for it — so a debit note that exceeds nil-rated bills
@@ -819,16 +1078,18 @@ class Gstr2aSupplier {
         sgst += _asDouble(det['samt']);
         cess += _asDouble(det['csamt']);
       }
-      invoices.add(Gstr2aInvoice(
-        number: (m['inum'] ?? '').toString(),
-        date: (m['idt'] ?? '').toString(),
-        value: _asDouble(m['val']),
-        taxableValue: txval,
-        igst: igst,
-        cgst: cgst,
-        sgst: sgst,
-        cess: cess,
-      ));
+      invoices.add(
+        Gstr2aInvoice(
+          number: (m['inum'] ?? '').toString(),
+          date: (m['idt'] ?? '').toString(),
+          value: _asDouble(m['val']),
+          taxableValue: txval,
+          igst: igst,
+          cgst: cgst,
+          sgst: sgst,
+          cess: cess,
+        ),
+      );
     }
     return Gstr2aSupplier(
       gstin: (json['ctin'] ?? '').toString(),
@@ -867,6 +1128,8 @@ class Gstr2aInvoice {
 /// (what you recorded). Matched on invoice number (normalized).
 class Gstr2aMatchRow {
   const Gstr2aMatchRow({
+    this.supplierGstin = '',
+    this.invoiceDate = '',
     required this.invoiceNumber,
     required this.status,
     this.booksTaxable,
@@ -876,6 +1139,7 @@ class Gstr2aMatchRow {
   });
 
   final String invoiceNumber;
+  final String supplierGstin, invoiceDate;
 
   /// matched | books_only | portal_only | value_mismatch
   final String status;
@@ -904,8 +1168,7 @@ class Gstr2aReconciliation {
   int get matched => rows.where((r) => r.status == 'matched').length;
   int get booksOnly => rows.where((r) => r.status == 'books_only').length;
   int get portalOnly => rows.where((r) => r.status == 'portal_only').length;
-  int get mismatch =>
-      rows.where((r) => r.status == 'value_mismatch').length;
+  int get mismatch => rows.where((r) => r.status == 'value_mismatch').length;
 
   /// Parses a portal GSTR-2A JSON file (the `b2b` array of supplier blocks)
   /// and reconciles it against the purchase books for the period.
@@ -917,130 +1180,155 @@ class Gstr2aReconciliation {
     required DateTime to,
     String firmGstin = '',
   }) async {
-    final suppliers = <Gstr2aSupplier>[];
-    for (final s in (json['b2b'] as List<dynamic>? ?? [])) {
-      suppliers.add(Gstr2aSupplier.fromJson(s as Map<String, dynamic>));
+    final recipient = (json['gstin'] ?? '').toString().trim().toUpperCase();
+    if (recipient.isNotEmpty &&
+        firmGstin.isNotEmpty &&
+        recipient != firmGstin.toUpperCase()) {
+      throw const FormatException('This GSTR-2A belongs to another GSTIN.');
+    }
+    final period = (json['fp'] ?? json['ret_period'] ?? '').toString();
+    final expectedPeriod =
+        '${from.month.toString().padLeft(2, '0')}${from.year}';
+    if (period.isNotEmpty && period != expectedPeriod) {
+      throw const FormatException(
+        'This GSTR-2A belongs to another return period.',
+      );
+    }
+    final portal = <String, List<Gstr2aInvoice>>{};
+    final books = <String, List<Gstr2aInvoice>>{};
+    void add(
+      Map<String, List<Gstr2aInvoice>> target,
+      String gstin,
+      Gstr2aInvoice invoice, {
+      bool note = false,
+    }) {
+      final key = '${_key(gstin, invoice.number)}|${note ? 'note' : 'invoice'}';
+      target.putIfAbsent(key, () => []).add(invoice);
     }
 
-    // Key both sides by (supplier GSTIN, normalized invoice number): two
-    // suppliers can (and do) issue the same invoice number; matching on the
-    // number alone cross-matched their invoices.
-    final portal = <String, List<Gstr2aInvoice>>{};
-    var portalTax = 0.0;
-    for (final s in suppliers) {
-      for (final i in s.invoices) {
-        portal.putIfAbsent(_key(s.gstin, i.number), () => []).add(i);
-        portalTax += i.igst + i.cgst + i.sgst + i.cess;
+    for (final block in (json['b2b'] as List? ?? const [])) {
+      final supplier = Gstr2aSupplier.fromJson(
+        Map<String, dynamic>.from(block as Map),
+      );
+      for (final invoice in supplier.invoices) {
+        add(portal, supplier.gstin, invoice);
       }
     }
-
-    // Books: purchases in the period from registered suppliers.
-    final books = <String, List<PurchaseBillEntity>>{};
-    var booksTax = 0.0;
-    // Collected here, appended to [rows] once that list exists.
-    final noteRows = <Gstr2aMatchRow>[];
-    final purchaseRepo = db.purchaseRepositoryFor(firmId);
-    final bills = await purchaseRepo
-        .list(docType: 'bill', from: from, to: to, limit: 1000000);
-    final debitNotes = await purchaseRepo
-        .list(docType: 'debit_note', from: from, to: to, limit: 1000000);
-    for (final b in bills) {
-      if (b.status == 'cancelled' || b.isDeleted) continue;
-      if ((b.partyGstin ?? '').trim().isEmpty) continue;
-      // Match on the SUPPLIER's invoice number — the portal knows that one,
-      // not our internal bill number. (Keying on b.number made every row
-      // books_only/portal_only; the reconciliation never matched anything.)
-      final supplierRef =
-          (b.supplierInvoiceNumber ?? '').trim().toUpperCase();
-      books.putIfAbsent(
-          _key((b.partyGstin ?? '').trim().toUpperCase(),
-              supplierRef.isEmpty ? b.number : supplierRef), () => [])
-          .add(b);
-      booksTax += b.cgst + b.sgst + b.igst + b.cess;
+    // Portal supplier credit/debit notes are separate documents, not adjustments
+    // silently applied to the invoice bearing a similar number.
+    for (final block in (json['cdn'] ?? json['cdnr'] ?? const []) as List) {
+      final supplierGstin = '${block['ctin'] ?? ''}';
+      for (final note in (block['nt'] as List? ?? const [])) {
+        final sign = note['ntty'] == 'C' ? -1.0 : 1.0;
+        final parsed = Gstr2aSupplier.fromJson({
+          'ctin': supplierGstin,
+          'inv': [
+            {
+              ...Map<String, dynamic>.from(note as Map),
+              'inum': note['nt_num'],
+              'idt': note['nt_dt'],
+            },
+          ],
+        }).invoices.single;
+        add(
+          portal,
+          supplierGstin,
+          Gstr2aInvoice(
+            number: parsed.number,
+            date: parsed.date,
+            value: sign * parsed.value,
+            taxableValue: sign * parsed.taxableValue,
+            igst: sign * parsed.igst,
+            cgst: sign * parsed.cgst,
+            sgst: sign * parsed.sgst,
+            cess: sign * parsed.cess,
+          ),
+          note: true,
+        );
+      }
     }
-
-    // Purchase debit notes reverse a bill's ITC, so they belong on the books
-    // side of this comparison — GSTR-3B Table 4(A)(5)/(B) already subtracts
-    // them, and reading bills only made "Books ITC" contradict the return built
-    // from these very books for this very period. One negative row each, keyed
-    // on the SUPPLIER's invoice number of the bill they return (the only number
-    // the portal knows), with the tax subtracted from [booksTax].
-    for (final dn in debitNotes) {
-      if (dn.status == 'cancelled' || dn.isDeleted) continue;
-      if ((dn.partyGstin ?? '').trim().isEmpty) continue;
-      final supplierRef =
-          (dn.supplierInvoiceNumber ?? '').trim().toUpperCase();
-      final key = _key((dn.partyGstin ?? '').trim().toUpperCase(),
-          supplierRef.isEmpty ? dn.number : supplierRef);
-      final tax = -(dn.cgst + dn.sgst + dn.igst + dn.cess);
-      booksTax += tax;
-      noteRows.add(Gstr2aMatchRow(
-        invoiceNumber: supplierRef.isEmpty ? dn.number : supplierRef,
-        // Nothing filed under this key at all → the books hold something the
-        // portal does not. A portal invoice DOES exist under it but our side
-        // now nets below it → the supplier has not reported the return.
-        status: portal.containsKey(key) ? 'value_mismatch' : 'books_only',
-        booksTaxable: -dn.taxableValue,
-        booksTax: tax,
-      ));
+    final repo = db.purchaseRepositoryFor(firmId);
+    for (final type in ['bill', 'debit_note']) {
+      for (final b in await repo.list(
+        docType: type,
+        from: from,
+        to: to,
+        limit: 1000000,
+      )) {
+        if (b.status == 'cancelled' ||
+            b.isDeleted ||
+            (b.partyGstin ?? '').trim().isEmpty) {
+          continue;
+        }
+        final sign = type == 'debit_note' ? -1.0 : 1.0;
+        final reference = (b.supplierInvoiceNumber ?? '').trim();
+        add(
+          books,
+          b.partyGstin!,
+          Gstr2aInvoice(
+            number: reference.isEmpty ? b.number : reference,
+            date: _fmtDate(b.billDate),
+            value: sign * b.grandTotal,
+            taxableValue: sign * b.taxableValue,
+            igst: sign * b.igst,
+            cgst: sign * b.cgst,
+            sgst: sign * b.sgst,
+            cess: sign * b.cess,
+          ),
+          note: type == 'debit_note',
+        );
+      }
     }
-
+    double tax(Gstr2aInvoice invoice) =>
+        invoice.igst + invoice.cgst + invoice.sgst + invoice.cess;
+    var portalTax = 0.0, booksTax = 0.0;
     final rows = <Gstr2aMatchRow>[];
-    final seen = <String>{};
-    rows.addAll(noteRows);
-    portal.forEach((key, portalInvoices) {
-      seen.add(key);
-      final bookBills = books[key] ?? const <PurchaseBillEntity>[];
-      final count = portalInvoices.length > bookBills.length
+    for (final key in {...portal.keys, ...books.keys}) {
+      final portalInvoices = portal[key] ?? <Gstr2aInvoice>[];
+      final bookInvoices = books[key] ?? <Gstr2aInvoice>[];
+      portalInvoices.sort((a, b) => a.date.compareTo(b.date));
+      bookInvoices.sort((a, b) => a.date.compareTo(b.date));
+      final count = portalInvoices.length > bookInvoices.length
           ? portalInvoices.length
-          : bookBills.length;
+          : bookInvoices.length;
       for (var i = 0; i < count; i++) {
         final p = i < portalInvoices.length ? portalInvoices[i] : null;
-        final b = i < bookBills.length ? bookBills[i] : null;
-        if (p == null) {
-          rows.add(Gstr2aMatchRow(
-            invoiceNumber: b!.number,
-            status: 'books_only',
-            booksTaxable: b.taxableValue,
-            booksTax: b.cgst + b.sgst + b.igst + b.cess,
-          ));
-          continue;
-        }
-        if (b == null) {
-          rows.add(Gstr2aMatchRow(
-            invoiceNumber: p.number,
-            status: 'portal_only',
-            portalTaxable: p.taxableValue,
-            portalTax: p.igst + p.cgst + p.sgst + p.cess,
-          ));
-          continue;
-        }
-        final bTax = b.cgst + b.sgst + b.igst + b.cess;
-        final pTax = p.igst + p.cgst + p.sgst + p.cess;
-        final ok = (b.taxableValue - p.taxableValue).abs() < 1 &&
-            (bTax - pTax).abs() < 1;
-        rows.add(Gstr2aMatchRow(
-          invoiceNumber: p.number,
-          status: ok ? 'matched' : 'value_mismatch',
-          booksTaxable: b.taxableValue,
-          booksTax: bTax,
-          portalTaxable: p.taxableValue,
-          portalTax: pTax,
-        ));
+        final b = i < bookInvoices.length ? bookInvoices[i] : null;
+        if (p != null) portalTax += tax(p);
+        if (b != null) booksTax += tax(b);
+        final match =
+            p != null &&
+            b != null &&
+            (p.taxableValue - b.taxableValue).abs() < 1 &&
+            (p.igst - b.igst).abs() < 1 &&
+            (p.cgst - b.cgst).abs() < 1 &&
+            (p.sgst - b.sgst).abs() < 1 &&
+            (p.cess - b.cess).abs() < 1;
+        rows.add(
+          Gstr2aMatchRow(
+            supplierGstin: key.split('|').first,
+            invoiceNumber: (p ?? b)!.number,
+            invoiceDate: (p ?? b)!.date,
+            status: p == null
+                ? 'books_only'
+                : b == null
+                ? 'portal_only'
+                : match
+                ? 'matched'
+                : 'value_mismatch',
+            booksTaxable: b?.taxableValue,
+            booksTax: b == null ? null : tax(b),
+            portalTaxable: p?.taxableValue,
+            portalTax: p == null ? null : tax(p),
+          ),
+        );
       }
-    });
-    books.forEach((key, bookBills) {
-      if (seen.contains(key)) return;
-      for (final b in bookBills) {
-        rows.add(Gstr2aMatchRow(
-          invoiceNumber: b.number,
-          status: 'books_only',
-          booksTaxable: b.taxableValue,
-          booksTax: b.cgst + b.sgst + b.igst + b.cess,
-        ));
-      }
-    });
-    rows.sort((a, b) => a.invoiceNumber.compareTo(b.invoiceNumber));
+    }
+    rows.sort(
+      (a, b) => '${a.supplierGstin}|${a.invoiceNumber}'.compareTo(
+        '${b.supplierGstin}|${b.invoiceNumber}',
+      ),
+    );
     return Gstr2aReconciliation(
       rows: rows,
       portalTotalTax: portalTax,

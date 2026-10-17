@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:drift/drift.dart' show TableUpdateQuery;
 
 import '../api/api_config.dart';
 import '../api/auth_client.dart';
@@ -314,11 +315,85 @@ class ActiveFirmController extends StateNotifier<String?> {
 
 final activeFirmIdProvider =
     StateNotifierProvider<ActiveFirmController, String?>((ref) {
-      return ActiveFirmController(
-        ref.read(settingsRepositoryProvider),
-        ref.read(firmRepositoryProvider),
-      );
-    });
+  return ActiveFirmController(
+    ref.read(settingsRepositoryProvider),
+    ref.read(firmRepositoryProvider),
+  );
+});
+
+// ---- Interface zoom ----
+
+/// The app-wide zoom factor, as a multiplier on every dimension.
+///
+/// **Distinct from the OS text-scale setting, and deliberately not merged with
+/// it.** `MediaQuery.textScaler` answers "how big is the text"; this answers "how
+/// big is everything — text, controls, spacing, hit targets" — which is what a
+/// counter operator with a small screen actually needs, and what an accessibility
+/// zoom has to provide. It is applied by [InterfaceScale], which hands the tree a
+/// matching logical viewport so responsive breakpoints still resolve against real
+/// device widths, and it **never touches `textScaler`**, so Android's own font
+/// setting is honoured on top and is never capped.
+///
+/// A device preference: stored in `app_settings` with no firm id, and not
+/// exported in a backup, because it describes this screen rather than the books.
+class InterfaceScaleController extends StateNotifier<double> {
+  InterfaceScaleController(this._settings) : super(1) {
+    _restore();
+  }
+
+  /// The choices Settings offers. Anything outside these is normalised away —
+  /// see [_coerce].
+  static const List<double> options = [0.85, 1, 1.15, 1.3, 1.5];
+
+  final SettingsRepository _settings;
+
+  /// Set once [set] has been called, so a slow startup read cannot overwrite a
+  /// choice the operator made while it was in flight — the same race
+  /// [ThemeModeController._init] has to defend against, and the same reason
+  /// [ActiveFirmController] keeps a `_ready` completer.
+  bool _chosen = false;
+
+  Future<void> _restore() async {
+    final stored = await _settings.get(SettingsRepository.kInterfaceScale);
+    // A disposed controller must not be written to, and a value the operator has
+    // already changed must not be clobbered by a late read.
+    if (!mounted || _chosen) return;
+    state = _coerce(double.tryParse((stored ?? '').trim()));
+  }
+
+  /// Snaps a value to one of [options], or 1 for anything else.
+  ///
+  /// NaN, Infinity and anything off the list become 1: a stored value can only
+  /// get there through a hand-edited backup or a corrupted row, and the failure
+  /// mode must be "looks normal" rather than an app that renders at zero size.
+  static double _coerce(double? value) {
+    if (value == null || !value.isFinite) return 1;
+    for (final option in options) {
+      if ((option - value).abs() < 0.001) return option;
+    }
+    return 1;
+  }
+
+  Future<void> set(double value) async {
+    // NaN first, and separately: `(1 - double.nan).abs() > 0.001` is **false**
+    // in IEEE arithmetic, so folding the non-finite check into the comparison
+    // below would let a NaN through and silently reset the zoom to 1.
+    if (!value.isFinite) return;
+    final next = _coerce(value);
+    // Off the offered list, so not stored: the choice a caller can make is the
+    // one a person can pick in Settings, and a value the settings table never
+    // sees cannot become a bad next launch.
+    if ((next - value).abs() > 0.001) return;
+    _chosen = true;
+    state = next;
+    await _settings.set(SettingsRepository.kInterfaceScale, next.toString());
+  }
+}
+
+final interfaceScaleProvider =
+    StateNotifierProvider<InterfaceScaleController, double>((ref) {
+  return InterfaceScaleController(ref.read(settingsRepositoryProvider));
+});
 
 /// The currently active firm entity (reactive).
 final activeFirmProvider = StreamProvider<FirmEntity?>((ref) async* {
@@ -379,7 +454,21 @@ final expenseRepositoryProvider = Provider((ref) {
   return db.expenseRepositoryFor(firmId);
 });
 
+final bookRevisionProvider = StreamProvider<int>((ref) async* {
+  final db = ref.watch(appDatabaseProvider);
+  const names = {'firms', 'parties', 'items', 'sales_invoices', 'sales_invoice_items',
+    'purchase_bills', 'purchase_bill_items', 'payments', 'expenses', 'accounts',
+    'journal_entries', 'journal_lines', 'stock_movements', 'bank_accounts'};
+  final tables = db.allTables.where((t) => names.contains(t.actualTableName)).toList();
+  var revision = 0;
+  yield revision;
+  await for (final _ in db.tableUpdates(TableUpdateQuery.onAllTables(tables))) {
+    yield ++revision;
+  }
+});
+
 final reportRepositoryProvider = Provider((ref) {
+  ref.watch(bookRevisionProvider);
   final firmId = ref.watch(activeFirmIdProvider);
   final db = ref.read(appDatabaseProvider);
   if (firmId == null) return null;
@@ -488,8 +577,24 @@ class ThemeModeController extends StateNotifier<ThemeMode> {
 
   final SettingsRepository _settings;
 
+  /// Flipped by [set] so a slow startup read cannot undo a choice the operator
+  /// has already made.
+  ///
+  /// The read is async and the constructor cannot await it, so on a cold start
+  /// the app paints in `system` and the stored theme lands a moment later. If
+  /// the operator picks Dark inside that window — which is exactly what happens
+  /// on a slow phone, and is why the app opens in the wrong theme and *stays*
+  /// there — the late read overwrites their choice with the stored one. The
+  /// guard makes the user win, and is the same policy
+  /// [InterfaceScaleController._restore] applies.
+  bool _chosen = false;
+
   Future<void> _init() async {
     final stored = await _settings.get(SettingsRepository.kThemeMode);
+    // A disposed controller must not be written to either: `StateNotifier`
+    // throws on a state change after `dispose`, and this read outlives the
+    // provider whenever the app tears down mid-launch.
+    if (!mounted || _chosen) return;
     switch (stored) {
       case 'light':
         state = ThemeMode.light;
@@ -503,6 +608,7 @@ class ThemeModeController extends StateNotifier<ThemeMode> {
   }
 
   Future<void> set(ThemeMode mode) async {
+    _chosen = true;
     state = mode;
     final value = mode == ThemeMode.light
         ? 'light'

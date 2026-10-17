@@ -44,11 +44,7 @@ const ReportSpec itemWisePnlSpec = ReportSpec(
   columns: [
     ReportColumn(key: 'item', label: 'Item', flex: 3, emphasise: true),
     ReportColumn(key: 'category', label: 'Category'),
-    ReportColumn(
-      key: 'saleQty',
-      label: 'Sold',
-      kind: ReportValueKind.quantity,
-    ),
+    ReportColumn(key: 'saleQty', label: 'Sold', kind: ReportValueKind.quantity),
     ReportColumn(key: 'sale', label: 'Sale value', kind: ReportValueKind.money),
     ReportColumn(key: 'cost', label: 'Cost', kind: ReportValueKind.money),
     ReportColumn(
@@ -95,8 +91,12 @@ Future<List<ReportRow>> itemWisePnlRows(
   // have no stock and therefore no movement, and which are excluded from
   // `movementsByItem` only because that map is about the shelf.
   final trading = await tradingByItem(db, firmId, window, selected: selected);
-  final movements =
-      await movementsByItem(db, firmId, window, selected: selected);
+  final movements = await movementsByItem(
+    db,
+    firmId,
+    window,
+    selected: selected,
+  );
   final items = await itemsById(db, firmId, trading.keys.toList());
   final categories = await itemCategoryNames(db, firmId, items);
 

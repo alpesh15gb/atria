@@ -30,7 +30,7 @@ void main() {
     final container = ProviderContainer(
       overrides: [appDatabaseProvider.overrideWithValue(db)],
     );
-    final firm = await db.firmRepository.create(name: 'Apex Integrations');
+    final firm = await db.firmRepository.create(gstin: '29ABCDE1234F1Z5', name: 'Apex Integrations');
     await container.read(activeFirmIdProvider.notifier).select(firm.id);
     return (db, container);
   }
@@ -53,7 +53,7 @@ void main() {
     await db.close();
   }
 
-  testWidgets('reports screen lists its destinations as labelled rows',
+  testWidgets('reports screen lists its tabs and overview',
       (tester) async {
     final (db, container) = await boot();
 
@@ -70,14 +70,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(tester.takeException(), isNull);
-    expect(find.text('Report library'), findsOneWidget);
-    expect(find.byType(AtriaNavRow), findsNWidgets(3));
-    expect(find.text('GST returns'), findsOneWidget);
-    expect(find.text('Stock summary'), findsOneWidget);
-    expect(find.text('Statement of account'), findsOneWidget);
-    // The old icon-only entry points must be gone: a row carries its label.
-    expect(find.byIcon(Icons.fact_check_outlined), findsOneWidget);
-    expect(find.byTooltip('GST returns (GSTR-1 / 3B / 2A)'), findsNothing);
+    expect(find.text('Reports'), findsWidgets);
+    expect(find.text('Overview'), findsOneWidget);
+    expect(find.text('All Reports'), findsOneWidget);
 
     await teardown(tester, db, container);
   }, timeout: timeout);

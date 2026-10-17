@@ -71,17 +71,10 @@ android {
 
     buildTypes {
         release {
-            // Falls back to the debug key when key.properties is absent, so a
-            // developer can still `flutter build apk --release` without the
-            // shop's keystore — loudly, in the build log, rather than silently.
             if (hasReleaseKeystore) {
                 signingConfig = signingConfigs.getByName("release")
-            } else {
-                signingConfig = signingConfigs.getByName("debug")
-                logger.warn(
-                    "Apex Books: android/key.properties not found — the release APK is "
-                        + "signed with the debug key and must not be distributed."
-                )
+            } else if (gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }) {
+                throw GradleException("Release builds require android/key.properties and a private release keystore.")
             }
         }
     }

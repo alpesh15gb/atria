@@ -47,7 +47,9 @@ class AtriaFormSection extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
         side: BorderSide(color: scheme.outline),
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderRadius: BorderRadius.circular(
+          Theme.of(context).platform.isMobileUi ? 20 : AppRadius.md,
+        ),
       ),
       child: Padding(
         padding: padding,

@@ -13,6 +13,24 @@ import '../../core/theme/app_sizes.dart';
 import 'atria_content_width.dart';
 import 'atria_create_menu.dart';
 import 'atria_top_bar.dart';
+import 'unsaved_guard.dart';
+
+/// Navigates, but never silently past an editor holding unsaved changes.
+///
+/// `PopScope` — which [UnsavedGuard] is — is consulted only by
+/// `Navigator.pop`/`maybePop`. Every chrome destination here navigates with
+/// `context.go`, which **replaces the match list**: the editor route is
+/// disposed rather than popped, so the guard's callback never runs and the
+/// document is lost without a word. The editors are child routes of this very
+/// shell's branches, which is exactly why the rail and the bottom bar can reach
+/// them.
+///
+/// Every chrome `go` goes through here instead.
+Future<void> goFromChrome(BuildContext context, String route) async {
+  final ok = await UnsavedChanges.confirmLeave(context);
+  if (!ok || !context.mounted) return;
+  context.go(route);
+}
 
 /// One shell that adapts: bottom bar on phones, side rail on tablets/desktop.
 ///
@@ -165,7 +183,6 @@ class _BottomShell extends ConsumerWidget {
     if (path.startsWith('/ledger/account/')) return true;
     if (path.contains('/statement/')) return true;
     if (path == '/purchase/scan') return true;
-    if (path.startsWith('/settings/') && path != '/settings') return true;
     return false;
   }
 
@@ -183,6 +200,16 @@ class _BottomShell extends ConsumerWidget {
       // surfaces, and an editor's line grid is exactly what must **not** be
       // squeezed into a 560dp column on a tablet — it is the one screen with
       // enough content to want the width.
+      //
+      // **Settings sub-pages are deliberately NOT in that set.** They used to
+      // be, and three facts composed into a trap: the More sheet navigates with
+      // `go`, which leaves `Navigator.canPop()` false, so those screens' bare
+      // `AppBar`s drew no back button; the shell dropped the top bar and the
+      // whole bottom bar; and `EditorBottomBar` offers only Save, with no exit.
+      // The result on a phone was Company profile / Backup / Recycle bin /
+      // Period lock / Members / Audit log / Printers — a screen with a title, a
+      // Save bar, and **no way out** except the Android system key, which pops
+      // the root navigator's single page and exits the app.
       return navigationShell;
     }
 
@@ -194,51 +221,81 @@ class _BottomShell extends ConsumerWidget {
       // account controls must not scroll away with the page.
       body: Column(
         children: [
-          if (!mobile || path == '/dashboard') const AtriaTopBar(),
+          if (!mobile ||
+              const {
+                '/dashboard',
+                '/sales',
+                '/purchase',
+                '/items',
+                '/parties',
+                '/payments',
+                '/expenses',
+                '/reports',
+                '/settings',
+                '/stock',
+                '/ledger',
+              }.contains(path))
+            const AtriaTopBar(),
           // The shell carries the branch navigators - the list screens and
           // everything pushed on top of them.
           Expanded(
-            child: capContent
-                ? AtriaContentWidth(child: navigationShell)
-                : navigationShell,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              child: capContent
+                  ? AtriaContentWidth(child: navigationShell)
+                  : navigationShell,
+            ),
           ),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
-        backgroundColor: scheme.surface,
-        surfaceTintColor: Colors.transparent,
-        selectedIndex: mobile
-            ? (bottomBarIndex < 4 ? bottomBarIndex : 4)
-            : bottomBarIndex,
-        onDestinationSelected: (value) {
-          if (value == (mobile ? 4 : NavDestinations.bottomBarItemCount)) {
-            _showMoreSheet(context, ref.watch(effectiveSessionProvider));
-            return;
-          }
-          onTap(value);
-        },
-        destinations: [
-          for (
-            var i = 0;
-            i < (mobile ? 4 : NavDestinations.primary.length);
-            i++
-          )
+      bottomNavigationBar: _MobileDock(
+        enabled: mobile,
+        child: NavigationBar(
+          backgroundColor: scheme.surface,
+          surfaceTintColor: Colors.transparent,
+          selectedIndex: mobile
+              ? (bottomBarIndex < 4 ? bottomBarIndex : 4)
+              : bottomBarIndex,
+          onDestinationSelected: (value) {
+            if (value == (mobile ? 4 : NavDestinations.bottomBarItemCount)) {
+              _showMoreSheet(context, ref.watch(effectiveSessionProvider));
+              return;
+            }
+            onTap(value);
+          },
+          destinations: [
+            for (
+              var i = 0;
+              i < (mobile ? 4 : NavDestinations.primary.length);
+              i++
+            )
+              NavigationDestination(
+                icon: Icon(NavDestinations.primary[i].icon),
+                selectedIcon: Icon(NavDestinations.primary[i].selectedIcon),
+                // The **destination's own** label, on both platforms.
+                //
+                // This was a hard-coded mobile list — ['Home', 'Bills', 'Products',
+                // 'Parties'] — laid over `primary[0..3]`, and `primary` is
+                // `branches.sublist(0, 5)` with `branches` in router order, so
+                // index 1 is the **Sales** branch. The tab that says "Bills" opened
+                // the Sales/Invoices list: the wrong document type, every time. The
+                // More sheet separately contains a row also labelled "Bills"
+                // (`/purchase?type=bill`), so one word meant two screens.
+                label: NavDestinations.primary[i].label,
+              ),
             NavigationDestination(
-              icon: Icon(NavDestinations.primary[i].icon),
-              selectedIcon: Icon(NavDestinations.primary[i].selectedIcon),
-              label: mobile
-                  ? const ['Home', 'Bills', 'Products', 'Parties'][i]
-                  : NavDestinations.primary[i].label,
+              icon: Icon(
+                mobile ? Icons.grid_view_rounded : Icons.more_horiz_rounded,
+                color: scheme.onSurfaceVariant,
+              ),
+              selectedIcon: Icon(
+                Icons.more_horiz_rounded,
+                color: scheme.primary,
+              ),
+              label: 'More',
             ),
-          NavigationDestination(
-            icon: Icon(
-              mobile ? Icons.grid_view_rounded : Icons.more_horiz_rounded,
-              color: scheme.onSurfaceVariant,
-            ),
-            selectedIcon: Icon(Icons.more_horiz_rounded, color: scheme.primary),
-            label: 'More',
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -361,8 +418,9 @@ class _BottomShell extends ConsumerWidget {
                                   // unmount with the sheet, and navigating from
                                   // a deactivated element is the same crash
                                   // class as reading state there. `go`, never
-                                  // `push` — see _CompactRail.
-                                  shellContext.go(entry.route);
+                                  // `push` — see _CompactRail. And through the
+                                  // guard, so leaving an unsaved editor asks.
+                                  goFromChrome(shellContext, entry.route);
                                 },
                               ),
                           ],
@@ -410,7 +468,12 @@ class _RailShell extends StatelessWidget {
                 else
                   _CompactRail(navigationShell: navigationShell),
                 Container(width: 1, color: scheme.outline),
-                Expanded(child: navigationShell),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    child: navigationShell,
+                  ),
+                ),
               ],
             ),
           ),
@@ -639,7 +702,11 @@ class _CompactRail extends ConsumerWidget {
                 // single instance and the branch switches properly — and it
                 // carries the `?type=` query these destinations depend on, which
                 // `goBranch` cannot express.
-                context.go(entry.route);
+                //
+                // …and it is why the rail needed the guard: replacing the match
+                // list disposes the open editor rather than popping it, so
+                // `PopScope` never fires.
+                goFromChrome(context, entry.route);
               },
             ),
       ],
@@ -685,8 +752,9 @@ class _ExtendedRail extends ConsumerWidget {
               entry: entry,
               selected: navEntryIsActive(location, entry),
               onTap: () {
-                // `go`, never `push` — see _CompactRail.
-                context.go(entry.route);
+                // `go`, never `push` — see _CompactRail. Through the guard:
+                // see `goFromChrome`.
+                goFromChrome(context, entry.route);
               },
             ),
         ],
@@ -719,6 +787,44 @@ class _ExtendedRail extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// An inset navigation dock, separate from the working page surface.
+class _MobileDock extends StatelessWidget {
+  const _MobileDock({required this.enabled, required this.child});
+  final bool enabled;
+  final Widget child;
+  @override
+  Widget build(BuildContext context) {
+    if (!enabled) return child;
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(36),
+            boxShadow: [
+              BoxShadow(
+                color: Theme.of(context).colorScheme.primary
+                    .withValues(alpha: .08),
+                blurRadius: 24,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(36),
+            child: MediaQuery.removePadding(
+              context: context,
+              removeBottom: true,
+              child: child,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

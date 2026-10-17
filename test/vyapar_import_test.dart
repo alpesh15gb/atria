@@ -35,13 +35,16 @@ void main() {
       expect(snapshot.taxRates[24], 18);
 
       final kinds = snapshot.documents.map((d) => d.kind).toList();
-      expect(kinds, containsAll(<VyaparDocKind>[
-        VyaparDocKind.saleInvoice,
-        VyaparDocKind.quotation,
-        VyaparDocKind.purchaseOrder,
-        VyaparDocKind.purchaseBill,
-        VyaparDocKind.paymentIn,
-      ]));
+      expect(
+        kinds,
+        containsAll(<VyaparDocKind>[
+          VyaparDocKind.saleInvoice,
+          VyaparDocKind.quotation,
+          VyaparDocKind.purchaseOrder,
+          VyaparDocKind.purchaseBill,
+          VyaparDocKind.paymentIn,
+        ]),
+      );
       expect(snapshot.unsupportedTypeCounts[99], 1);
     });
 
@@ -87,7 +90,8 @@ void main() {
     tearDown(() => db.close());
 
     test('previews without writing anything', () async {
-      final preview = await VyaparImportService(db).preview(vyaparFixtureBytes());
+      final preview = await VyaparImportService(db)
+          .preview(vyaparFixtureBytes());
 
       expect(preview.firmName, 'Apex Integrations');
       expect(preview.gstin, '36CZFPM0045M2Z7');
@@ -105,6 +109,60 @@ void main() {
       expect(await db.select(db.parties).get(), isEmpty);
     });
 
+    test('preserves oversized item names without aborting the import', () async {
+      final longName =
+          '${List.filled(199, 'A').join()}📷 camera\n${List.filled(80, 'detail ').join()}';
+      final bytes = vyaparFixtureBytes(
+        mutate: (raw) {
+          raw.execute(
+            'UPDATE kb_items SET item_name = ?, item_description = ? WHERE item_id = 1',
+            [longName, 'Existing description'],
+          );
+        },
+      );
+      final result = await VyaparImportService(db).run(bytes);
+      final items = await db.select(db.items).get();
+      final item = items.singleWhere((item) => item.name.startsWith('AAAA'));
+      expect(item.name, List.filled(199, 'A').join());
+      expect(
+        item.description,
+        'Existing description\n\nOriginal Vyapar item name: ${longName.trim()}',
+      );
+      expect(result.counts.items, 3);
+      expect(result.warnings.join(), contains('longer than 200 characters'));
+      expect(await db.settingsGet('active_firm_id'), result.firmId);
+    });
+
+    test(
+      'imports available workspace backups without losing oversized names',
+      () async {
+        for (final path in [
+          'atria_from_swipe.vyb',
+          '10-10-2026_03.39.15_Apex_Integrations_VypBackup.vyb',
+        ]) {
+          final file = File(path);
+          if (!file.existsSync()) continue;
+          final bytes = file.readAsBytesSync();
+          final snapshot = await VyaparBackupReader.read(bytes);
+          final result = await VyaparImportService(db).run(bytes);
+          final items = await (db.select(
+            db.items,
+          )..where((item) => item.firmId.equals(result.firmId))).get();
+          expect(items.length, result.counts.items);
+          expect(items.every((item) => item.name.length <= 200), isTrue);
+          for (final row in snapshot.items) {
+            final name = cleanString(row['item_name']);
+            if (name == null || name.length <= 200) continue;
+            expect(
+              items.any((item) => item.description?.contains(name) ?? false),
+              isTrue,
+              reason: 'Full oversized name must survive import',
+            );
+          }
+        }
+      },
+    );
+
     test('imports the books and reconciles them to Vyapar', () async {
       final result = await VyaparImportService(db).run(vyaparFixtureBytes());
       final firmId = result.firmId;
@@ -121,8 +179,9 @@ void main() {
       // ---- Parties -------------------------------------------------------
       final parties = await db.partyRepositoryFor(firmId).all();
       expect(parties, hasLength(2));
-      final customer =
-          parties.firstWhere((party) => party.name.startsWith('M/s Keystone'));
+      final customer = parties.firstWhere(
+        (party) => party.name.startsWith('M/s Keystone'),
+      );
       expect(customer.type, 'customer');
       expect(customer.gstType, 'registered');
       expect(customer.stateCode, '36');
@@ -132,26 +191,28 @@ void main() {
       expect(customer.pincode, '500034');
       expect(customer.addressLine1, '8-2-350 Road Number 3');
 
-      final supplierSpec = parties
-          .firstWhere((party) => party.name.startsWith('I-HEAP'));
+      final supplierSpec = parties.firstWhere(
+        (party) => party.name.startsWith('I-HEAP'),
+      );
       expect(supplierSpec.type, 'supplier');
 
       // Vyapar's expense heads are names, but they are not parties.
       expect(parties.map((p) => p.name), isNot(contains('Petrol')));
 
-      final expenseCategories =
-          await db.itemRepositoryFor(firmId).categories(kind: 'expense');
+      final expenseCategories = await db
+          .itemRepositoryFor(firmId)
+          .categories(kind: 'expense');
       expect(expenseCategories.map((c) => c.name), contains('Petrol'));
 
-      final itemCategories =
-          await db.itemRepositoryFor(firmId).categories(kind: 'item');
+      final itemCategories = await db
+          .itemRepositoryFor(firmId)
+          .categories(kind: 'item');
       expect(itemCategories.map((c) => c.name), contains('Consumables'));
 
       // ---- Items ---------------------------------------------------------
       final items = await db.itemRepositoryFor(firmId).all();
       expect(items, hasLength(3));
-      final good =
-          items.firstWhere((item) => item.name == 'Canon NPG90');
+      final good = items.firstWhere((item) => item.name == 'Canon NPG90');
       expect(good.unit, 'pcs');
       expect(good.gstRate, 18);
       expect(good.sku, 'CAN1');
@@ -168,16 +229,18 @@ void main() {
       // A SAC code starting 99 marks a service, but this one carries stock in
       // Vyapar (it sits at a negative quantity), so it must stay a stocked item
       // or the quantity would silently disappear.
-      final contract = items
-          .firstWhere((item) => item.name == 'ANNUAL MAINTAINANCE CONTRACT');
+      final contract = items.firstWhere(
+        (item) => item.name == 'ANNUAL MAINTAINANCE CONTRACT',
+      );
       expect(contract.isService, isFalse);
       expect(contract.stockType, 'tracked');
       expect(contract.openingStock, -5);
       expect(contract.currentStock, -5);
 
       // A service with no stock to lose is labelled as one.
-      final installation =
-          items.firstWhere((item) => item.name == 'INSTALLATION SERVICE');
+      final installation = items.firstWhere(
+        (item) => item.name == 'INSTALLATION SERVICE',
+      );
       expect(installation.isService, isTrue);
       expect(installation.stockType, 'untracked');
       expect(installation.currentStock, 0);
@@ -250,67 +313,77 @@ void main() {
       expect(result.warnings.join(), contains('type code 99'));
     });
 
-    test('a second import of the same backup does not collide on numbers',
-        () async {
-      final service = VyaparImportService(db);
-      final first = await service.run(vyaparFixtureBytes());
-      final second = await service.run(vyaparFixtureBytes());
+    test(
+      'a second import of the same backup does not collide on numbers',
+      () async {
+        final service = VyaparImportService(db);
+        final first = await service.run(vyaparFixtureBytes());
+        final second = await service.run(vyaparFixtureBytes());
 
-      expect(second.firmId, isNot(first.firmId));
-      final secondInvoices = await db
-          .salesRepositoryFor(second.firmId)
-          .list(docType: 'invoice');
-      expect(secondInvoices, hasLength(2));
-      // Each firm keeps the original Vyapar numbers: the uniqueness is scoped
-      // per firm, so nothing had to be renamed.
-      expect(secondInvoices.map((i) => i.number), containsAll(['1', '2']));
-    });
+        expect(second.firmId, isNot(first.firmId));
+        final secondInvoices = await db
+            .salesRepositoryFor(second.firmId)
+            .list(docType: 'invoice');
+        expect(secondInvoices, hasLength(2));
+        // Each firm keeps the original Vyapar numbers: the uniqueness is scoped
+        // per firm, so nothing had to be renamed.
+        expect(secondInvoices.map((i) => i.number), containsAll(['1', '2']));
+      },
+    );
 
     test('renames numbers that repeat inside one document series', () async {
       // Vyapar restarts invoice numbering each financial year, and its prefix
       // lives in a separate column, so the same number really does appear
       // twice in a decade of books.
-      final bytes = vyaparFixtureBytes(mutate: (raw) {
-        raw.execute(
-          "INSERT INTO kb_transactions (txn_id, txn_date, txn_name_id, "
-          "txn_type, txn_sub_type, txn_status, txn_payment_status, "
-          "txn_ref_number_char, txn_cash_amount, txn_balance_amount, "
-          "txn_tax_inclusive, txn_place_of_supply) "
-          "VALUES (8, '2026-05-02 00:00:00', 6, 1, 1, 1, 1, '1', 0, 1180, 2, "
-          "'Telangana')",
-        );
-        raw.execute(
-          'INSERT INTO kb_lineitems (lineitem_id, lineitem_txn_id, item_id, '
-          'quantity, priceperunit, total_amount, lineitem_tax_amount, '
-          'lineitem_discount_amount, lineitem_discount_percent, '
-          'lineitem_additional_cess, lineitem_unit_id, lineitem_tax_id) '
-          'VALUES (9, 8, 1, 1, 1000, 1180, 180, 0, 0, 0, 15, 24)',
-        );
-      });
+      final bytes = vyaparFixtureBytes(
+        mutate: (raw) {
+          raw.execute(
+            "INSERT INTO kb_transactions (txn_id, txn_date, txn_name_id, "
+            "txn_type, txn_sub_type, txn_status, txn_payment_status, "
+            "txn_ref_number_char, txn_cash_amount, txn_balance_amount, "
+            "txn_tax_inclusive, txn_place_of_supply) "
+            "VALUES (8, '2026-05-02 00:00:00', 6, 1, 1, 1, 1, '1', 0, 1180, 2, "
+            "'Telangana')",
+          );
+          raw.execute(
+            'INSERT INTO kb_lineitems (lineitem_id, lineitem_txn_id, item_id, '
+            'quantity, priceperunit, total_amount, lineitem_tax_amount, '
+            'lineitem_discount_amount, lineitem_discount_percent, '
+            'lineitem_additional_cess, lineitem_unit_id, lineitem_tax_id) '
+            'VALUES (9, 8, 1, 1, 1000, 1180, 180, 0, 0, 0, 15, 24)',
+          );
+        },
+      );
 
       final result = await VyaparImportService(db).run(bytes);
-      final invoices =
-          await db.salesRepositoryFor(result.firmId).list(docType: 'invoice');
+      final invoices = await db
+          .salesRepositoryFor(result.firmId)
+          .list(docType: 'invoice');
 
       expect(invoices, hasLength(3));
-      expect(
-        invoices.map((invoice) => invoice.number).toList()..sort(),
-        ['1', '1-2', '2'],
-      );
+      expect(invoices.map((invoice) => invoice.number).toList()..sort(), [
+        '1',
+        '1-2',
+        '2',
+      ]);
     });
 
     group('GST registration', () {
       test('a registered buyer in another state is charged IGST', () async {
-        final bytes = vyaparFixtureBytes(mutate: (raw) {
-          raw.execute(
-              "UPDATE kb_names SET name_state = 'Maharashtra' WHERE name_id = 6");
-        });
+        final bytes = vyaparFixtureBytes(
+          mutate: (raw) {
+            raw.execute(
+              "UPDATE kb_names SET name_state = 'Maharashtra' WHERE name_id = 6",
+            );
+          },
+        );
 
         final result = await VyaparImportService(db).run(bytes);
-        final invoice = (await db
-                .salesRepositoryFor(result.firmId)
-                .list(docType: 'invoice'))
-            .firstWhere((doc) => doc.number == '1');
+        final invoice =
+            (await db
+                    .salesRepositoryFor(result.firmId)
+                    .list(docType: 'invoice'))
+                .firstWhere((doc) => doc.number == '1');
 
         expect(invoice.isInterState, isTrue);
         expect(invoice.partyGstType, 'registered');
@@ -321,76 +394,95 @@ void main() {
         expect(invoice.placeOfSupply, '27');
       });
 
-      test('an unregistered buyer in another state is not charged IGST',
-          () async {
-        // This is the case the sale editor also refuses to treat as inter-state:
-        // with no GSTIN on the buyer there is no registration to compare, so the
-        // supply is taxed locally. Matching the editor matters because
-        // `isInterState` is what separates B2CL from B2CS in GSTR-1.
-        final bytes = vyaparFixtureBytes(mutate: (raw) {
-          raw.execute("UPDATE kb_names SET name_gstin_number = '', "
-              "name_customer_type = 0, name_state = 'Maharashtra' "
-              'WHERE name_id = 6');
-        });
+      test(
+        'an unregistered buyer in another state is not charged IGST',
+        () async {
+          // This is the case the sale editor also refuses to treat as inter-state:
+          // with no GSTIN on the buyer there is no registration to compare, so the
+          // supply is taxed locally. Matching the editor matters because
+          // `isInterState` is what separates B2CL from B2CS in GSTR-1.
+          final bytes = vyaparFixtureBytes(
+            mutate: (raw) {
+              raw.execute(
+                "UPDATE kb_names SET name_gstin_number = '', "
+                "name_customer_type = 0, name_state = 'Maharashtra' "
+                'WHERE name_id = 6',
+              );
+            },
+          );
 
-        final result = await VyaparImportService(db).run(bytes);
-        final invoice = (await db
-                .salesRepositoryFor(result.firmId)
-                .list(docType: 'invoice'))
-            .firstWhere((doc) => doc.number == '1');
+          final result = await VyaparImportService(db).run(bytes);
+          final invoice =
+              (await db
+                      .salesRepositoryFor(result.firmId)
+                      .list(docType: 'invoice'))
+                  .firstWhere((doc) => doc.number == '1');
 
-        expect(invoice.isInterState, isFalse);
-        expect(invoice.partyGstType, 'unregistered');
-        expect(invoice.igst, 0);
-        expect(invoice.cgst, 180);
-        expect(invoice.sgst, 180);
-        expect(invoice.partyGstin, isNull);
-        // The place of supply still records where the goods went.
-        expect(invoice.placeOfSupply, '27');
-      });
+          expect(invoice.isInterState, isFalse);
+          expect(invoice.partyGstType, 'unregistered');
+          expect(invoice.igst, 0);
+          expect(invoice.cgst, 180);
+          expect(invoice.sgst, 180);
+          expect(invoice.partyGstin, isNull);
+          // The place of supply still records where the goods went.
+          expect(invoice.placeOfSupply, '27');
+        },
+      );
 
-      test('a company that is not GST registered stays local and says so',
-          () async {
-        final bytes = vyaparFixtureBytes(mutate: (raw) {
-          raw.execute("UPDATE kb_firms SET firm_gstin_number = ''");
-          raw.execute("UPDATE kb_settings SET setting_value = '0' "
-              "WHERE setting_key = 'VYAPAR.GSTENABLED'");
-          raw.execute(
-              "UPDATE kb_names SET name_state = 'Maharashtra' WHERE name_id = 6");
-        });
+      test(
+        'a company that is not GST registered stays local and says so',
+        () async {
+          final bytes = vyaparFixtureBytes(
+            mutate: (raw) {
+              raw.execute("UPDATE kb_firms SET firm_gstin_number = ''");
+              raw.execute(
+                "UPDATE kb_settings SET setting_value = '0' "
+                "WHERE setting_key = 'VYAPAR.GSTENABLED'",
+              );
+              raw.execute(
+                "UPDATE kb_names SET name_state = 'Maharashtra' WHERE name_id = 6",
+              );
+            },
+          );
 
-        final result = await VyaparImportService(db).run(bytes);
-        final firm = await db.firmRepository.getById(result.firmId);
-        final invoice = (await db
-                .salesRepositoryFor(result.firmId)
-                .list(docType: 'invoice'))
-            .firstWhere((doc) => doc.number == '1');
+          final result = await VyaparImportService(db).run(bytes);
+          final firm = await db.firmRepository.getById(result.firmId);
+          final invoice =
+              (await db
+                      .salesRepositoryFor(result.firmId)
+                      .list(docType: 'invoice'))
+                  .firstWhere((doc) => doc.number == '1');
 
-        expect(firm!.gstin, isNull);
-        // Still knows which state it is in — the firm's address needs it even
-        // when it has no GSTIN.
-        expect(firm.stateCode, '36');
-        expect(invoice.isInterState, isFalse);
-        expect(invoice.igst, 0);
-        expect(result.warnings.join(), contains('not registered for GST'));
-      });
+          expect(firm!.gstin, isNull);
+          // Still knows which state it is in — the firm's address needs it even
+          // when it has no GSTIN.
+          expect(firm.stateCode, '36');
+          expect(invoice.isInterState, isFalse);
+          expect(invoice.igst, 0);
+          expect(result.warnings.join(), contains('not registered for GST'));
+        },
+      );
 
-      test('a party flagged registered but with an unusable GSTIN is not',
-          () async {
+      test('a party flagged registered but with an unusable GSTIN is not', () async {
         // A 14-character GSTIN must never print on an invoice, and a party with
         // no GSTIN cannot be treated as B2B — but the data loss is reported.
-        final bytes = vyaparFixtureBytes(mutate: (raw) {
-          raw.execute("UPDATE kb_names SET name_gstin_number = '36AACCK6531F1Z' "
-              'WHERE name_id = 6');
-        });
+        final bytes = vyaparFixtureBytes(
+          mutate: (raw) {
+            raw.execute(
+              "UPDATE kb_names SET name_gstin_number = '36AACCK6531F1Z' "
+              'WHERE name_id = 6',
+            );
+          },
+        );
 
         final result = await VyaparImportService(db).run(bytes);
         final party = (await db.partyRepositoryFor(result.firmId).all())
             .firstWhere((row) => row.name.startsWith('M/s Keystone'));
-        final invoice = (await db
-                .salesRepositoryFor(result.firmId)
-                .list(docType: 'invoice'))
-            .firstWhere((doc) => doc.number == '1');
+        final invoice =
+            (await db
+                    .salesRepositoryFor(result.firmId)
+                    .list(docType: 'invoice'))
+                .firstWhere((doc) => doc.number == '1');
 
         expect(party.gstin, isNull);
         expect(party.gstType, 'unregistered');
@@ -465,8 +557,8 @@ void main() {
       }
       var expectedOutstanding = 0.0;
       for (final invoice in vyaparInvoices) {
-        final stated = invoice.balanceAmount -
-            (settledByPaymentTxn[invoice.id] ?? 0);
+        final stated =
+            invoice.balanceAmount - (settledByPaymentTxn[invoice.id] ?? 0);
         if (stated > 0) expectedOutstanding += stated;
       }
       final actualOutstanding = invoices.fold<double>(
@@ -484,8 +576,9 @@ void main() {
   });
 
   group('Vyapar import screen', () {
-    testWidgets('offers the file picker before anything is written',
-        (tester) async {
+    testWidgets('offers the file picker before anything is written', (
+      tester,
+    ) async {
       final db = AppDatabase.test(NativeDatabase.memory());
       final container = ProviderContainer(
         overrides: [appDatabaseProvider.overrideWithValue(db)],
@@ -542,11 +635,13 @@ Uint8List vyaparFixtureBytes({void Function(Database db)? mutate}) {
 
     final content = file.readAsBytesSync();
     final archive = Archive()
-      ..addFile(ArchiveFile(
-        'ApexIntegrations__t_2026_04_15_12_30_13_viho.vyp',
-        content.length,
-        content,
-      ));
+      ..addFile(
+        ArchiveFile(
+          'ApexIntegrations__t_2026_04_15_12_30_13_viho.vyp',
+          content.length,
+          content,
+        ),
+      );
     return Uint8List.fromList(ZipEncoder().encode(archive)!);
   } finally {
     directory.deleteSync(recursive: true);
@@ -614,10 +709,12 @@ CREATE TABLE txn_payment_mapping (
 }
 
 void _seedFixture(Database db) {
-  db.execute("INSERT INTO kb_firms VALUES (1, 'Apex Integrations', "
-      "'36CZFPM0045M2Z7', 'Telangana', '4th Floor, Millenium Arcade, Hyderabad', "
-      "'500062', '9100960692', 'alpesh2060@gmail.com', '2026-27/', "
-      "'DCB BANK', '0123456789', 'DCBL0000123')");
+  db.execute(
+    "INSERT INTO kb_firms VALUES (1, 'Apex Integrations', "
+    "'36CZFPM0045M2Z7', 'Telangana', '4th Floor, Millenium Arcade, Hyderabad', "
+    "'500062', '9100960692', 'alpesh2060@gmail.com', '2026-27/', "
+    "'DCB BANK', '0123456789', 'DCBL0000123')",
+  );
 
   db.execute("INSERT INTO kb_tax_code VALUES (24, 'GST@18%', 18.0, 1)");
 
@@ -625,13 +722,13 @@ void _seedFixture(Database db) {
   db.execute("INSERT INTO kb_item_units VALUES (15, 'PIECES', 'Pcs')");
   db.execute("INSERT INTO kb_item_units VALUES (22, 'DAYS', 'DY')");
 
-  db.execute(
-      "INSERT INTO kb_item_categories VALUES (1, 'Consumables')");
+  db.execute("INSERT INTO kb_item_categories VALUES (1, 'Consumables')");
   db.execute("INSERT INTO kb_party_groups VALUES (1, 'General')");
 
   db.execute("INSERT INTO kb_paymentTypes VALUES (1, 'CASH', 'Cash', '')");
   db.execute(
-      "INSERT INTO kb_paymentTypes VALUES (3, 'BANK', 'DCB BANK', 'DCB BANK LIMITED')");
+    "INSERT INTO kb_paymentTypes VALUES (3, 'BANK', 'DCB BANK', 'DCB BANK LIMITED')",
+  );
 
   // `VYAPAR.GSTENABLED` is how Vyapar records that the company is registered —
   // `kb_firms` itself carries no such flag.
@@ -639,8 +736,9 @@ void _seedFixture(Database db) {
 
   // name_type 2 = an expense head, which Vyapar stores among its parties.
   db.execute(
-      "INSERT INTO kb_names (name_id, full_name, name_type, amount, "
-      "name_customer_type) VALUES (1, 'Petrol', 2, 0, 0)");
+    "INSERT INTO kb_names (name_id, full_name, name_type, amount, "
+    "name_customer_type) VALUES (1, 'Petrol', 2, 0, 0)",
+  );
   db.execute('''
 INSERT INTO kb_names (name_id, full_name, party_billing_name, name_type,
   name_gstin_number, name_state, phone_number, email, amount, address, pincode,
@@ -716,8 +814,15 @@ VALUES (3, 'INSTALLATION SERVICE', 22, '998721', 24, 2, 500.0, 0.0, 0.0, 0.0,
     );
   }
 
-  void line(int id, int txnId, int? itemId, double qty, double price,
-      double total, double tax) {
+  void line(
+    int id,
+    int txnId,
+    int? itemId,
+    double qty,
+    double price,
+    double total,
+    double tax,
+  ) {
     db.execute(
       'INSERT INTO kb_lineitems (lineitem_id, lineitem_txn_id, item_id, '
       'quantity, priceperunit, total_amount, lineitem_tax_amount, '
@@ -750,7 +855,9 @@ VALUES (3, 'INSTALLATION SERVICE', 22, '998721', 24, 2, 500.0, 0.0, 0.0, 0.0,
 
   db.execute('INSERT INTO kb_txn_links VALUES (1, 2, 6, 1180.0, 1, 3)');
   db.execute(
-      "INSERT INTO txn_payment_mapping VALUES (1, 3, NULL, 5, 9440.0, 'UPI')");
+    "INSERT INTO txn_payment_mapping VALUES (1, 3, NULL, 5, 9440.0, 'UPI')",
+  );
   db.execute(
-      'INSERT INTO txn_payment_mapping VALUES (2, 3, NULL, 1, 0.0, NULL)');
+    'INSERT INTO txn_payment_mapping VALUES (2, 3, NULL, 1, 0.0, NULL)',
+  );
 }

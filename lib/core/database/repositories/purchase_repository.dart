@@ -4,6 +4,7 @@ import 'package:drift/drift.dart';
 import '../../engine/gst_engine.dart';
 import '../../utils/money.dart';
 import '../../domain/member_role.dart';
+import '../../domain/gst_registration.dart';
 import '../app_database.dart';
 import 'repository_extensions.dart';
 import 'sales_repository.dart';
@@ -186,6 +187,10 @@ class PurchaseRepository with SyncQueueMixin {
     String? createdBy,
   }) async {
     db.assertPermission(Permission.createPurchases);
+    final firm = await db.firmRepository.getById(firmId);
+    if (firm == null) throw StateError('Business not found.');
+    final previous = await getLiveById(draft.id);
+    final itcEligible = previous?.itcEligible ?? firm.isGstRegistered;
     final split = draft.isInterState
         ? GstSplit.interState
         : GstSplit.intraState;
@@ -208,6 +213,27 @@ class PurchaseRepository with SyncQueueMixin {
         draft.shippingChargeValue +
         draft.otherChargesValue -
         tds;
+    // The same backstop the sales repository has: `Money.tryParse` accepts a
+    // leading `-`, so a pasted negative rate produced a negative bill that
+    // `DocumentSettlement` then clamped to zero and reported as `paid`.
+    //
+    // Negative only, not zero: a ₹0 bill is a legitimate draft (lines not typed
+    // yet) and a fully-discounted purchase, and refusing it would break real
+    // flows. The Rate **cell** has no validator, so this layer is the one that
+    // cannot be bypassed by an import or a deep link.
+    if (draft.lines.any(
+      (l) => l.rate < Decimal.zero || l.quantity < Decimal.zero,
+    )) {
+      throw ArgumentError(
+        'A bill cannot be saved with a negative rate or quantity.',
+      );
+    }
+    if (grandTotal < Decimal.zero) {
+      throw ArgumentError(
+        'A bill cannot be worth a negative amount — check the rate and '
+        'discount on each line.',
+      );
+    }
     final now = DateTime.now();
 
     await db.transaction(() async {
@@ -215,7 +241,12 @@ class PurchaseRepository with SyncQueueMixin {
       // bill, so editing a bill either threw on the duplicate id or, once it
       // got past that, reset paidAmount to 0 (forgetting recorded payments),
       // left the stale line rows behind and posted the stock-in twice.
-      final existing = await getById(draft.id);
+      // `getLiveById`, not `getById`: a **binned** bill must not count as an
+      // edit. `getById` has no `isDeleted` predicate, so a recycled bill took
+      // the upsert path — which leaves `isDeleted` at the column default and so
+      // silently resurrected it, re-posting its stock and re-counting its
+      // payable. The sales repository has always made this distinction.
+      final existing = await getLiveById(draft.id);
       final isEdit = existing != null;
       final createdAt = existing?.createdAt ?? now;
 
@@ -226,6 +257,12 @@ class PurchaseRepository with SyncQueueMixin {
       }
 
       if (isEdit) {
+        for (final old in await itemsFor(draft.id)) {
+          if (!draft.lines.any((line) => line.id == old.id)) {
+            await enqueue(firmId: firmId, entity: 'purchase_bill_items',
+              entityId: old.id, operation: 'delete');
+          }
+        }
         await db.reverseStockForSource(firmId, draft.id);
         await (db.delete(
           db.purchaseBillItems,
@@ -271,7 +308,8 @@ class PurchaseRepository with SyncQueueMixin {
         billingAddress: Value(draft.billingAddress),
         placeOfSupply: Value(draft.placeOfSupply),
         isInterState: Value(draft.isInterState),
-        reverseCharge: Value(draft.reverseCharge),
+        reverseCharge: Value(itcEligible && draft.reverseCharge),
+        itcEligible: Value(itcEligible),
         subTotal: Value(result.subTotal.toDouble()),
         itemDiscount: Value(result.itemDiscountTotal.toDouble()),
         invoiceDiscountPercent: Value(
@@ -357,7 +395,8 @@ class PurchaseRepository with SyncQueueMixin {
           // it into stock value would inflate every margin by the GST rate. A
           // debit note (a return to supplier) leaves stock at the running
           // average instead, and passes nothing.
-          final taxable = result.lineFor(line.id)?.taxableValue;
+          final computed = result.lineFor(line.id);
+          final taxable = itcEligible ? computed?.taxableValue : computed?.total;
           await db.stockMovementsInsert(
             firmId,
             line.itemId!,
@@ -411,6 +450,22 @@ Future<String?> _deducteePan(PurchaseDraft draft) async {
 Future<PurchaseBillEntity?> getById(String id) async {
     final query = db.select(db.purchaseBills)
       ..where((t) => t.id.equals(id) & t.firmId.equals(firmId));
+    return query.getSingleOrNull();
+  }
+
+  /// The same row, but only if it is **not** in the recycle bin.
+  ///
+  /// `getById` answers "does this id exist", which is right for a lookup and
+  /// wrong for a write. `save` used it to decide `isEdit`, so a binned bill
+  /// counted as a live one: the write took the upsert path, which leaves
+  /// `isDeleted` at the column default, silently resurrecting it - its stock
+  /// re-posted and its payable re-counted. `SalesRepository.save` has always
+  /// used `getLiveById` here, with a comment saying exactly why; this was the
+  /// purchase side of the same hole.
+  Future<PurchaseBillEntity?> getLiveById(String id) async {
+    final query = db.select(db.purchaseBills)
+      ..where((t) =>
+          t.id.equals(id) & t.firmId.equals(firmId) & t.isDeleted.equals(false));
     return query.getSingleOrNull();
   }
 
@@ -513,7 +568,7 @@ Future<PurchaseBillEntity?> getById(String id) async {
               // the GST rate.
               unitCost: l.quantity == 0
                   ? null
-                  : (Money.of(l.taxableValue) / Money.of(l.quantity)).toDecimal(
+                  : (Money.of(bill.itcEligible ? l.taxableValue : l.total) / Money.of(l.quantity)).toDecimal(
                       scaleOnInfinitePrecision: 4,
                     ),
             );
@@ -565,6 +620,7 @@ Future<PurchaseBillEntity?> getById(String id) async {
       await (db.delete(
         db.purchaseBills,
       )..where((t) => t.id.equals(id) & t.firmId.equals(firmId))).go();
+      await enqueue(firmId: firmId, entity: 'purchase_bills', entityId: id, operation: 'delete');
       await db.auditRepository.log(
         action: 'purge',
         entity: 'purchase_bills',

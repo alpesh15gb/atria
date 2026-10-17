@@ -46,24 +46,27 @@ void main() {
   }
 
   group('the create tile grid', () {
-    testWidgets('is four across, as in the reference', (tester) async {
+    testWidgets('uses two comfortable action cards per row', (tester) async {
       await pumpMobile(tester, const MobileCreateGrid());
-      final grid = find.byType(GridView);
-      expect(grid, findsOneWidget);
-
-      final delegate = tester
-          .widget<GridView>(grid)
-          .gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
-      expect(delegate.crossAxisCount, 4);
+      expect(
+        tester.getTopLeft(find.text('Purchase')).dx,
+        greaterThan(tester.getTopLeft(find.text('Invoice')).dx),
+      );
+      expect(
+        tester.getTopLeft(find.text('Quotation')).dy,
+        greaterThan(tester.getTopLeft(find.text('Invoice')).dy),
+      );
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('names itself in a heading', (tester) async {
       await pumpMobile(tester, const MobileCreateGrid());
-      expect(find.text('Create'), findsOneWidget);
+      expect(find.text('Quick Actions'), findsOneWidget);
     });
 
-    testWidgets('carries the phone\'s documents, in the phone\'s words',
-          (tester) async {
+    testWidgets('carries the phone\'s documents, in the phone\'s words', (
+      tester,
+    ) async {
       // The desktop menu calls it "Bill"; the reference's phone tile says
       // "Purchase". A tile reading "Bill" on a shop floor is a word the person
       // using it has to translate, and slicing the first eight off the desktop
@@ -75,7 +78,7 @@ void main() {
         'Quotation',
         'Expenses',
         'Credit Note',
-        'Sales Order',
+        'Delivery Challan',
       ]) {
         expect(find.text(label), findsOneWidget, reason: '$label tile');
       }
@@ -110,7 +113,7 @@ void main() {
       // Desktop puts create actions in the chrome and the rail menu. A tile grid
       // across a 1920px window is a strip of icons with nothing under them.
       await pumpDesktop(tester, const MobileCreateGrid());
-      expect(find.text('Create'), findsNothing);
+      expect(find.text('Quick Actions'), findsNothing);
       expect(find.byType(GridView), findsNothing);
     });
   });
@@ -119,37 +122,37 @@ void main() {
     testWidgets('has its own heading', (tester) async {
       await pumpMobile(
         tester,
-        const MobileQuickAccessGrid(entries: [
-          (route: '/reports', label: 'Reports', icon: Icons.insights_outlined),
-        ]),
+        const MobileQuickAccessGrid(
+          entries: [
+            (
+              route: '/reports',
+              label: 'Reports',
+              icon: Icons.insights_outlined,
+            ),
+          ],
+        ),
       );
-      expect(find.text('Quick Access'), findsOneWidget);
+      expect(find.text('Core Modules'), findsOneWidget);
       expect(find.text('Reports'), findsOneWidget);
     });
 
-    testWidgets('is built from the same tile as Create', (tester) async {
-      // Two copies of a tile is how they drift. Both grids resolve to one
-      // `_TileGrid`, which is only possible because neither builds its own.
+    testWidgets('module cards offer a visible navigation affordance', (
+      tester,
+    ) async {
       await pumpMobile(
         tester,
-        const Column(children: [
-          MobileCreateGrid(),
-          MobileQuickAccessGrid(entries: [
-            (route: '/reports', label: 'Reports', icon: Icons.insights_outlined),
-          ]),
-        ]),
+        const MobileQuickAccessGrid(
+          entries: [
+            (
+              route: '/reports',
+              label: 'Reports',
+              icon: Icons.insights_outlined,
+            ),
+          ],
+        ),
       );
-
-      expect(find.byType(GridView), findsNWidgets(2));
-      final grids = tester
-          .widgetList<GridView>(find.byType(GridView))
-          .map((g) => g.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount)
-          .toList();
-      expect(
-        grids[0].crossAxisCount,
-        grids[1].crossAxisCount,
-        reason: 'the two grids are the same width, in the reference and here',
-      );
+      expect(find.byIcon(Icons.chevron_right), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
   });
 
@@ -163,10 +166,7 @@ void main() {
         find.byType(FloatingActionButton),
       );
       final shape = fab.shape! as RoundedRectangleBorder;
-      expect(
-        shape.borderRadius,
-        BorderRadius.circular(MobileFab.size / 4),
-      );
+      expect(shape.borderRadius, BorderRadius.circular(MobileFab.size / 4));
     });
 
     testWidgets('taps', (tester) async {

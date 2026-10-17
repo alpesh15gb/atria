@@ -119,8 +119,9 @@ class _DiscountFor {
   Decimal get percent => gross == Decimal.zero
       ? Decimal.zero
       : Money.round2(
-          (discount * Decimal.fromInt(100) / gross)
-              .toDecimal(scaleOnInfinitePrecision: 6),
+          (discount * Decimal.fromInt(100) / gross).toDecimal(
+            scaleOnInfinitePrecision: 6,
+          ),
         );
 }
 
@@ -132,24 +133,28 @@ Future<List<ReportRow>> discountReportRows(
 ) async {
   final selected = selectedItemId(filters);
 
-  final docs = await (db.select(db.salesInvoices)
-        ..where((d) =>
-            d.firmId.equals(firmId) &
-            d.docType.isIn(kSalesDocTypes) &
-            ReportFilters.isLive(status: d.status, isDeleted: d.isDeleted) &
-            ReportFilters.within(d.invoiceDate, window)))
-      .get();
+  final docs =
+      await (db.select(db.salesInvoices)..where(
+            (d) =>
+                d.firmId.equals(firmId) &
+                d.docType.isIn(kSalesDocTypes) &
+                ReportFilters.isLive(status: d.status, isDeleted: d.isDeleted) &
+                ReportFilters.within(d.invoiceDate, window),
+          ))
+          .get();
   if (docs.isEmpty) return const [];
 
-  final lines = await (db.select(db.salesInvoiceItems)
-        ..where((l) =>
-            l.invoiceId.isIn(docs.map((d) => d.id)) &
-            l.isDeleted.equals(false) &
-            // `itemScope` is the one spelling of "this item, or all of them"
-            // the Item/Stock reports use; a hand-rolled null branch here is how
-            // a filter silently stops matching.
-            itemScope(l.itemId, selected)))
-      .get();
+  final lines =
+      await (db.select(db.salesInvoiceItems)..where(
+            (l) =>
+                l.invoiceId.isIn(docs.map((d) => d.id)) &
+                l.isDeleted.equals(false) &
+                // `itemScope` is the one spelling of "this item, or all of them"
+                // the Item/Stock reports use; a hand-rolled null branch here is how
+                // a filter silently stops matching.
+                itemScope(l.itemId, selected),
+          ))
+          .get();
 
   // The sign is the document's, so a credit note comes off its own item.
   final signs = <String, int>{
@@ -184,12 +189,14 @@ Future<List<ReportRow>> discountReportRows(
         unit: line.unit,
         rate: dec(line.rate),
         discountPercent: dec(line.discountPercent),
-        discountAmount:
-            line.discountAmount == 0 ? null : dec(line.discountAmount),
+        discountAmount: line.discountAmount == 0
+            ? null
+            : dec(line.discountAmount),
         gstRate: line.gstRate,
         cessRate: line.cessRate,
-        taxMode:
-            line.taxMode == 'inclusive' ? TaxMode.inclusive : TaxMode.exclusive,
+        taxMode: line.taxMode == 'inclusive'
+            ? TaxMode.inclusive
+            : TaxMode.exclusive,
       ),
       GstSplit.intraState,
     );
@@ -233,6 +240,6 @@ Future<List<ReportRow>> discountReportRows(
 /// A function, not a string — the source's `notes` slot is
 /// `List<String> Function(ReportResult)`.
 List<String> _discountReportNotes(ReportResult result) => [
-      'Reads sales invoice lines in the window. A line with no item still '
+  'Reads sales invoice lines in the window. A line with no item still '
       'appears, under the name the user typed.',
-    ];
+];

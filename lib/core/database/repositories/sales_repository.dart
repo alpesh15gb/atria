@@ -2,6 +2,7 @@ import 'package:decimal/decimal.dart';
 import 'package:drift/drift.dart';
 
 import '../../domain/document_status.dart';
+import '../../domain/gst_registration.dart';
 import '../../domain/member_role.dart';
 import '../../engine/gst_engine.dart';
 import '../../utils/money.dart';
@@ -303,13 +304,83 @@ class SalesRepository with SyncQueueMixin {
     String? createdBy,
   }) async {
     db.assertPermission(Permission.createSales);
+    final firm = await db.firmRepository.getById(firmId);
+    if (firm == null) throw StateError('Business not found.');
+    final previous = await getLiveById(draft.id);
+    final historicalTax =
+        previous != null &&
+        previous.cgst + previous.sgst + previous.igst + previous.cess > 0;
+    if (!firm.isGstRegistered && !historicalTax) {
+      draft = draft.copyWith(
+        lines: draft.lines
+            .map(
+              (l) => SalesLineDraft(
+                id: l.id,
+                itemId: l.itemId,
+                name: l.name,
+                hsn: l.hsn,
+                quantity: l.quantity,
+                unit: l.unit,
+                rate: l.rate,
+                discountPercent: l.discountPercent,
+                discountAmount: l.discountAmount,
+                gstRate: 0,
+                cessRate: 0,
+                taxMode: TaxMode.exclusive,
+              ),
+            )
+            .toList(),
+        reverseCharge: false,
+      );
+    }
+    // A negative amount is never a real document.
+    //
+    // `Money.tryParse` accepts a leading `-`, so a pasted "-100" produced
+    // `grandTotal: -118.00`, and `DocumentSettlement.of` then clamped the
+    // balance to 0 and reported the document as **paid**. A negative invoice was
+    // written to the books and read as settled, which is the worst of both.
+    // Rejecting it here is the backstop; the editors also validate the Rate
+    // cell, so this is the layer that cannot be bypassed by an import, a
+    // deep link or a future caller.
+    if (draft.lines.any(
+      (l) => l.rate < Decimal.zero || l.quantity < Decimal.zero,
+    )) {
+      throw ArgumentError(
+        'A document cannot be saved with a negative rate or quantity.',
+      );
+    }
     // The caller resolves the split from the firm's state vs the place of
     // supply; [isInterState] is the stored denormalized flag.
-    final split = draft.isInterState
+    // Exports are always inter-state under IGST Act s.7(5), and an export
+    // without payment of tax (LUT/Bond, 'wop') is zero-rated with no GST.
+    final isExportWop =
+        draft.isExport &&
+        (draft.exportType ?? '').trim().toLowerCase() == 'wop';
+    final effectiveLines = isExportWop
+        ? draft.lines
+              .map(
+                (l) => SalesLineDraft(
+                  id: l.id,
+                  itemId: l.itemId,
+                  name: l.name,
+                  hsn: l.hsn,
+                  quantity: l.quantity,
+                  unit: l.unit,
+                  rate: l.rate,
+                  discountPercent: l.discountPercent,
+                  discountAmount: l.discountAmount,
+                  gstRate: 0,
+                  cessRate: 0,
+                  taxMode: TaxMode.exclusive,
+                ),
+              )
+              .toList()
+        : draft.lines;
+    final split = (draft.isInterState || draft.isExport)
         ? GstSplit.interState
         : GstSplit.intraState;
     final result = GstEngine.computeDocument(
-      lines: draft.lines.map((l) => l.toTaxLine()).toList(),
+      lines: effectiveLines.map((l) => l.toTaxLine()).toList(),
       split: split,
       invoiceDiscountPercent: draft.invoiceDiscountPercentValue,
       invoiceDiscountAmount: draft.invoiceDiscountAmountValue,
@@ -324,6 +395,18 @@ class SalesRepository with SyncQueueMixin {
       rate: draft.tcsRate,
     );
     final grandTotal = result.grandTotal + draft.shippingChargeValue + tcs;
+    // **Negative, not zero.** A ₹0 document is not corrupt — a draft saved
+    // before its lines are typed, a fully-discounted give-away, a quotation
+    // being built — and refusing it would break real flows. A *negative* one is
+    // always a data error, and it was the dangerous case: `DocumentSettlement`
+    // clamped it to a zero balance and reported the document as `paid`, so a
+    // negative invoice sat in the books reading as settled.
+    if (grandTotal < Decimal.zero) {
+      throw ArgumentError(
+        'A document cannot be worth a negative amount — check the rate and '
+        'discount on each line.',
+      );
+    }
     final now = DateTime.now();
 
     await db.transaction(() async {
@@ -345,6 +428,16 @@ class SalesRepository with SyncQueueMixin {
       }
 
       if (isEdit) {
+        for (final old in await itemsFor(draft.id)) {
+          if (!draft.lines.any((line) => line.id == old.id)) {
+            await enqueue(
+              firmId: firmId,
+              entity: 'sales_invoice_items',
+              entityId: old.id,
+              operation: 'delete',
+            );
+          }
+        }
         await db.reverseStockForSource(firmId, draft.id);
         await (db.delete(
           db.salesInvoiceItems,
@@ -383,10 +476,10 @@ class SalesRepository with SyncQueueMixin {
         billingAddress: Value(draft.billingAddress),
         shippingAddress: Value(draft.shippingAddress),
         placeOfSupply: Value(draft.placeOfSupply),
-        isInterState: Value(draft.isInterState),
+        isInterState: Value(draft.isInterState || draft.isExport),
         reverseCharge: Value(draft.reverseCharge),
         isExport: Value(draft.isExport),
-        exportType: Value(draft.exportType),
+        exportType: Value(draft.isExport ? (draft.exportType ?? 'wp') : null),
         subTotal: Value(result.subTotal.toDouble()),
         itemDiscount: Value(result.itemDiscountTotal.toDouble()),
         invoiceDiscountPercent: Value(
@@ -649,10 +742,18 @@ class SalesRepository with SyncQueueMixin {
     return query.get();
   }
 
-  /// Unpaid invoices past their due date, most overdue first — the payment
+  /// Unpaid invoices **past their due date**, most overdue first — the payment
   /// reminders list. Any not-cancelled, not-binned document with a balance
   /// counts (a 'delivered' invoice is just as overdue as a 'confirmed' one).
   Stream<List<SalesInvoiceEntity>> watchOverdue({int limit = 500}) {
+    // **Past their due date**, which the query used not to require. The default
+    // credit term is 15 days, so on the 1st of the month every invoice raised
+    // that month — with a due date still in the future — appeared under a
+    // heading reading "N overdue invoice". The row's own `_daysLate` was then
+    // negative and printed the literal "-9d late", while the empty state said
+    // "every invoice is paid or still within its due date", contradicted by the
+    // list above it. `sales_list_screen` has always filtered correctly here.
+    final now = DateTime.now();
     final query = db.select(db.salesInvoices)
       ..where(
         (t) =>
@@ -662,7 +763,8 @@ class SalesRepository with SyncQueueMixin {
             t.status.equals('cancelled').not() &
             t.status.equals('converted').not() &
             t.balanceDue.isBiggerThanValue(0.001) &
-            t.dueDate.isNotNull(),
+            t.dueDate.isNotNull() &
+            t.dueDate.isSmallerThanValue(now),
       )
       ..orderBy([(t) => OrderingTerm.asc(t.dueDate)])
       ..limit(limit);
@@ -980,6 +1082,12 @@ class SalesRepository with SyncQueueMixin {
       await (db.delete(
         db.salesInvoices,
       )..where((t) => t.id.equals(id) & t.firmId.equals(firmId))).go();
+      await enqueue(
+        firmId: firmId,
+        entity: 'sales_invoices',
+        entityId: id,
+        operation: 'delete',
+      );
       await db.auditRepository.log(
         action: 'purge',
         entity: 'sales_invoices',
@@ -1002,6 +1110,38 @@ class SalesRepository with SyncQueueMixin {
   /// Guards: refuses a document already converted, and refuses dates inside a
   /// locked period. The first is what makes a stale double-tap harmless — the
   /// UI hides the action, but a second tap can land before the rebuild.
+  /// Create the invoice and consume its source atomically, including stock and
+  /// sync outbox writes. An editor opened before another conversion cannot
+  /// create a second invoice from the same estimate.
+  Future<SalesInvoiceEntity> convertToInvoice(
+    SalesDraft draft, {
+    required String sourceId,
+    bool affectStock = true,
+  }) => db.transaction(() async {
+    final source = await getLiveById(sourceId);
+    if (source == null ||
+        draft.docType != 'invoice' ||
+        ![
+          'quotation',
+          'sales_order',
+          'delivery_note',
+        ].contains(source.docType) ||
+        source.convertedToInvoiceId != null ||
+        [
+          'converted',
+          'cancelled',
+          'rejected',
+          'expired',
+        ].contains(source.status)) {
+      throw StateError(
+        'This document cannot be converted again. Open its linked invoice or refresh the list.',
+      );
+    }
+    final invoice = await save(draft, affectStock: affectStock);
+    await markConverted(sourceId, invoiceId: invoice.id);
+    return invoice;
+  });
+
   Future<void> markConverted(
     String id, {
     required String invoiceId,
@@ -1215,14 +1355,29 @@ extension StockMovementsInsert on AppDatabase {
     await update(items).replace(
       item.copyWith(currentStock: newBalance, updatedAt: DateTime.now()),
     );
-    // What the movement was worth, decided once. An inbound movement takes the
-    // cost its caller supplied (a bill line's net unit cost); an outbound one
-    // takes the running average at this instant, replayed from the log so the
-    // figure does not depend on the order documents happened to be saved in.
-    final stamped = quantity > 0
+    // What the movement was worth, decided once, and decided by **kind** rather
+    // than by the sign of the quantity.
+    //
+    // Routing on the sign was wrong for `sale_return`. A credit note puts stock
+    // *back*, so its movement is inbound (`quantity > 0`), and inbound took
+    // `unitCost ?? item.purchasePrice` — but the credit-note writer deliberately
+    // passes no cost, precisely because "at what cost did it leave?" is the
+    // moving average. So a return of 3 units against a 10-unit sale was stamped
+    // at the *catalogue* purchase price, which nothing maintains and which is
+    // therefore 0 for most shops: the average collapsed by 30% and every later
+    // sale booked an inflated margin.
+    //
+    // The three cases are genuinely different and now say so:
+    //  * a reversal      — copy the movement it undoes (the caller stamps it)
+    //  * a sale return   — the average at this instant, exactly like a sale
+    //  * anything else   — the caller's cost, else the catalogue price
+    final isReversal = source == 'reversal';
+    final stamped = isReversal
         ? (unitCost ?? Money.of(item.purchasePrice))
-        : await _averageCostAt(firmId, itemId, date) ??
-              Money.of(item.purchasePrice);
+        : (kind == 'sale_return' || quantity < 0)
+        ? await _averageCostAt(firmId, itemId, date) ??
+              Money.of(item.purchasePrice)
+        : (unitCost ?? Money.of(item.purchasePrice));
     final movementId = newStockMovementId();
     await into(stockMovements).insert(
       StockMovementsCompanion.insert(

@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 
 import '../api/sync_client.dart';
 import '../database/app_database.dart';
+import '../database/repositories/bank_balance.dart';
+import '../database/repositories/payment_repository.dart';
 
 /// The outcome of applying one pull page, for logging and tests.
 class PullApplyReport {
@@ -59,12 +61,11 @@ class PullApplyReport {
 ///   conflicting row first, which fires `ON DELETE CASCADE` and would wipe an
 ///   invoice's line items on every parent update. Upserts are an explicit
 ///   existence check plus UPDATE or INSERT.
-/// * **Children are insert-if-absent.** `sales_invoice_items`,
-///   `purchase_bill_items`, `journal_lines` and `stock_movements` have no
-///   `updated_at` of their own and are never updated by the app — an edit
-///   deletes and re-inserts the set with fresh ids. The applier mirrors that:
-///   a child already present is left alone, so re-delivered pages cannot
-///   duplicate lines.
+/// * **Document lines follow their parent revision.** Sales and purchase
+///   lines can keep their IDs on edit. Their parent timestamp rejects stale
+///   edits while allowing a matching revision to update an existing line.
+///   Legacy line payloads, journal lines and stock movements remain
+///   insert-if-absent, so re-delivered pages cannot duplicate them.
 ///
 /// A change that cannot apply (an unknown entity, a child whose parent has
 /// not arrived) is skipped and the cursor still advances: one poison row must
@@ -81,6 +82,7 @@ class PullApplier {
     'firms',
     'parties',
     'items',
+    'bank_accounts',
     'categories',
     'units',
     'sales_invoices',
@@ -95,7 +97,7 @@ class PullApplier {
     'stock_movements',
   };
 
-  /// Child tables: keyed by their own `id`, no `updated_at`, insert-if-absent.
+  /// Child tables have no `updated_at`; document lines use parent revisions.
   static const Set<String> _childEntities = {
     'sales_invoice_items',
     'purchase_bill_items',
@@ -120,6 +122,11 @@ class PullApplier {
   Future<PullApplyReport> applyPage({
     required String firmId,
     required PullPage page,
+  }) => _db.transaction(() => _applyPage(firmId: firmId, page: page));
+
+  Future<PullApplyReport> _applyPage({
+    required String firmId,
+    required PullPage page,
   }) async {
     var applied = 0;
     var skipped = 0;
@@ -135,6 +142,18 @@ class PullApplier {
       }
     }
 
+    // Movement and payment rows are additive facts. Derive their caches after
+    // the complete page, rather than trusting another device's stale totals.
+    await _db.customUpdate(
+      'UPDATE items SET current_stock = (SELECT COALESCE(SUM(quantity), 0) '
+      'FROM stock_movements WHERE item_id = items.id AND firm_id = ?) '
+      'WHERE firm_id = ? AND EXISTS (SELECT 1 FROM stock_movements '
+      'WHERE item_id = items.id AND firm_id = ?)',
+      variables: [Variable.withString(firmId), Variable.withString(firmId), Variable.withString(firmId)],
+      updates: {_db.items},
+    );
+    await PaymentRepository(_db, firmId).rebuildLinkedSettlements();
+    await rebuildBankBalances(_db, firmId);
     return PullApplyReport(
       applied: applied,
       skipped: skipped,
@@ -154,7 +173,7 @@ class PullApplier {
     try {
       final payload = change.payload;
 
-      if (change.operation == 'delete') {
+      if (change.operation == 'delete' && payload == null) {
         // A tombstone. Soft-delete is a state a *row* carries (is_deleted),
         // so a journal delete means the row was removed outright — the
         // permanent-delete paths only: the recycle bin's purge, and a firm
@@ -188,6 +207,20 @@ class PullApplier {
       }
 
       if (_childEntities.contains(change.entity)) {
+        if (change.entity == 'sales_invoice_items' || change.entity == 'purchase_bill_items') {
+          final sales = change.entity == 'sales_invoice_items';
+          final parentId = payload[sales ? 'invoice_id' : 'bill_id'];
+          if (parentId is! String) return false;
+          final parent = await _fetchRow(sales ? 'sales_invoices' : 'purchase_bills', parentId);
+          if (parent == null || parent['firm_id'] != firmId) return false;
+          final revision = _parseUpdatedAt(payload['_parent_updated_at']);
+          if (revision == null) return await _insertChildIfAbsent(change.entity, payload);
+          if (revision != _parseUpdatedAt(parent['updated_at'])) return false;
+          final table = _tableNamed(change.entity)!;
+          final exists = await _rowExists(change.entity, change.entityId);
+          await _writeRow(table, payload, mode: exists ? _WriteMode.update : _WriteMode.insert);
+          return true;
+        }
         final applied = await _insertChildIfAbsent(change.entity, payload);
         return applied;
       }
@@ -317,9 +350,9 @@ class PullApplier {
   Future<Map<String, Object?>?> _fetchRow(String entity, String id) async {
     final row = await _db
         .customSelect(
-      'SELECT * FROM $entity WHERE id = ? LIMIT 1',
-      variables: [Variable.withString(id)],
-    )
+          'SELECT * FROM $entity WHERE id = ? LIMIT 1',
+          variables: [Variable.withString(id)],
+        )
         .getSingleOrNull();
     return row?.data;
   }
@@ -396,9 +429,7 @@ class PullApplier {
     final List<Variable<Object>> variables;
     switch (mode) {
       case _WriteMode.insert:
-        variables = [
-          for (final name in columns) _variableFor(values[name]),
-        ];
+        variables = [for (final name in columns) _variableFor(values[name])];
       case _WriteMode.update:
         variables = [
           for (final name in columns)
@@ -411,7 +442,8 @@ class PullApplier {
     switch (mode) {
       case _WriteMode.insert:
         final placeholders = List.filled(columns.length, '?').join(', ');
-        sql = 'INSERT INTO ${table.actualTableName} '
+        sql =
+            'INSERT INTO ${table.actualTableName} '
             '(${columns.join(', ')}) VALUES ($placeholders)';
       case _WriteMode.update:
         if (id == null) return;
@@ -420,7 +452,8 @@ class PullApplier {
             if (name != 'id') '$name = ?',
         ];
         if (assignments.isEmpty) return;
-        sql = 'UPDATE ${table.actualTableName} '
+        sql =
+            'UPDATE ${table.actualTableName} '
             'SET ${assignments.join(', ')} WHERE id = ?';
     }
 

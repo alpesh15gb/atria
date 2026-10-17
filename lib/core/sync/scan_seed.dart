@@ -21,6 +21,7 @@ class ScannedBillSeed {
     this.placeOfSupply,
     this.shippingCharge = 0,
     this.otherCharges = 0,
+    this.grandTotal,
   });
 
   final String? supplierName;
@@ -38,6 +39,7 @@ class ScannedBillSeed {
   final List<ScannedLineSeed> lines;
   final double shippingCharge;
   final double otherCharges;
+  final double? grandTotal;
 
   /// Finds the supplier this bill belongs to, GSTIN first (the reliable
   /// identifier two suppliers can share a name but never a GSTIN), then by

@@ -28,20 +28,34 @@ import '../../shared/widgets/mobile_page.dart';
 
 enum _Filter { all, customers, suppliers }
 
-final _mobilePartyTotalsProvider = StreamProvider<(Decimal, Decimal)>((ref) async* {
+final _mobilePartyTotalsProvider = StreamProvider<(Decimal, Decimal)>((
+  ref,
+) async* {
   final repo = ref.watch(partyRepositoryProvider);
-  if (repo == null) { yield (Decimal.zero, Decimal.zero); return; }
+  if (repo == null) {
+    yield (Decimal.zero, Decimal.zero);
+    return;
+  }
   Future<(Decimal, Decimal)> totals() async {
     var collect = Decimal.zero;
     var pay = Decimal.zero;
     for (final party in await repo.all(limit: 0)) {
-      final balance = Decimal.parse((await repo.outstandingFor(party.id)).toStringAsFixed(2));
-      if (balance > Decimal.zero) { collect += balance; } else { pay -= balance; }
+      final balance = Decimal.parse(
+        (await repo.outstandingFor(party.id)).toStringAsFixed(2),
+      );
+      if (balance > Decimal.zero) {
+        collect += balance;
+      } else {
+        pay -= balance;
+      }
     }
     return (collect, pay);
   }
+
   yield await totals();
-  await for (final _ in repo.watchOutstandingChanges()) { yield await totals(); }
+  await for (final _ in repo.watchOutstandingChanges()) {
+    yield await totals();
+  }
 });
 
 /// A party's live outstanding.
@@ -175,21 +189,22 @@ class _PartiesScreenState extends ConsumerState<PartiesScreen> {
           ],
           search: _searchBar,
           filters: [
-            if (!Theme.of(context).platform.isMobileUi) AtriaAdaptiveFilter<_Filter>(
-              label: 'Type',
-              scrollable: false,
-              value: _filter,
-              onChanged: (f) => context.go(switch (f) {
-                _Filter.all => '/parties',
-                _Filter.customers => '/parties?type=customer',
-                _Filter.suppliers => '/parties?type=supplier',
-              }),
-              segments: const [
-                AtriaSegment(value: _Filter.all, label: 'All'),
-                AtriaSegment(value: _Filter.customers, label: 'Customers'),
-                AtriaSegment(value: _Filter.suppliers, label: 'Vendors'),
-              ],
-            ),
+            if (!Theme.of(context).platform.isMobileUi)
+              AtriaAdaptiveFilter<_Filter>(
+                label: 'Type',
+                scrollable: false,
+                value: _filter,
+                onChanged: (f) => context.go(switch (f) {
+                  _Filter.all => '/parties',
+                  _Filter.customers => '/parties?type=customer',
+                  _Filter.suppliers => '/parties?type=supplier',
+                }),
+                segments: const [
+                  AtriaSegment(value: _Filter.all, label: 'All'),
+                  AtriaSegment(value: _Filter.customers, label: 'Customers'),
+                  AtriaSegment(value: _Filter.suppliers, label: 'Vendors'),
+                ],
+              ),
           ],
           body: repo == null
               ? _noFirmState
@@ -206,13 +221,49 @@ class _PartiesScreenState extends ConsumerState<PartiesScreen> {
 
   Widget _mobileTabs() {
     final scheme = Theme.of(context).colorScheme;
-    return Material(color: scheme.surface, child: Row(children: [
-      for (final tab in [('Customers', 'customer'), ('Vendors', 'supplier')]) Expanded(child: InkWell(onTap: () => context.go('/parties?type=${tab.$2}'), child: Container(
-        alignment: Alignment.center, height: 52,
-        decoration: BoxDecoration(border: Border(bottom: BorderSide(width: 2, color: (_filter == _Filter.suppliers) == (tab.$2 == 'supplier') ? scheme.primary : Colors.transparent))),
-        child: Text(tab.$1, style: TextStyle(color: (_filter == _Filter.suppliers) == (tab.$2 == 'supplier') ? scheme.primary : scheme.onSurfaceVariant)),
-      ))),
-    ]));
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Row(
+        children: [
+          for (final tab in [
+            ('All', null, _Filter.all),
+            ('Customers', 'customer', _Filter.customers),
+            ('Vendors', 'supplier', _Filter.suppliers),
+          ])
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: Material(
+                  color: _filter == tab.$3 ? scheme.primary : scheme.surface,
+                  borderRadius: BorderRadius.circular(24),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(24),
+                    onTap: () => context.go(
+                      tab.$2 == null ? '/parties' : '/parties?type=${tab.$2}',
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 12,
+                        horizontal: 4,
+                      ),
+                      child: Text(
+                        tab.$1,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.labelMedium
+                            ?.copyWith(
+                              color: _filter == tab.$3
+                                  ? scheme.onPrimary
+                                  : scheme.onSurface,
+                            ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 
   Widget _mobileTotals() {
@@ -220,16 +271,63 @@ class _PartiesScreenState extends ConsumerState<PartiesScreen> {
     return totals.when(
       loading: () => const LinearProgressIndicator(),
       error: (_, _) => const Text('Could not load party balances'),
-      data: (totals) => Row(children: [
-        for (final entry in [('You Collect', totals.$1, const Color(0xFF91282D)), ('You Pay', totals.$2, const Color(0xFF315E38))]) ...[
-          if (entry.$1 == 'You Pay') const SizedBox(width: 8),
-          Expanded(child: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: entry.$3, borderRadius: BorderRadius.circular(8)), child: Column(children: [
-            Text(entry.$1, style: const TextStyle(color: Colors.white70, fontSize: 11)),
-            const SizedBox(height: 4),
-            MobileAmount(entry.$2, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
-          ]))),
-        ],
-      ]),
+      data: (totals) => AtriaCard(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Outstanding balances',
+              style: Theme.of(context).textTheme.titleSmall
+                  ?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                for (final entry in [
+                  (
+                    'To receive',
+                    totals.$1,
+                    Theme.of(context).colorScheme.primary,
+                  ),
+                  ('To pay', totals.$2, Theme.of(context).colorScheme.error),
+                ]) ...[
+                  if (entry.$1 == 'To pay') const SizedBox(width: 12),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            entry.$1,
+                            style: TextStyle(color: entry.$3, fontSize: 12),
+                          ),
+                          const SizedBox(height: 8),
+                          MobileAmount(
+                            entry.$2,
+                            style: TextStyle(
+                              color: entry.$3,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -309,6 +407,27 @@ class _PartiesScreenState extends ConsumerState<PartiesScreen> {
           );
         }
 
+        if (Theme.of(context).platform.isMobileUi) {
+          return ListView.builder(
+            padding: const EdgeInsets.only(bottom: 24),
+            itemCount: parties.length + 1,
+            itemBuilder: (context, index) => index == 0
+                ? AtriaResultsBar(
+                    count: parties.length,
+                    noun: 'party',
+                    filtered: _search.isNotEmpty || _filter != _Filter.all,
+                  )
+                : Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _PartyRow(
+                      party: parties[index - 1],
+                      onTap: () => _showActions(parties[index - 1], repo),
+                      onSecondaryTap: () =>
+                          _showActions(parties[index - 1], repo),
+                    ),
+                  ),
+          );
+        }
         return Column(
           children: [
             AtriaResultsBar(

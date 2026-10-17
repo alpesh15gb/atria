@@ -46,8 +46,10 @@ class TdsCommon {
   /// **The section rate wins** because it is what was actually applied to this
   /// bill's taxable value; the document-level `tdsRate` is the rate the editor
   /// was working from and can differ on a partly exempt bill.
-  static Decimal rateOf({required double tdsRate, required double sectionRate}) =>
-      sectionRate > 0 ? dec(sectionRate) : dec(tdsRate);
+  static Decimal rateOf({
+    required double tdsRate,
+    required double sectionRate,
+  }) => sectionRate > 0 ? dec(sectionRate) : dec(tdsRate);
 
   /// Every purchase document that carried a deduction in [window].
   ///

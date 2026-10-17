@@ -279,16 +279,22 @@ class DocumentRowMenu extends ConsumerWidget {
   }
 
   /// The seed route: `?from=` copies party, lines and adjustments into a NEW
-  /// document. For a convert action the same route is used — the editor
-  /// marks the source converted after the save (only for the types that
-  /// represent promises).
+  /// document.
+  ///
+  /// **`convert` gets its own parameter**, `?convertFrom=`. Both used to share
+  /// `?from=`, and the editor sets "mark this source converted after saving" for
+  /// *any* document type it is handed — so duplicating an already-issued
+  /// **invoice** stamped `convertedToInvoiceId` on the original, flipped its
+  /// row status to Converted, and replaced its Paid/Partial/Unpaid in the status
+  /// column with a link to the copy. Copying a document must not mutate it.
   String _duplicateRoute({bool convert = false}) {
+    final param = convert ? 'convertFrom' : 'from';
     if (_isPurchaseDoc) {
       final type = convert ? 'bill' : docType;
-      return '/purchase/new?type=$type&from=$docId';
+      return '/purchase/new?type=$type&$param=$docId';
     }
     final type = convert ? 'invoice' : docType;
-    return '/sales/new?type=$type&from=$docId';
+    return '/sales/new?type=$type&$param=$docId';
   }
 
   void _push(BuildContext context, String route) {

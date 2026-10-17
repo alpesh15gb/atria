@@ -73,6 +73,7 @@ const ReportSpec dayBookSpec = ReportSpec(
   id: 'day_book',
   title: 'Day Book',
   category: 'Transaction',
+  layout: ReportLayout.document,
   groupBy: ReportGroupBy.date,
   sort: ReportSort(columnKey: 'date'),
   columns: [

@@ -1,3 +1,4 @@
+import 'package:atria/core/database/repositories/sales_repository.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -35,6 +36,7 @@ void main() {
   /// server's `firm_changes` table, including its `change_id` primary key, so a
   /// repeated id is dropped exactly as `ON CONFLICT DO NOTHING` would.
   final journal = <Map<String, Object?>>[];
+  final cloudFirmIds = <String>[];
   final acceptedIds = <String>{};
   var seq = 0;
 
@@ -70,6 +72,7 @@ void main() {
 
   setUp(() async {
     journal.clear();
+    cloudFirmIds.clear();
     acceptedIds.clear();
     batchSizes.clear();
     seq = 0;
@@ -79,6 +82,14 @@ void main() {
     server.listen((request) async {
       final body = await utf8.decoder.bind(request).join();
       final path = request.uri.path;
+
+      if (request.method == 'GET' && path == '/v1/me') {
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({'email': 'owner@example.com', 'deviceId': 'test',
+          'firms': [for (final id in cloudFirmIds) {'firmId': id, 'name': 'Cloud books', 'role': 'owner'}]}));
+        await request.response.close();
+        return;
+      }
 
       if (request.method == 'GET' && path.contains('/changes')) {
         final afterSeq =
@@ -423,4 +434,43 @@ void main() {
     await origin.close();
     await phone.close();
   }, timeout: const Timeout(Duration(minutes: 5)));
+  test('fresh device discovers books; edits replace retained lines and remove deleted lines', () async {
+    final desktop = AppDatabase.test(NativeDatabase.memory());
+    final phone = AppDatabase.test(NativeDatabase.memory());
+    try {
+      final firm = await desktop.firmRepository.create(name: 'Non-GST cloud shop');
+      const formats = '{"version":1,"default":"ledger","invoice":"clean","purchase":"business","quotation":"detailed"}';
+      await desktop.firmRepository.update(firm.copyWith(pdfTemplate: formats));
+      cloudFirmIds.add(firm.id);
+      SalesDraft draft({required bool edited}) => SalesDraft(
+        id: 'invoice-live', number: 'INV-LIVE', docType: 'invoice',
+        invoiceDate: DateTime(2026, 10, 1), lines: [
+          SalesLineDraft(id: 'kept', name: 'Goods', quantity: Decimal.fromInt(edited ? 3 : 1),
+            unit: 'pcs', rate: Decimal.fromInt(100), gstRate: 18),
+          if (!edited) SalesLineDraft(id: 'removed', name: 'Remove this', quantity: Decimal.one,
+            unit: 'pcs', rate: Decimal.fromInt(100), gstRate: 18),
+        ],
+      );
+      await desktop.salesRepositoryFor(firm.id).save(draft(edited: false));
+      final desktopSync = await engineFor(desktop);
+      expect((await desktopSync.sync()).error, isNull);
+      final phoneSync = await engineFor(phone);
+      expect((await phoneSync.sync()).error, isNull);
+      expect((await phone.firmRepository.all()).single.id, firm.id);
+      expect((await phone.firmRepository.all()).single.pdfTemplate, formats);
+      expect(await phone.salesRepositoryFor(firm.id).itemsFor('invoice-live'), hasLength(2));
+      await desktop.salesRepositoryFor(firm.id).save(draft(edited: true));
+      expect((await desktopSync.sync()).error, isNull);
+      expect((await phoneSync.sync()).error, isNull);
+      final lines = await phone.salesRepositoryFor(firm.id).itemsFor('invoice-live');
+      expect(lines, hasLength(1));
+      expect(lines.single.id, 'kept');
+      expect(lines.single.quantity, 3);
+      expect(lines.single.total, 300);
+      expect((await phone.salesRepositoryFor(firm.id).getById('invoice-live'))!.grandTotal, 300);
+      expect((await phoneSync.sync()).error, isNull);
+      expect(await phone.salesRepositoryFor(firm.id).itemsFor('invoice-live'), hasLength(1));
+    } finally { await desktop.close(); await phone.close(); }
+  });
+
 }

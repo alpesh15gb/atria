@@ -46,7 +46,7 @@ void main() {
 
   setUp(() async {
     db = AppDatabase.test(NativeDatabase.memory());
-    firmId = (await db.firmRepository.create(name: 'Alpha Traders')).id;
+    firmId = (await db.firmRepository.create(gstin: '29ABCDE1234F1Z5', name: 'Alpha Traders')).id;
   });
 
   tearDown(() => db.close());
@@ -815,7 +815,7 @@ void main() {
 
     test('rows survive and pick up the new defaults', () async {
       final first = AppDatabase.test(NativeDatabase(file));
-      final firm = await first.firmRepository.create(name: 'Alpha Traders');
+      final firm = await first.firmRepository.create(gstin: '29ABCDE1234F1Z5', name: 'Alpha Traders');
       final firmId = firm.id;
       final item = await first
           .itemRepositoryFor(firmId)
@@ -854,7 +854,7 @@ void main() {
 
       // The file is a v10 one, so reopening runs v11 *and* v12 — the assertion
       // is on where the chain ends, not on which step this test is about.
-      expect(upgraded.schemaVersion, 12);
+      expect(upgraded.schemaVersion, 14);
 
       final upgradedItem = await (upgraded.select(
         upgraded.items,

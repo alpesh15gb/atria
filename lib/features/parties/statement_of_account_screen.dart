@@ -9,6 +9,7 @@ import '../../core/database/repositories/party_repository.dart';
 import '../../core/database/repositories/report_repository.dart';
 import '../../core/responsive/breakpoints.dart';
 import '../../core/services/statement_export.dart';
+import 'party_statement_builder.dart';
 import '../../core/state/providers.dart';
 import '../../core/theme/app_sizes.dart';
 import '../../core/theme/app_theme.dart';
@@ -122,10 +123,12 @@ class _StatementOfAccountScreenState
     final q = _partySearch.trim().toLowerCase();
     if (q.isEmpty) return all;
     return all
-        .where((p) =>
-            p.name.toLowerCase().contains(q) ||
-            (p.gstin ?? '').toLowerCase().contains(q) ||
-            (p.phone ?? '').toLowerCase().contains(q))
+        .where(
+          (p) =>
+              p.name.toLowerCase().contains(q) ||
+              (p.gstin ?? '').toLowerCase().contains(q) ||
+              (p.phone ?? '').toLowerCase().contains(q),
+        )
         .toList(growable: false);
   }
 
@@ -152,17 +155,14 @@ class _StatementOfAccountScreenState
                   child: Center(
                     child: ConstrainedBox(
                       constraints: BoxConstraints(
-                        maxWidth:
-                            constraints.isCompact ? double.infinity : 980,
+                        maxWidth: constraints.isCompact ? double.infinity : 980,
                       ),
-                      child: repository == null ||
-                              firm == null ||
-                              parties == null
+                      child:
+                          repository == null || firm == null || parties == null
                           ? const EmptyState(
                               icon: Icons.storefront_outlined,
                               title: 'No business open',
-                              message:
-                                  'Set up a business to view statements of account.',
+                              message: 'Set up a business to view statements of account.',
                             )
                           : _body(repository, firm, parties),
                     ),
@@ -188,7 +188,8 @@ class _StatementOfAccountScreenState
       return EmptyState(
         icon: Icons.person_off_outlined,
         title: 'Party not found',
-        message: 'That party is no longer in this business’s books — it was '
+        message:
+            'That party is no longer in this business’s books — it was '
             'deleted, or the link is out of date. Go back and pick a party.',
         actionLabel: 'Go back',
         onAction: () => context.pop(),
@@ -228,7 +229,8 @@ class _StatementOfAccountScreenState
           return EmptyState(
             icon: Icons.search_off_rounded,
             title: 'No party matches “$_partySearch”',
-            message: 'Clear the search to choose from all ${all.length} '
+            message:
+                'Clear the search to choose from all ${all.length} '
                 'parties.',
             actionLabel: 'Clear search',
             onAction: () => setState(() {
@@ -299,7 +301,7 @@ class _StatementOfAccountScreenState
             const SizedBox(height: 8),
             _exportBar(repository, firm, picked),
             const SizedBox(height: 4),
-            Expanded(child: _ledger(repository, picked)),
+            Expanded(child: _ledger(repository, parties, picked)),
           ],
         );
       },
@@ -307,13 +309,13 @@ class _StatementOfAccountScreenState
   }
 
   Widget _partySearchField(int total) => TransactionSearchField(
-        controller: _partySearchController,
-        hintText: total > 12
-            ? 'Search among $total parties'
-            : 'Search name, GSTIN or phone',
-        onChanged: (value) => setState(() => _partySearch = value),
-        onClear: () => setState(() => _partySearch = ''),
-      );
+    controller: _partySearchController,
+    hintText: total > 12
+        ? 'Search among $total parties'
+        : 'Search name, GSTIN or phone',
+    onChanged: (value) => setState(() => _partySearch = value),
+    onClear: () => setState(() => _partySearch = ''),
+  );
 
   /// The period strip, as a real [SegmentedButton].
   ///
@@ -324,27 +326,22 @@ class _StatementOfAccountScreenState
   /// `materialTapTargetSize: shrinkWrap`, which opts out of Material's 48dp tap
   /// target and leaves a segment at 40dp.
   Widget get _rangeSelector => SegmentedButton<_DateRange>(
-        segments: [
-          for (final range in _DateRange.values)
-            ButtonSegment<_DateRange>(
-              value: range,
-              label: Text(
-                switch (range) {
-                  _DateRange.thisMonth => 'This Month',
-                  _DateRange.thisFY => 'This FY',
-                  _DateRange.allTime => 'All Time',
-                },
-              ),
-            ),
-        ],
-        selected: {_range},
-        showSelectedIcon: false,
-        style: const ButtonStyle(
-          minimumSize: WidgetStatePropertyAll(Size(0, 48)),
+    segments: [
+      for (final range in _DateRange.values)
+        ButtonSegment<_DateRange>(
+          value: range,
+          label: Text(switch (range) {
+            _DateRange.thisMonth => 'This Month',
+            _DateRange.thisFY => 'This FY',
+            _DateRange.allTime => 'All Time',
+          }),
         ),
-        onSelectionChanged: (selection) =>
-            setState(() => _range = selection.first),
-      );
+    ],
+    selected: {_range},
+    showSelectedIcon: false,
+    style: const ButtonStyle(minimumSize: WidgetStatePropertyAll(Size(0, 48))),
+    onSelectionChanged: (selection) => setState(() => _range = selection.first),
+  );
 
   Widget _exportBar(
     ReportRepository repository,
@@ -358,22 +355,29 @@ class _StatementOfAccountScreenState
     final enabled = !_exporting;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Icon(
-            Icons.download_rounded,
-            size: 18,
-            color: scheme.onSurfaceVariant,
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.download_rounded,
+                size: 18,
+                color: scheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Download',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 6),
-          Text(
-            'Download',
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(width: 12),
           FilledButton.tonalIcon(
             onPressed: enabled
                 ? () => _download(repository, firm, party, asExcel: false)
@@ -381,7 +385,6 @@ class _StatementOfAccountScreenState
             icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
             label: const Text('PDF'),
           ),
-          const SizedBox(width: 10),
           FilledButton.tonalIcon(
             onPressed: enabled
                 ? () => _download(repository, firm, party, asExcel: true)
@@ -390,7 +393,6 @@ class _StatementOfAccountScreenState
             label: const Text('Excel'),
           ),
           if (_exporting) ...[
-            const SizedBox(width: 12),
             const SizedBox(
               width: 16,
               height: 16,
@@ -461,14 +463,16 @@ class _StatementOfAccountScreenState
 
   DateTime? get _to => _range == _DateRange.allTime ? null : DateTime.now();
 
-  Widget _ledger(ReportRepository repository, PartyEntity party) {
-    return FutureBuilder<PartyStatement>(
-      key: ValueKey('${party.id}|${_range.name}'),
-      future: repository.partyStatement(
-        partyId: party.id,
-        from: _from,
-        to: _to,
-      ),
+  Widget _ledger(
+    ReportRepository repository,
+    PartyRepository parties,
+    PartyEntity party,
+  ) {
+    // Re-runs on every movement in this party's books — see the widget's note.
+    return PartyStatementBuilder(
+      repo: parties,
+      query: () =>
+          repository.partyStatement(partyId: party.id, from: _from, to: _to),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());

@@ -93,6 +93,7 @@ class MoneyText extends StatelessWidget {
       style: (style ?? Theme.of(context).textTheme.titleMedium)?.copyWith(
         color: color,
         fontFeatures: const [FontFeature.tabularFigures()],
+        fontFamilyFallback: const ['Inter'],
       ),
     );
 
@@ -102,14 +103,15 @@ class MoneyText extends StatelessWidget {
     return FittedBox(
       fit: BoxFit.scaleDown,
       alignment: _fitAlignment(textAlign),
+      child: figure,
     );
   }
 
   Alignment _fitAlignment(TextAlign align) => switch (align) {
-        TextAlign.right || TextAlign.end => Alignment.centerRight,
-        TextAlign.center => Alignment.center,
-        _ => Alignment.centerLeft,
-      };
+    TextAlign.right || TextAlign.end => Alignment.centerRight,
+    TextAlign.center => Alignment.center,
+    _ => Alignment.centerLeft,
+  };
 }
 
 enum MoneySignMode {

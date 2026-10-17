@@ -133,19 +133,24 @@ Future<List<ReportRow>> saleSummaryByHsnRows(
   // and the date, and the lines carry none of it. Joining in SQL would put the
   // reporting rules inside a query string no test can read, and the sign is a
   // rule — so the join happens here, in a loop, where it can be asserted.
-  final docs = await (db.select(db.salesInvoices)
-        ..where((d) =>
-            d.firmId.equals(firmId) &
-            d.docType.isIn(kSalesDocTypes) &
-            ReportFilters.isLive(status: d.status, isDeleted: d.isDeleted) &
-            ReportFilters.within(d.invoiceDate, window)))
-      .get();
+  final docs =
+      await (db.select(db.salesInvoices)..where(
+            (d) =>
+                d.firmId.equals(firmId) &
+                d.docType.isIn(kSalesDocTypes) &
+                ReportFilters.isLive(status: d.status, isDeleted: d.isDeleted) &
+                ReportFilters.within(d.invoiceDate, window),
+          ))
+          .get();
   if (docs.isEmpty) return const [];
 
-  final lines = await (db.select(db.salesInvoiceItems)
-        ..where((l) =>
-            l.invoiceId.isIn(docs.map((d) => d.id)) & l.isDeleted.equals(false)))
-      .get();
+  final lines =
+      await (db.select(db.salesInvoiceItems)..where(
+            (l) =>
+                l.invoiceId.isIn(docs.map((d) => d.id)) &
+                l.isDeleted.equals(false),
+          ))
+          .get();
 
   // The sign comes from the parent document, so a credit note reduces the
   // taxable value filed under its code rather than adding to it.
@@ -181,19 +186,21 @@ Future<List<ReportRow>> saleSummaryByHsnRows(
 
   final rows = <ReportRow>[];
   for (final bucket in buckets.values) {
-    rows.add(ReportRow({
-      'hsn': bucket.hsn,
-      'rate': bucket.rate,
-      'description': bucket.description ?? '',
-      'quantity': bucket.quantity,
-      'unit': bucket.unit,
-      'taxable': bucket.taxable,
-      'cgst': bucket.cgst,
-      'sgst': bucket.sgst,
-      'igst': bucket.igst,
-      'cess': bucket.cess,
-      'total': bucket.totalTax,
-    }, label: '${bucket.hsn} @ ${rateLabel(bucket.rate)}%'));
+    rows.add(
+      ReportRow({
+        'hsn': bucket.hsn,
+        'rate': bucket.rate,
+        'description': bucket.description ?? '',
+        'quantity': bucket.quantity,
+        'unit': bucket.unit,
+        'taxable': bucket.taxable,
+        'cgst': bucket.cgst,
+        'sgst': bucket.sgst,
+        'igst': bucket.igst,
+        'cess': bucket.cess,
+        'total': bucket.totalTax,
+      }, label: '${bucket.hsn} @ ${rateLabel(bucket.rate)}%'),
+    );
   }
   return rows;
 }
@@ -201,6 +208,6 @@ Future<List<ReportRow>> saleSummaryByHsnRows(
 /// A function, not a string — the source's `notes` slot is
 /// `List<String> Function(ReportResult)`.
 List<String> _saleSummaryByHsnNotes(ReportResult result) => [
-      'Reads sales invoice lines. Cancelled documents, and anything in the '
+  'Reads sales invoice lines. Cancelled documents, and anything in the '
       'recycle bin, are excluded — they are not outward supplies.',
-    ];
+];

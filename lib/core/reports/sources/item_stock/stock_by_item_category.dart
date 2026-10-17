@@ -86,7 +86,9 @@ Future<List<ReportRow>> stockByItemCategoryRows(
         'items': Decimal.one,
         'quantity': info.currentStock,
         'average': rate,
-        'value': info.currentStock * rate,
+        'value': info.currentStock > Decimal.zero
+            ? info.currentStock * rate
+            : Decimal.zero,
       }, label: categories[item.id] ?? 'Ungrouped'),
     );
   }

@@ -28,6 +28,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../shared/widgets/atria_field_icon.dart';
 import '../../shared/widgets/atria_logo.dart';
+import '../../shared/widgets/atria_nav_row.dart';
 import '../../shared/widgets/common_widgets.dart';
 import 'sign_in_screen.dart';
 
@@ -112,6 +113,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _settingsRepo = db.settingsRepository;
     final syncEnabled = await db.settingsRepository.getBool(
       SettingsRepository.kSyncEnabled,
+      fallback: true,
     );
     final storedUrl = await db.settingsRepository.get(
       SettingsRepository.kApiBaseUrl,
@@ -605,34 +607,124 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     if (Theme.of(context).platform.isMobileUi) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Settings'), automaticallyImplyLeading: false),
-        body: ListView(padding: const EdgeInsets.fromLTRB(14, 12, 14, 32), children: [
-          _mobileGroup('Profile', [
-            _mobileLink('Company Details', Icons.business_outlined, '/settings/firm'),
-            if (ref.watch(effectiveSessionProvider).allows(Permission.manageMasters)) _mobileLink('Users & Roles', Icons.people_outline, '/settings/members'),
-          ]),
-          _mobileGroup('Settings', [
-            _mobileLink('Document Settings', Icons.receipt_long_outlined, '/settings/firm?section=documents'),
-            _mobileLink('Invoice Templates', Icons.description_outlined, '/settings/firm?section=templates'),
-            _mobileLink('Bank', Icons.account_balance_outlined, '/settings/firm?section=bank'),
-            _mobileLink('Signature', Icons.draw_outlined, '/settings/firm?section=signature'),
-            ListTile(leading: const Icon(Icons.dark_mode_outlined), title: const Text('App Theme'), trailing: const Icon(Icons.chevron_right), onTap: () => showModalBottomSheet(context: context, builder: (_) => Padding(padding: const EdgeInsets.all(16), child: _appearanceSection(themeMode)))),
-          ]),
-          _mobileGroup('Features', [
-            _mobileLink('Reports', Icons.pie_chart_outline, '/reports'),
-            _mobileLink('Payment Reminders', Icons.notifications_outlined, '/payment-reminders'),
-            _mobileLink('Label Printers', Icons.print_outlined, '/settings/printers'),
-          ]),
-          _mobileGroup('Timelines', [
-            _mobileLink('Payments', Icons.payments_outlined, '/payments'),
-            _mobileLink('Inventory', Icons.inventory_2_outlined, '/stock'),
-            _mobileLink('Audit Log', Icons.history, '/settings/audit-log'),
-          ]),
-          _dataSection(), const SizedBox(height: 18),
-          _accountSection(), const SizedBox(height: 18),
-          _syncSection(), const SizedBox(height: 18),
-          _aboutSection(),
-        ]),
+        appBar: AppBar(
+          title: const Text('Settings'),
+          automaticallyImplyLeading: false,
+        ),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 32),
+          children: [
+            AtriaCard(
+              child: Row(
+                children: [
+                  const AtriaLogo(size: 42),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          firmAsync.valueOrNull?.name ?? 'Your workspace',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Business preferences & controls',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            _mobileGroup('Business', [
+              _mobileLink(
+                'Company Details',
+                Icons.business_outlined,
+                '/settings/firm',
+              ),
+              if (ref
+                  .watch(effectiveSessionProvider)
+                  .allows(Permission.manageMasters))
+                _mobileLink(
+                  'Users & Roles',
+                  Icons.people_outline,
+                  '/settings/members',
+                ),
+            ]),
+            _mobileGroup('Documents & appearance', [
+              _mobileLink(
+                'Document Settings',
+                Icons.receipt_long_outlined,
+                '/settings/firm?section=documents',
+              ),
+              _mobileLink(
+                'Document Formats',
+                Icons.description_outlined,
+                '/settings/firm?section=templates',
+              ),
+              _mobileLink(
+                'Bank',
+                Icons.account_balance_outlined,
+                '/settings/firm?section=bank',
+              ),
+              _mobileLink(
+                'Signature',
+                Icons.draw_outlined,
+                '/settings/firm?section=signature',
+              ),
+              AtriaNavRow(
+                icon: Icons.tune_rounded,
+                title: 'Appearance & size',
+                onTap: () => showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  useSafeArea: true,
+                  builder: (context) => ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: MediaQuery.sizeOf(context).height * .85,
+                    ),
+                    child: const SingleChildScrollView(
+                      padding: EdgeInsets.all(16),
+                      child: _AppearanceSettings(),
+                    ),
+                  ),
+                ),
+              ),
+            ]),
+            _mobileGroup('Tools', [
+              _mobileLink('Reports', Icons.pie_chart_outline, '/reports'),
+              _mobileLink(
+                'Payment Reminders',
+                Icons.notifications_outlined,
+                '/payment-reminders',
+              ),
+              _mobileLink(
+                'Label Printers',
+                Icons.print_outlined,
+                '/settings/printers',
+              ),
+            ]),
+            _mobileGroup('Activity', [
+              _mobileLink('Payments', Icons.payments_outlined, '/payments'),
+              _mobileLink('Inventory', Icons.inventory_2_outlined, '/stock'),
+              _mobileLink('Audit Log', Icons.history, '/settings/audit-log'),
+            ]),
+            _dataSection(),
+            const SizedBox(height: 18),
+            _accountSection(),
+            const SizedBox(height: 18),
+            _syncSection(),
+            const SizedBox(height: 18),
+            _aboutSection(),
+          ],
+        ),
       );
     }
     return Scaffold(
@@ -671,14 +763,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  Widget _mobileGroup(String title, List<Widget> rows) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-    Padding(padding: const EdgeInsets.only(top: 12, bottom: 8), child: Text(title, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12))),
-    AtriaCard(padding: const EdgeInsets.symmetric(vertical: 4), child: Column(children: rows)),
-  ]);
+  Widget _mobileGroup(String title, List<Widget> rows) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Padding(
+        padding: const EdgeInsets.only(top: 24, bottom: 12),
+        child: Text(title, style: Theme.of(context).textTheme.titleLarge),
+      ),
+      for (final row in rows)
+        Padding(padding: const EdgeInsets.only(bottom: 8), child: row),
+    ],
+  );
 
-  Widget _mobileLink(String label, IconData icon, String route) => ListTile(
-    leading: Icon(icon, size: 20), title: Text(label), trailing: Icon(Icons.chevron_right, size: 18, color: Theme.of(context).colorScheme.primary),
-    onTap: () => route.startsWith('/settings/') ? context.push(route) : context.go(route),
+  Widget _mobileLink(String label, IconData icon, String route) => AtriaNavRow(
+    title: label,
+    icon: icon,
+    onTap: () => route.startsWith('/settings/')
+        ? context.push(route)
+        : context.go(route),
   );
 
   // ---- Business ----------------------------------------------------------
@@ -777,6 +879,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
         const SizedBox(height: 8),
         _switchFirmTile(),
+        AtriaNavRow(
+          icon: Icons.description_outlined,
+          title: 'Document formats',
+          subtitle: 'Shared default, plus invoice, purchase and quotation choices',
+          onTap: () => context.push('/settings/firm?section=templates'),
+        ),
         const SizedBox(height: 8),
         SizedBox(
           width: double.infinity,
@@ -939,52 +1047,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   // ---- Appearance --------------------------------------------------------
 
-  Widget _appearanceSection(ThemeMode mode) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SectionHeader(title: 'Appearance'),
-        AtriaCard(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Theme',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 10),
-              SegmentedButton<ThemeMode>(
-                segments: const [
-                  ButtonSegment<ThemeMode>(
-                    value: ThemeMode.system,
-                    label: Text('System'),
-                    icon: Icon(Icons.brightness_auto_outlined),
-                  ),
-                  ButtonSegment<ThemeMode>(
-                    value: ThemeMode.light,
-                    label: Text('Light'),
-                    icon: Icon(Icons.light_mode_outlined),
-                  ),
-                  ButtonSegment<ThemeMode>(
-                    value: ThemeMode.dark,
-                    label: Text('Dark'),
-                    icon: Icon(Icons.dark_mode_outlined),
-                  ),
-                ],
-                selected: {mode},
-                onSelectionChanged: (selection) =>
-                    ref.read(themeModeProvider.notifier).set(selection.first),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
+  Widget _appearanceSection(ThemeMode mode) => const _AppearanceSettings();
 
   // ---- Data & backup -----------------------------------------------------
 
@@ -1061,6 +1124,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () => context.push('/settings/printers'),
+              ),
+              Divider(color: scheme.outline, height: 1),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: PhosphorIcon(
+                  PhosphorIconsRegular.bank,
+                  color: scheme.primary,
+                ),
+                title: const Text('Bank & Cash'),
+                subtitle: const Text(
+                  'The accounts the Bank Statement report reads',
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => context.push('/settings/bank-accounts'),
               ),
               Divider(color: scheme.outline, height: 1),
               ListTile(
@@ -1302,8 +1379,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       title: const Text('Sync my books to the server'),
                       subtitle: const Text(
                         'Changes are sent as you work and other devices\' '
-                        'changes are received automatically, about every '
-                        'minute while the app is open.',
+                        'changes arrive automatically while the app is open. '
+                        'Offline changes retry when you reconnect.',
                       ),
                     ),
                     _syncWorkerRow(),
@@ -1859,10 +1936,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
+              Wrap(
+                spacing: 24,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   const AtriaWordmark(logoSize: 40, fontSize: 19),
-                  const Spacer(),
                   Text(
                     build == null
                         ? 'Version $version'
@@ -1912,4 +1991,86 @@ class _RecycleRow {
 
   final String id;
   final DateTime? date;
+}
+
+class _AppearanceSettings extends ConsumerWidget {
+  const _AppearanceSettings();
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mode = ref.watch(themeModeProvider);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionHeader(title: 'Appearance'),
+        AtriaCard(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Theme',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final choice in const [
+                    (
+                      ThemeMode.system,
+                      'System',
+                      Icons.brightness_auto_outlined,
+                    ),
+                    (ThemeMode.light, 'Light', Icons.light_mode_outlined),
+                    (ThemeMode.dark, 'Dark', Icons.dark_mode_outlined),
+                  ])
+                    ChoiceChip(
+                      avatar: Icon(choice.$3, size: 18),
+                      label: Text(choice.$2, maxLines: 1),
+                      selected: mode == choice.$1,
+                      onSelected: (_) =>
+                          ref.read(themeModeProvider.notifier).set(choice.$1),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Interface size',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Resize text, controls and spacing across the app. Saved automatically on this device.',
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final option in InterfaceScaleController.options)
+                    ChoiceChip(
+                      label: Text('${(option * 100).round()}%'),
+                      selected: ref.watch(interfaceScaleProvider) == option,
+                      onSelected: (_) =>
+                          ref.read(interfaceScaleProvider.notifier).set(option),
+                    ),
+                ],
+              ),
+              TextButton.icon(
+                onPressed: ref.watch(interfaceScaleProvider) == 1
+                    ? null
+                    : () => ref.read(interfaceScaleProvider.notifier).set(1),
+                icon: const Icon(Icons.restart_alt),
+                label: const Text('Reset to 100%'),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 }

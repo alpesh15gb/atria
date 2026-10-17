@@ -62,7 +62,7 @@ void main() {
       // the menu it transcribed sums to 46, so the headline figure was the
       // thing that was wrong, not the menu. Everything here is built from the
       // menu. **Do not "fix" this to 47 by inventing a 47th report.**
-      expect(ReportCatalogue.all, hasLength(46));
+      expect(ReportCatalogue.all, hasLength(47));
       expect(ReportCatalogue.byCategory(), hasLength(9));
       expect(
         ReportCatalogue.inCategory(ReportCategory.transaction),
@@ -113,7 +113,7 @@ void main() {
 
     test('every report is registered, and what is built is counted honestly', () {
       // Registered-but-empty is honest; absent is a feature nobody asks twice.
-      expect(ReportCatalogue.all, hasLength(46));
+      expect(ReportCatalogue.all, hasLength(47));
 
       // `implemented` is the number that has to be right. It grew from zero
       // when Transaction landed, and it must be exactly the set of categories
@@ -131,21 +131,23 @@ void main() {
         // GstReturnBuilder rather than the books directly.
         ...ReportCatalogue.inCategory(ReportCategory.gst),
         // Business Status in full (Bank Statement + Discount Report), and
-        // the four Taxes reports that have a real source — deliberately
-        // **named**, not the whole category: GST Report and TDS Receivable
-        // are still placeholders, and claiming the category would say they
-        // are built.
+        // the Taxes reports that have real sources.
         ...ReportCatalogue.inCategory(ReportCategory.businessStatus),
+        ...ReportCatalogue.inCategory(ReportCategory.expense),
+        ...ReportCatalogue.inCategory(ReportCategory.order),
+        ...ReportCatalogue.inCategory(ReportCategory.loan),
+        ReportCatalogue.byId('gst_report')!,
         ReportCatalogue.byId('gst_rate_report')!,
         ReportCatalogue.byId('form_27eq')!,
         ReportCatalogue.byId('tcs_receivable')!,
         ReportCatalogue.byId('tds_payable')!,
+        ReportCatalogue.byId('tds_receivable')!,
       };
       expect(
         ReportCatalogue.implemented.map((d) => d.spec.id).toSet(),
         finished.map((d) => d.spec.id).toSet(),
       );
-      expect(ReportCatalogue.implemented, hasLength(38));
+      expect(ReportCatalogue.implemented, hasLength(47));
     });
   });
 

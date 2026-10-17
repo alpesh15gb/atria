@@ -1,3 +1,5 @@
+import '../../core/domain/gst_registration.dart';
+
 import 'dart:async';
 
 import 'package:decimal/decimal.dart';
@@ -50,6 +52,7 @@ class PurchaseEditorScreen extends ConsumerStatefulWidget {
     this.editId,
     this.docType = 'bill',
     this.convertFromId,
+    this.duplicateFromId,
     this.scanSeed,
   });
 
@@ -72,6 +75,12 @@ class PurchaseEditorScreen extends ConsumerStatefulWidget {
   /// `converted` so it cannot be converted twice.
   final String? convertFromId;
 
+  /// Seeds a new document from [duplicateFromId] **without** marking the source
+  /// converted — see the note on the sale editor's copy of this pair. Sharing
+  /// one parameter meant duplicating an already-issued bill flipped the
+  /// original's status to `converted` and overwrote any link it already had.
+  final String? duplicateFromId;
+
   @override
   ConsumerState<PurchaseEditorScreen> createState() =>
       _PurchaseEditorScreenState();
@@ -79,6 +88,10 @@ class PurchaseEditorScreen extends ConsumerStatefulWidget {
 
 class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
   final _formKey = GlobalKey<FormState>();
+
+  /// Either seed source, whichever the route supplied — convert or duplicate.
+  String? get _seedFromId => widget.convertFromId ?? widget.duplicateFromId;
+
   final _supplierInvoiceController = TextEditingController();
   final _invoiceDiscountController = TextEditingController();
   final _shippingController = TextEditingController();
@@ -113,9 +126,17 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
 
   /// Every editor field routes its `onChanged` through here, so a rebuild and
   /// a dirty flag can never drift apart.
+  ///
+  /// The dirty flag is set **before** [mutate] runs, not after. `_saveAndNew`
+  /// blanks every field and sets `_dirty = false` inside the mutation it passes
+  /// in; with the assignment after, that `false` was unconditionally clobbered
+  /// back to `true`. After a successful "Save & New" the form was completely
+  /// blank yet the unsaved-changes guard was armed, so Back and Escape asked
+  /// "You have unsaved changes. Discard them?" about a document that did not
+  /// exist. A caller that resets the form must have the last word.
   void _changed([void Function()? mutate]) {
-    mutate?.call();
     _dirty = true;
+    mutate?.call();
     setState(() {});
   }
 
@@ -180,6 +201,10 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
   /// lookup sees the loaded list.
   Future<void> _applyScanSeed(ScannedBillSeed seed) async {
     final firm = ref.read(activeFirmProvider).valueOrNull;
+    for (final line in _lines) {
+      line.dispose();
+    }
+    _lines.clear();
 
     _supplierInvoiceController.text = seed.invoiceNumber ?? '';
     _shippingController.text = seed.shippingCharge == 0
@@ -353,16 +378,24 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
       await _applyScanSeed(widget.scanSeed!);
     }
 
-    // Conversion: seed the new document from a purchase order. Runs after
-    // the first frame so _selectSupplier's lookups see the loaded lists.
-    if (widget.convertFromId != null && purchaseRepo != null && mounted) {
-      final source = await purchaseRepo.getById(widget.convertFromId!);
+    // Conversion or duplication: seed the new document from a purchase order,
+    // or from whatever the row menu's Duplicate was pointed at. Runs after the
+    // first frame so _selectSupplier's lookups see the loaded lists.
+    if (_seedFromId != null && purchaseRepo != null && mounted) {
+      final isConvert = widget.convertFromId != null;
+      final source = await purchaseRepo.getById(_seedFromId!);
       if (source != null && mounted && !_isEditing) {
-        _prefill(source, await purchaseRepo.itemsFor(source.id));
+        _prefill(
+          source,
+          await purchaseRepo.itemsFor(source.id),
+          newLineIds: true,
+        );
         _billDate = DateTime.now();
         _dueDate = null;
         _supplierInvoiceController.clear();
-        _convertSourceId = source.id;
+        // Only a **convert** marks the source. Duplicating a bill must leave it
+        // exactly as it was.
+        if (isConvert) _convertSourceId = source.id;
         if (mounted) setState(() {});
       }
     }
@@ -371,7 +404,20 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
     _dirty = false;
   }
 
-  void _prefill(PurchaseBillEntity bill, List<PurchaseBillItemEntity> items) {
+  /// [newLineIds] must be true only for the **copy** path (convert/duplicate),
+  /// never for an edit.
+  ///
+  /// `purchase_bill_items.id` is the sole primary key and `PurchaseRepository.save`
+  /// inserts lines with a plain `.insert`, so carrying the source's row ids into
+  /// a NEW document is `UNIQUE constraint failed` — the transaction rolls back and
+  /// converting a purchase order failed on every attempt. The edit path keeps
+  /// them, because it re-inserts into the same bill after `save` has hard-deleted
+  /// the old rows.
+  void _prefill(
+    PurchaseBillEntity bill,
+    List<PurchaseBillItemEntity> items, {
+    bool newLineIds = false,
+  }) {
     _supplierInvoiceController.text = bill.supplierInvoiceNumber ?? '';
     _invoiceDiscountController.text = _formatAmount(
       bill.invoiceDiscountPercent,
@@ -394,7 +440,10 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
         (bill.grandTotal - bill.grandTotal.round()).abs() < 0.001;
 
     for (final item in items) {
-      _lines.add(_LineState(id: item.id)..applyEntity(item));
+      _lines.add(
+        _LineState(id: newLineIds ? IdUtils.newId() : item.id)
+          ..applyEntity(item),
+      );
     }
   }
 
@@ -515,7 +564,22 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
       return false;
     }
 
+    // **The busy flag is claimed before the first `await`, not after it.**
+    //
+    // It used to sit below the two validation returns, so `_saving` was still
+    // false across the live-row `await` and `EditorShell` - which disables the
+    // button from `saving` alone - left Save tappable for that whole window. Two
+    // taps inside the gap both passed the guard and both ran to completion, and
+    // each ended in `context.pop()`, so the operator was thrown out of the
+    // editor *and* off the list behind it. The sale editor has claimed its flag
+    // before its first await all along.
+    //
+    // It is claimed *after* `validate()` and before the first await: validating
+    // first means a form with errors costs nothing and leaves the button live,
+    // and the two refusal paths below release it again before returning.
     if (!(_formKey.currentState?.validate() ?? false)) return false;
+    if (_saving) return false;
+    setState(() => _saving = true);
 
     // The bill may have been deleted (or never found) after this editor
     // opened. Both `_existing!` reads below would crash on the not-found
@@ -532,6 +596,7 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
             ),
           ),
         );
+        setState(() => _saving = false);
         return false;
       }
     }
@@ -546,12 +611,10 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
           content: Text('Add at least one line with a name and quantity.'),
         ),
       );
+      setState(() => _saving = false);
       return false;
     }
 
-    if (_saving) return false; // double-submit guard.
-
-    setState(() => _saving = true);
     try {
       final number = _isEditing
           ? _existing!.number
@@ -746,7 +809,14 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
             header: _supplierSection(),
             headerTrailing: _metaSection(),
             lines: _lineGrid(),
-            totals: Theme.of(context).platform.isMobileUi && !_mobileManualLine && !_lines.any((line) => line.nameController.text.trim().isNotEmpty) ? null : _totalsSection(),
+            totals:
+                Theme.of(context).platform.isMobileUi &&
+                    !_mobileManualLine &&
+                    !_lines.any(
+                      (line) => line.nameController.text.trim().isNotEmpty,
+                    )
+                ? null
+                : _totalsSection(),
             sections: [
               EditorLinkSection(
                 icon: Icons.percent_rounded,
@@ -1071,12 +1141,39 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
       ],
       isInterState: _split == GstSplit.interState,
       split: _documentSplit,
-      footer: SwitchListTile(
-        contentPadding: EdgeInsets.zero,
-        dense: true,
-        title: const Text('Round off total'),
-        value: _applyRoundOff,
-        onChanged: (value) => _changed(() => _applyRoundOff = value),
+      footer: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (widget.scanSeed?.grandTotal != null &&
+              ((result.grandTotal + shipping + other - tds).toDouble() -
+                          widget.scanSeed!.grandTotal!)
+                      .abs() >
+                  0.05)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(
+                'Printed bill total: ₹${widget.scanSeed!.grandTotal!.toStringAsFixed(2)}. '
+                'This differs from the calculated total. Check every page, item and charge before saving.',
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+          if (!(_existing?.itcEligible ??
+              (ref.watch(activeFirmProvider).valueOrNull?.isGstRegistered ??
+                  false)))
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Text(
+                'Supplier GST is included in purchase and stock cost. No input credit is claimed.',
+              ),
+            ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            title: const Text('Round off total'),
+            value: _applyRoundOff,
+            onChanged: (value) => _changed(() => _applyRoundOff = value),
+          ),
+        ],
       ),
     );
   }
@@ -1205,13 +1302,18 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
           value: _isInterState,
           onChanged: (value) => _changed(() => _isInterState = value),
         ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Reverse charge'),
-          subtitle: const Text('Tax is paid by you directly to the authority'),
-          value: _reverseCharge,
-          onChanged: (value) => _changed(() => _reverseCharge = value),
-        ),
+        if (_existing?.itcEligible ??
+            (ref.watch(activeFirmProvider).valueOrNull?.isGstRegistered ??
+                false))
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Reverse charge'),
+            subtitle: const Text(
+              'Tax is paid by you directly to the authority',
+            ),
+            value: _reverseCharge,
+            onChanged: (value) => _changed(() => _reverseCharge = value),
+          ),
       ],
     );
   }
@@ -1313,11 +1415,40 @@ class _PurchaseEditorScreenState extends ConsumerState<PurchaseEditorScreen> {
     });
   }
 
+  /// Removes a line, and offers it back.
+  ///
+  /// The only delete affordance for a line on a phone, sitting immediately right
+  /// of the item-name field being typed in — so a mis-tap destroyed the item,
+  /// quantity, rate, discount and GST at once with no confirmation and no undo.
+  ///
+  /// Undo rather than a dialog, for the sale editor's reason: it restores the
+  /// exact controller, so a half-typed name comes back intact. `line.dispose()`
+  /// is deliberately **not** called on removal — the line may be re-inserted, and
+  /// disposing a controller that is still mounted in the tree throws on the
+  /// next rebuild. It is disposed when the editor is.
   void _deleteLine(_LineState line) {
+    final index = _lines.indexOf(line);
+    if (index < 0) return;
     _changed(() {
       _lines.remove(line);
-      line.dispose();
     });
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            'Removed ${line.nameController.text.trim().isEmpty ? 'line' : line.nameController.text.trim()}',
+          ),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () {
+              _changed(() {
+                _lines.insert(index.clamp(0, _lines.length), line);
+              });
+            },
+          ),
+        ),
+      );
   }
 
   Widget _chargesSection() {

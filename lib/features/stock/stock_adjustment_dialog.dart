@@ -200,7 +200,7 @@ class _StockAdjustmentDialogState
               height: 80,
               child: Center(child: CircularProgressIndicator()),
             )
-          : ConstrainedBox(
+          : SingleChildScrollView(child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 380),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -258,7 +258,7 @@ class _StockAdjustmentDialogState
                   ),
                 ],
               ),
-            ),
+            )),
       actions: [
         TextButton(
           onPressed: _saving ? null : () => Navigator.of(context).pop(),
